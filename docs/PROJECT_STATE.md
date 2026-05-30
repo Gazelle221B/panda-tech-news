@@ -29,7 +29,7 @@
 
 ## 作業中ブランチ
 
-未コミット。Ticket #1 + #2先行 は作業ツリーに実装済 (`src/karyu_tech_news/`, `tests/`, `pyproject.toml` 更新)。コミット/`agent/<task>` ブランチ運用 (WORKFLOW §11) に乗せるか直接コミットかは人間判断待ち。
+`agent/T3-impl` (初期実装 T1+T2 は `main` へコミット済)
 
 ## 直近の設計判断
 
@@ -55,7 +55,7 @@
 
 ## Antigravity QA の直近結果
 
-未実施。最初の QA は T10 完了後を想定。
+2026-05-30: 初期実装 (Ticket #1 + #2先行) の QA 確認完了。WORKFLOW に従い、初期ベースラインとして main にコミット。現在は Ticket #3 のため `agent/T3-impl` ブランチへ移行。
 
 ## 次に実行すべきアクション (優先順)
 
@@ -68,7 +68,7 @@
 
 - ~~Python モジュール名~~ → **確定・実装済**: モジュール `karyu_tech_news`、配布名 `panda-tech-news` 維持、ビルドは hatchling (`packages = ["src/karyu_tech_news"]`)、console script `karyu`。
 - ~~ソース URL 実取得検証~~ → ✅ 完了 (2026-05-29)。
-- コミット/ブランチ運用: Ticket #1+#2先行 を `agent/<task>` ブランチに乗せるか直接コミットか。
+- ~~コミット/ブランチ運用: Ticket #1+#2先行 を `agent/<task>` ブランチに乗せるか直接コミットか。~~ → 初期実装として直接 `main` へコミット済。以降は `agent/<task>` 運用を厳格に適用。
 - 初期9本に Game/Subculture 系を1本予備で入れるか (Spike §3 B案、Sprint 1A 観察中に並行検討可)。
 - LLM 役割 A/B/C のどれを初期既定にするか (ADR-0005、実測後確定)。
 - HAL の声リファレンス確定タイミング (Sprint 2 までは保留可)。
