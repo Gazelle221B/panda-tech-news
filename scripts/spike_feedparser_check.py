@@ -7,8 +7,7 @@
 #     "feedparser",
 # ]
 # ///
-import feedparser
-import sys
+import feedparser  # type: ignore[import-untyped]
 
 URLS = [
     ("deepseek-github-releases",         "https://github.com/deepseek-ai/DeepSeek-V3/releases.atom"),
@@ -35,14 +34,14 @@ for source_id, url in URLS:
         latest = ""
         if entries > 0:
             latest = feed.entries[0].get("published", feed.entries[0].get("updated", ""))
-        
+
         if entries >= 1:
             verdict = "ADOPT"
         elif entries == 0 and bozo == 0:
             verdict = "EMPTY"
         else:
             verdict = "DEFER"
-        
+
         print(f"{source_id:<32} {entries:>8} {bozo:>5} {str(latest)[:30]:<32} {verdict:<10}")
     except Exception as e:
         print(f"{source_id:<32} {'ERROR':>8} {'-':>5} {str(e)[:30]:<32} {'DEFER':<10}")
