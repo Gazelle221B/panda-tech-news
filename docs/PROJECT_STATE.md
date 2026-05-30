@@ -91,5 +91,6 @@ meeting.md / meeting2.md / tik-choco コードdump の全読に基づき作成:
 | 2026-05-30 | Claude Code | 初版作成、DESIGN/IMPLEMENTATION_PLAN 確定後の状態スナップショット |
 | 2026-05-30 | Claude Code | meeting3.md 反映: ソース検証完了(有効9本)、Ticket #1 + #2先行 実装・検証グリーン(pytest 24 / ruff / mypy strict) |
 | 2026-05-30 | Codex | T1 + T3(schema) 独立レビュー PASS を `docs/REVIEW_REPORT.md` に記録。次アクションは Ticket #3 |
-| 2026-05-30 | Antigravity | AGENTS.md / CLAUDE.md 追加 (2026-05-30) |
+|| 2026-05-30 | Antigravity | AGENTS.md / CLAUDE.md 追加 (2026-05-30) |
+|| 2026-05-30 | Claude Code | AGENTS.md/CLAUDE.md + architecture.md / domain/collection.md / styleguide.md / README.md 追加。T1+T2 実装ベースに知識ベース文書を整備 |
 

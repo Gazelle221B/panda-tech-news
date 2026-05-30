@@ -93,6 +93,8 @@ uv run python -m karyu_tech_news post-summary       # ⏳ Ticket #9
 - **逆向き依存禁止**: `collect → store ← deliver`。`deliver` は `store` の読み取りのみ参照。
 - **永続化**: SQLite (`data/state.db`)。4 テーブル `sources` / `items` / `source_health` / `collect_runs` (`docs/DESIGN.md` §4)。
 
+判断基準を自力で引くための知識ベース: レイヤー責務とフローチャート分岐は [docs/architecture.md](docs/architecture.md)、ドメイン用語・状態遷移は [docs/domain/collection.md](docs/domain/collection.md)、コーディング規約は [docs/styleguide.md](docs/styleguide.md)。
+
 長期ビジョン (三番組構成の AI ポッドキャスト局) は [docs/architecture-podcast-station.md](docs/architecture-podcast-station.md) を参照。本リポジトリで実装するのはニュース番組のみ (北極星)。
 
 ## 6. ディレクトリ構造
@@ -108,6 +110,9 @@ panda-tech-news/
 ├── docs/
 │   ├── requirements-v1.0.md         # 問題定義 (人間が作成、起点)
 │   ├── DESIGN.md                    # ★ 単一の真実の源 (Sprint 1A)
+│   ├── architecture.md              # レイヤー責務・判断基準フローチャート
+│   ├── styleguide.md                # コーディング規約・命名・スニペット
+│   ├── domain/collection.md         # 収集コンテキストの用語・ルール・状態遷移
 │   ├── IMPLEMENTATION_PLAN.md       # T1〜T11 タスク分解
 │   ├── WORKFLOW.md                  # マルチエージェント契約 (ロール・I/O・DoD)
 │   ├── PROJECT_STATE.md             # 永続化された進捗 (全エージェント随時更新)
@@ -206,6 +211,9 @@ panda-tech-news/
 |---|---|---|
 | 要件 | [docs/requirements-v1.0.md](docs/requirements-v1.0.md) | 問題定義の起点 (FR-001〜FR-122) |
 | 設計 | [docs/DESIGN.md](docs/DESIGN.md) | **Sprint 1A 単一の真実の源** |
+| アーキテクチャ | [docs/architecture.md](docs/architecture.md) | レイヤー責務・判断基準フローチャート (AI が分岐を引く知識ベース) |
+| ドメイン | [docs/domain/collection.md](docs/domain/collection.md) | 収集コンテキストのユビキタス言語・ビジネスルール・状態遷移 |
+| 規約 | [docs/styleguide.md](docs/styleguide.md) | コーディング規約・命名規則・スニペット例 |
 | 実装計画 | [docs/IMPLEMENTATION_PLAN.md](docs/IMPLEMENTATION_PLAN.md) | T1〜T11 タスク分解 |
 | ワークフロー | [docs/WORKFLOW.md](docs/WORKFLOW.md) | エージェント間契約 |
 | 状態 | [docs/PROJECT_STATE.md](docs/PROJECT_STATE.md) | 永続化された進捗 (★ ここを真の記憶とする) |
@@ -227,6 +235,47 @@ panda-tech-news/
 5. **Sprint 越境禁止**: Sprint 1A の DoD (§9) を満たすまで 1B 以降の機能 (LLM/TTS/動画/YouTube) を導入しない。
 6. **ドキュメントは Single Source of Truth**: 議論や決定は md に書く。チャット会話の合意のみで実装を進めない。
 7. **言語**: 日本語で応答 (英語のみのドキュメント作成は例外)。
+
+## 12. コーディング原則 (Karpathy 4 原則)
+
+> 出典: [multica-ai/andrej-karpathy-skills](https://github.com/multica-ai/andrej-karpathy-skills) — Andrej Karpathy による LLM コーディング pitfall ([X 元投稿](https://x.com/karpathy/status/2015883857489522876)) を 4 原則に整理したもの。
+> 適用: 全エージェント (Claude Code / OpenCode / Codex / Antigravity)。グローバル `~/.claude/CLAUDE.md` の同名セクションを本プロジェクト固有の手続きに翻訳した実装ガイド。**§3「絶対 NG」と矛盾する場合は §3 を優先**。
+
+### 12.1 Think Before Coding — 実装前に思考する
+**勝手に仮定しない。混乱を隠さない。トレードオフを提示する。**
+
+本プロジェクトでの具体化:
+- **DESIGN.md を読まずに実装着手しない**。設計矛盾を発見したら実装を止め、`docs/PROJECT_STATE.md`「人間判断待ち」へ追記 (WORKFLOW §4 区分 B「設計失敗」)。
+- 複数解釈があれば全部出す。例: 取得失敗時の表現を「例外を raise」/「`FetchResult.error` に包む」のどちらにするか — 後者が fail-open に合致するが、判断根拠を ADR か実装コメントに残す。
+- 不明点はチケット着手前に列挙し、Codex レビュー前に Q&A を済ませる (「レビューで初出の疑問」は要件失敗 C の兆候)。
+
+### 12.2 Simplicity First — 最小実装
+**問題を解く最小コード。投機的な機能は書かない。**
+
+本プロジェクトでの具体化:
+- DESIGN.md §1「最小構成・fail-open・状態の外部永続化」と完全合致。Sprint 1A で LLM/TTS/動画を入れる誘惑を断つ (§3.4)。
+- 単一用途のための抽象化禁止。Sprint 1A で `TTSEngine` プロトコルや LLM プロバイダ抽象を**先回りで書かない** ([ADR-0006](docs/adr/ADR-0006-tts-irodori-abstraction.md) は Sprint 2 着手時に有効化)。
+- 「ジュニアエンジニアに『これ複雑すぎ』と言われないか?」自問し、Yes なら書き直す。`tc-newsflow` Go 版の落とし穴も「最初から直す」方針 ([design-inheritance §13](docs/design-inheritance-tc-newsflow.md))。
+
+### 12.3 Surgical Changes — 外科手術的変更
+**触るのは必要な箇所だけ。自分が作ったゴミだけ片付ける。**
+
+本プロジェクトでの具体化:
+- `agent/T<N>-impl` ブランチ内では Ticket #N に直接トレースできない変更を禁止。Ticket #3 (フェッチャ) で `config.py` の既存型ヒントをついでに整理するのは NG。
+- 既存スタイルに合わせる (§5 のレイヤー逆向き依存禁止、ruff 100 文字行長、mypy strict 既存設定を変更しない)。
+- 未関連の dead code を見つけても**削除せず**、`docs/PROJECT_STATE.md`「人間判断待ち」へ記載に留める。
+- 自分の変更で orphan になった import/関数/変数のみ削除可。事前から残っていた死コードに手を出さない。
+
+### 12.4 Goal-Driven Execution — 目標駆動実行
+**成功基準を定義し、検証されるまでループする。**
+
+本プロジェクトでの具体化:
+- 各 Ticket の成功基準 = `docs/IMPLEMENTATION_PLAN.md`「完了の定義」+ 本書 §9 品質ゲート。曖昧な「動いた」は採用しない。
+- 命令形 → 検証可能形へ変換:
+  - 「fail-open を実装」→「1 ソースが例外を投げても他ソースが完走し、`source_health.consecutive_failures` が +1 されるテストを書き緑にする」
+  - 「dedupe を入れる」→「同一 `(source_id, item_key)` を 2 回 insert すると 1 行のままになるテストを書く」
+- 多段タスクは `1. ... → verify: ...` 形式を `docs/TEST_LOG.md` に記録 (例: `1. fetcher.py → verify: pytest tests/test_fetcher.py -q が緑`)。
+- pytest + ruff + mypy strict が**3 つとも緑**になるまで自走可能。「ローカルで動いた気がする」で止めない。
 
 ---
 
