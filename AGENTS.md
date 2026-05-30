@@ -122,7 +122,7 @@ panda-tech-news/
 │   ├── design-inheritance-tc-newsflow.md # Go版からの継承パターン
 │   ├── source-selection-spike-v0.1.md   # 初期 11 ソース選定 (9 有効/2 保留)
 │   ├── hal-persona.md / show-format.md / editorial-policy.md  # 番組仕様
-│   └── adr/ADR-0001〜0006.md        # 重要決定 (Accepted)
+│   └── adr/                         # INDEX.md (一覧ハブ) + TEMPLATE.md + ADR-0001〜0006 (Accepted)
 ├── prompts/                 # 各エージェント宛 system プロンプト
 │   ├── architect.md  implement.md  review.md  qa.md
 ├── config/
@@ -225,7 +225,7 @@ panda-tech-news/
 | ロードマップ | [docs/roadmap.md](docs/roadmap.md) | Sprint 1A→1B→2→3→局化 |
 | Spike | [docs/source-selection-spike-v0.1.md](docs/source-selection-spike-v0.1.md) | 初期 11 ソース選定結果 |
 | 番組仕様 | [docs/hal-persona.md](docs/hal-persona.md), [docs/show-format.md](docs/show-format.md), [docs/editorial-policy.md](docs/editorial-policy.md) | HAL 人格 / 構成 / 編集方針 |
-| ADR | [docs/adr/](docs/adr/) | ADR-0001 (Python 単一) 〜 0006 (TTS 抽象化) |
+| ADR | [docs/adr/INDEX.md](docs/adr/INDEX.md) | ADR 一覧ハブ (0001 Python単一 〜 0006 TTS抽象化)。新規は TEMPLATE.md から |
 | プロンプト | [prompts/](prompts/) | 各エージェント宛 system 指示 |
 | 証跡 | [docs/TEST_LOG.md](docs/TEST_LOG.md) / [docs/REVIEW_REPORT.md](docs/REVIEW_REPORT.md) / [docs/QA_REPORT.md](docs/QA_REPORT.md) | 実装 / レビュー / QA の根拠 |
 

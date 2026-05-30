@@ -25,6 +25,24 @@ main.py ───┘                ▲
 
 **鉄則**: `collect → store ← deliver`。`deliver` が `collect` を、`store` が `collect`/`deliver` を import したら設計違反 ([DESIGN.md](./DESIGN.md) §3.2)。表示/配信層がドメインを汚染すると CLI とバッチで挙動が割れる ([design-inheritance §1](./design-inheritance-tc-newsflow.md))。
 
+### 1.1 存在しないもの (Non-Goals / 負の空間)
+
+> **AI エージェントへ**: 以下は Sprint 1A の設計に *意図的に存在しない*。コードを読んでも「無いこと」は分からないため明示する。「親切心で」追加してはならない (AGENTS.md §3.4 スコープ膨張 NG / §12.3 Surgical Changes)。
+
+| 存在しないもの | 代わりに | 根拠 |
+|---|---|---|
+| `edit`/`script`/`llm`/`tts`/`mix`/`video`/`publish` レイヤー | Sprint 1B 以降で追加 | §5, ADR-0002 |
+| `collect → deliver` の直接呼び出し | 必ず `store` を経由 | §1 鉄則 |
+| クロスソース重複排除 | source 内 dedupe のみ。`canonical_url_hash` は保持のみ | DESIGN §4.2, FR-041 |
+| LLM 呼び出し・トピックスコアリング | 1A は全 enabled ソースを無条件収集・保存 | ADR-0002 |
+| REST API サーバ / HTTP エンドポイント | CLI (typer) のみ | DESIGN §3.1 |
+| Playwright / ヘッドレスブラウザ / Cookie 必須ルート / 中国IPプロキシ | RSS/RSSHub のみ | AGENTS §3.4 |
+| DB マイグレーションシステム (Alembic 等) | `init-db` で単純・冪等に作成 | IMPLEMENTATION_PLAN T4 |
+| `source_health` の状態 enum カラム | `consecutive_failures` から導出 | [domain/collection §5.1](./domain/collection.md) |
+| 並行 collect プロセス | 単一プロセス前提 | DESIGN §6 |
+
+この「負の空間」の明示は、AI が `collect` に LLM 要約を足す・`deliver` から直接 fetch する等の *もっともらしい逸脱* を防ぐためのもの。新レイヤー追加は該当スプリント着手時に ADR + 本表の更新を伴う。
+
 ## 2. 判断基準フローチャート
 
 ### 2.1 「この新しいコードはどこに置くか?」
