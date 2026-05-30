@@ -1,0 +1,109 @@
+# 華流テック通信 by HAL - ソース定義
+# Source Selection Spike v0.1 準拠 (docs/source-selection-spike-v0.1.md)
+# 検証 (scripts/spike_*) 実行後、enabled フラグと notes を更新する。
+#
+# スキーマ: id / name / url / tier(1-4) / category / enabled / requires_cookie / notes
+# 本実装では url 中の http://localhost:1200 を RSSHUB_BASE_URL (.env) で展開する (ADR-0004)。
+
+sources:
+  # ===== Tier1 公式 (5本): 単独採用可 =====
+  - id: deepseek-github-releases
+    name: DeepSeek GitHub Releases
+    url: "https://github.com/deepseek-ai/DeepSeek-V3/releases.atom"
+    tier: 1
+    category: AI
+    enabled: true
+    requires_cookie: false
+    notes: "DeepSeek公式GitHubリリース。単独採用可。ローカル検証必須。"
+
+  - id: qwen-github-releases
+    name: Qwen GitHub Releases
+    url: "https://github.com/QwenLM/Qwen3/releases.atom"
+    tier: 1
+    category: AI
+    enabled: true
+    requires_cookie: false
+    notes: "Alibaba Qwen公式リリース。現時点でリリース未発行(entries=0)。リリース発行時に自動取得。監視維持。"
+
+  - id: moonshot-kimi-github
+    name: Moonshot Kimi GitHub Releases
+    url: "https://github.com/MoonshotAI/Kimi-K2/releases.atom"
+    tier: 1
+    category: AI
+    enabled: true
+    requires_cookie: false
+    notes: "Moonshot/Kimi公式リポジトリ。現時点でリリース未発行(entries=0)。リリース発行時に自動取得。監視維持。"
+
+  - id: zhipu-glm-github
+    name: Zhipu / GLM GitHub Releases
+    url: "https://github.com/THUDM/GLM-4/releases.atom"
+    tier: 1
+    category: AI
+    enabled: true
+    requires_cookie: false
+    notes: "GLM系公式/大学発リリース。現時点でリリース未発行(entries=0)。リリース発行時に自動取得。監視維持。"
+
+  - id: xiaomi-mimo-github
+    name: Xiaomi MiMo GitHub Releases
+    url: "https://github.com/XiaomiMiMo/MiMo/releases.atom"
+    tier: 1
+    category: AI
+    enabled: true
+    requires_cookie: false
+    notes: "Xiaomi MiMo公式。現時点でリリース未発行(entries=0)。リリース発行時に自動取得。監視維持。"
+
+  # ===== Tier2 ニュース (3本目標、現状2本 + 保留1本): 単独採用可 =====
+  - id: qbitai-feed
+    name: 量子位
+    url: "https://www.qbitai.com/feed"
+    tier: 2
+    category: AI
+    enabled: true
+    requires_cookie: false
+    notes: "机器之心が使えない場合の第一候補。AIニュース中心。ローカル検証必須。"
+
+  - id: jiqizhixin-rss
+    name: 机器之心
+    url: "https://www.jiqizhixin.com/rss"
+    tier: 2
+    category: AI
+    enabled: false
+    requires_cookie: false
+    notes: "現時点では/rssがデータサービスページへ遷移するため保留。使える場合のみenabled=true。"
+
+  - id: 36kr-newsflash
+    name: 36Kr Newsflash
+    url: "https://36kr.com/feed-newsflash"
+    tier: 2
+    category: Tech
+    enabled: true
+    requires_cookie: false
+    notes: "AI/テック/スタートアップの速報。ノイズが多い場合は後でカテゴリ絞り。ローカル検証必須。"
+
+  - id: huxiu-rss
+    name: 虎嗅
+    url: "https://www.huxiu.com/rss/0.xml"
+    tier: 2
+    category: Tech
+    enabled: false
+    requires_cookie: false
+    notes: "feedparser bozo=1 (フィード構造エラー)。curlは200だがパース失敗。RSSHubルート復活時に再検証。"
+
+  # ===== Tier3 コミュニティ (2本): 独立2ソース確認必須 =====
+  - id: juejin-ai-category
+    name: 掘金 AI Category
+    url: "http://localhost:1200/juejin/category/ai"
+    tier: 3
+    category: AI
+    enabled: true
+    requires_cookie: false
+    notes: "RSSHub経由。中国エンジニアコミュニティ。Tier3なので2ソース確認対象。"
+
+  - id: juejin-trending-ai-weekly
+    name: 掘金 AI Weekly Trending
+    url: "http://localhost:1200/juejin/trending/ai/weekly"
+    tier: 3
+    category: AI
+    enabled: true
+    requires_cookie: false
+    notes: "RSSHub経由。掘金の週次人気AI記事。通常カテゴリと重複する可能性あり。"

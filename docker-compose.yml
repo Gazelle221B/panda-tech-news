@@ -1,0 +1,25 @@
+# 華流テック通信 by HAL - RSSHub セルフホスト (ADR-0004)
+# 起動:   docker compose up -d rsshub
+# 確認:   curl -I http://localhost:1200
+# 停止:   docker compose down
+#
+# sources.yaml の Tier3 (掘金など) は http://localhost:1200/... を指す。
+# 本実装では RSSHUB_BASE_URL (.env) で展開する設計。
+
+services:
+  rsshub:
+    image: diygod/rsshub:latest
+    container_name: karyu-rsshub
+    ports:
+      - "1200:1200"
+    environment:
+      NODE_ENV: production
+      CACHE_TYPE: memory
+      # Cookie 必須ルート (知乎等, Sprint 2 以降) を使う場合はここに追加:
+      # ZHIHU_COOKIES: ${ZHIHU_COOKIES}
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:1200"]
+      interval: 30s
+      timeout: 5s
+      retries: 3

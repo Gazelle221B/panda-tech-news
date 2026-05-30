@@ -1,0 +1,55 @@
+# 華流テック通信 by HAL - LLM プロファイル定義
+# Sprint 1B 以降で使用 (FR-003)。tc-newsflow の LLMProfile 思想を継承 (ADR-0001, design-inheritance §2)。
+# Sprint 1A の collect パイプラインからは参照しない (ADR-0002)。
+#
+# 設計: OpenAI 互換 API を最大公約数とし、profile 単位で provider を切替。
+#       editor (編集判定) と writer (台本生成) を別 profile に分離できる構造 (A/B/C 検証, ADR-0005)。
+# api_key_env は実キーではなく環境変数名を指す (.env で実値を管理)。
+
+profiles:
+  # ---- DeepSeek (台本生成の第一候補: コスト最優先) ----
+  - label: deepseek
+    provider: openai_compatible
+    api_key_env: DEEPSEEK_API_KEY
+    base_url: "https://api.deepseek.com/v1"
+    model: "deepseek-chat"          # 実 model ID は接続確認時に確定 (要件 §16)
+    max_tokens: 1800
+    temperature: 0.3
+    notes: "中国語ネイティブ。コスト効率最強クラス。writer 候補。"
+
+  # ---- Xiaomi MiMo (編集判定の第一候補: 中国文脈理解・長コンテキスト) ----
+  - label: mimo
+    provider: openai_compatible
+    api_key_env: MIMO_API_KEY
+    base_url: "https://api-inference.xiaomi.com/v1"  # 実 endpoint は接続確認時に確定
+    model: "mimo-v2.5-pro"          # 実 model ID は接続確認時に確定 (要件 §16)
+    max_tokens: 1800
+    temperature: 0.2
+    notes: "Token Plan サブスク前提。editor (スコアリング/編集判定) 候補。"
+
+  # ---- OpenRouter 経由 (海外決済フォールバック) ----
+  - label: mimo-openrouter
+    provider: openai_compatible
+    api_key_env: OPENROUTER_API_KEY
+    base_url: "https://openrouter.ai/api/v1"
+    model: "xiaomi/mimo-v2-flash"   # 実 model ID は要確認
+    max_tokens: 1800
+    temperature: 0.2
+    notes: "MiMo の海外契約が困難な場合のフォールバック。"
+
+  # ---- ローカル Ollama (オフライン検証用) ----
+  - label: local-ollama
+    provider: ollama
+    api_key_env: ""                 # 不要
+    base_url: "http://localhost:11434/v1"
+    model: "qwen3"
+    max_tokens: 1800
+    temperature: 0.3
+    notes: "Ollama 互換。reasoning_effort=none / think=false を強制 (design-inheritance §6)。"
+
+# Sprint 1B の A/B/C 検証マッピング (ADR-0005)。確定後も切替機構は保持する。
+ab_test:
+  A: { editor: mimo,     writer: deepseek }   # 推奨初期構成
+  B: { editor: mimo,     writer: mimo }
+  C: { editor: deepseek, writer: mimo }
+  # 評価軸: 採用率 / 修正回数 / 読み上げ自然さ / コスト / JSON安定性 / AI要約臭

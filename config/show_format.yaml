@@ -1,0 +1,59 @@
+# 華流テック通信 by HAL - 番組フォーマット (機械可読版)
+# 人間可読の解説は docs/show-format.md を参照。
+# 台本生成 (Sprint 1B) / 音響合成 (Sprint 2) / 動画 (Sprint 3) が参照する。
+
+delivery:
+  cadence: weekdays               # 平日のみ
+  collect_at: "23:00 JST"
+  review_window: "07:00-07:50 JST"
+  publish_at: "08:00 JST"
+
+length:
+  base_min: 5
+  base_max: 10
+  hard_max: 15
+  per_topic_sec: [60, 120]
+  topics_min: 3
+  topics_max: 5
+
+# Discover Daily 準拠の構成。各 segment は音響合成レイヤーが時間軸に並べる。
+segments:
+  - { type: cold_open,        sec: 15, note: "今日の目玉トピック匂わせ" }
+  - { type: opening_jingle,   sec: 10, asset: jingles/opening, note: "タイトルコール含む" }
+  - { type: lineup,           sec: 30, note: "本日のラインナップ予告 (3行)" }
+  - { type: topic,            sec: [60, 120], structure: [hook, insight, action] }
+  - { type: transition_se,    sec: 3,  asset: jingles/transition }
+  - { type: topic,            sec: [60, 120], structure: [hook, insight, action] }
+  - { type: transition_se,    sec: 3,  asset: jingles/transition }
+  - { type: topic,            sec: [60, 120], structure: [hook, insight, action] }
+  - { type: closing,          sec: 20, note: "明日への引き" }
+  - { type: ending_jingle,    sec: 15, asset: jingles/ending }
+
+# 情緒のアーク (tc-newsflow arrangeDeveloperNewsArc を継承, design-inheritance §4)
+arc:
+  lead: hard_negative           # 序盤: 規制/価格戦争/重大リリース
+  middle: constructive          # 中盤: 技術解説/産業影響
+  close: bright                 # 締め: ゲーム/サブカルの明るい話題
+
+# ジャンル配分目標 (要件 §4.3)
+genre_mix:
+  ai_tech_oss: 2
+  game_subculture_anime: 1
+
+topic_structure:
+  hook: つかみ — 何が起きたか
+  insight: なぜ重要か — 日本のリスナー視点での意味
+  action: リスナーが取れる行動 — 注目ポイント/追うべきリポジトリ/イベント
+  char_limit_jp: 300            # 1トピックの日本語文字数目安 (design-inheritance §5)
+
+audio:
+  bgm: lo-fi + 中華風アンビエント (全編に薄く)
+  loudness_lufs: -16            # YouTube 向け
+  format: mp3
+  bitrate: 192k
+  sample_rate_hz: 48000         # Irodori 出力に合わせる
+
+video:
+  type: still_image + waveform   # ffmpeg showwaves + 番組ロゴ
+  container: mp4
+  ai_disclosure: "本番組はAI音声キャスター HAL による自動生成番組です。"
