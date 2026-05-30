@@ -40,6 +40,10 @@ venv/
 .coverage
 htmlcov/
 
+# ===== OMX / OMC (エージェント一時ファイル) =====
+.omc/
+.omx/
+
 # ===== OS / エディタ =====
 .DS_Store
 .vscode/*
