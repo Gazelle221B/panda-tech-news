@@ -164,6 +164,8 @@ panda-tech-news/
 
 ## 8. コミット規約とブランチ運用
 
+> 完了ゲート・コミット前チェックの実行手順は [docs/commit-rules.md](docs/commit-rules.md) に集約。**「完了」と言う前に pytest / ruff / mypy を fresh 出力で確認**する (記憶で代用しない)。
+
 ### 8.1 コミットメッセージ
 [グローバル `~/.claude/rules/common/git-workflow.md`](~/.claude/rules/common/git-workflow.md) に従う Conventional Commits:
 
@@ -214,6 +216,7 @@ panda-tech-news/
 | アーキテクチャ | [docs/architecture.md](docs/architecture.md) | レイヤー責務・判断基準フローチャート (AI が分岐を引く知識ベース) |
 | ドメイン | [docs/domain/collection.md](docs/domain/collection.md) | 収集コンテキストのユビキタス言語・ビジネスルール・状態遷移 |
 | 規約 | [docs/styleguide.md](docs/styleguide.md) | コーディング規約・命名規則・スニペット例 |
+| コミット/完了ゲート | [docs/commit-rules.md](docs/commit-rules.md) | 完了宣言ゲート・コミット前チェック・DoD/境界の集約 |
 | 実装計画 | [docs/IMPLEMENTATION_PLAN.md](docs/IMPLEMENTATION_PLAN.md) | T1〜T11 タスク分解 |
 | ワークフロー | [docs/WORKFLOW.md](docs/WORKFLOW.md) | エージェント間契約 |
 | 状態 | [docs/PROJECT_STATE.md](docs/PROJECT_STATE.md) | 永続化された進捗 (★ ここを真の記憶とする) |
