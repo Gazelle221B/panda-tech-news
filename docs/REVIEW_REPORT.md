@@ -343,3 +343,65 @@ High 指摘 1 件。`sources` への参照整合性が実際の SQLite 実行時
 
 - T5 再レビュー範囲では追加必須テストなし。
 - `init-db` CLI の冪等性は手動確認済み。CLI 自動テストは将来の CLI integration ticket で扱う。
+
+## T6 seen 管理 / dedupe  (レビュー日: 2026-06-01)
+
+### 総合判定: PASS
+
+Critical / High / Medium / Low 指摘なし。Ticket #5 (T6) は、既存 `insert_items()` の dedupe 仕様を追加テストで固定する範囲として DESIGN.md / domain/collection.md に適合している。次工程 Antigravity QA へ進行可能。
+
+### 確認した証跡 (必須)
+
+- 確認したファイル:
+  - `tests/test_dedupe.py`
+  - `src/karyu_tech_news/store/repo.py`
+  - `src/karyu_tech_news/store/schema.py`
+  - `docs/TEST_LOG.md`
+  - `docs/PROJECT_STATE.md`
+  - `docs/DESIGN.md`
+  - `docs/domain/collection.md`
+- 根拠とした差分/行:
+  - `src/karyu_tech_news/store/schema.py:52-60` — `UNIQUE(source_id, item_key)` と `source_id` / `item_key` の非 NULL 定義。
+  - `src/karyu_tech_news/store/repo.py:69-98` — `insert_items()` が既存 `(source_id, item_key)` を検索し、既存 item を更新せず新規のみ追加。
+  - `tests/test_dedupe.py:62-83` — 同一 source + 同一 key の再投入で 1 行に留まる。
+  - `tests/test_dedupe.py:86-121` — 異なる source の同一 key は別レコードとして保存される。
+  - `tests/test_dedupe.py:124-154` — 同一 source の異なる key は別レコードとして保存される。
+  - `tests/test_dedupe.py:157-205` — バッチ内で既存 item と新規 item が混在しても、新規のみ追加し既存 item は更新しない。
+  - `tests/test_dedupe.py:208-213` — 空バッチは 0 件を返す。
+  - `docs/TEST_LOG.md:210-252` — T6 実装内容・検証結果・引き継ぎ。
+  - `docs/PROJECT_STATE.md:28-69` — Ticket #5 完了状態への更新。
+- 実行/確認したテスト:
+  - `uv run python -m karyu_tech_news validate-sources` → `OK: 11 sources loaded (9 enabled, 2 disabled)`。
+  - `uv run pytest tests/test_dedupe.py -q` → `5 passed`。
+  - `uv run pytest --collect-only -q` → `test_dedupe.py: 5` を含む合計 65 tests。
+  - `uv run pytest` → `65 passed in 0.39s`。
+  - `uv run ruff check .` → `All checks passed!`。
+  - `uv run mypy src tests` → `Success: no issues found in 16 source files`。
+  - 追加確認: 同一バッチ内に同じ source + key が 2 件ある場合も `same_batch_count=1`, `same_batch_rows=1` で既存仕様どおり dedupe される。
+
+### 設計適合性
+
+- DESIGN.md §4 の `UNIQUE(source_id, item_key)` による source 内 dedupe に適合。
+- domain/collection.md §3.2 の「クロスソース重複は 1A では別レコードとして許容」に適合。
+- `hash` 単体 UNIQUE は追加されていない。
+- Architecture status: CLEAR。T6 は既存 store 層の仕様固定テストであり、新規レイヤーや逆向き依存はない。
+
+### 指摘事項
+
+| 重大度 | 箇所 | 内容 | 要求対応 |
+|---|---|---|---|
+| Critical | なし | なし | なし |
+| High | なし | なし | なし |
+| Medium | なし | なし | なし |
+| Low | なし | なし | なし |
+
+### セキュリティ / 並行性
+
+- secret 漏洩: なし。テストデータのみ。
+- SQL injection: 該当なし。既存 SQLAlchemy query の仕様固定テスト。
+- 並行更新: Sprint 1A は単一プロセス前提。`UNIQUE(source_id, item_key)` による最終防衛は維持されている。
+
+### テスト不足
+
+- T6 範囲では追加必須テストなし。
+- `insert_items()` の同一バッチ内重複は手元で追加確認済み。必要なら将来の回帰テストとして `tests/test_dedupe.py` に固定してもよいが、今回の PASS 条件ではブロッカーではない。
