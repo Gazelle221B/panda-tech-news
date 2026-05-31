@@ -169,7 +169,7 @@ QA の目的は **「受け入れ条件 (要件側) を満たしているか」*
 ### 最終動作確認
 
 - [x] source_health が更新される（既存実装 `update_source_health_success` および `update_source_health_failure` によって、初回成功/失敗、連続失敗のカウントアップ/リセット、最新エラーの保存が正しく行われることを確認）
-- [x] SQLiteから取得する tz-naive な datetime に対し、正しく UTC timezone の情報を持たせて比較するアサーション処理が実装されている
+- [x] SQLiteから取得する tz-naive な datetime に対し、比較側の timezone を除去（`.replace(tzinfo=None)`）して正確に比較するアサーション処理が実装されている
 - [x] テストがすべてグリーン（pytest 73件パス、`tests/test_health.py` の8件追加分を含む）
 - [x] Ruff lint, Mypy strict, validate-sources すべてパス
 

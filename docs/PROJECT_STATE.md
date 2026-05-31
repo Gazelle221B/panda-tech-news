@@ -62,8 +62,6 @@
 2026-06-01: Ticket #5 (T6) seen 管理 / dedupe の QA 確認完了。`UNIQUE(source_id, item_key)` での重複排除、同一バッチ内の重複防止などを確認し QA PASS。証跡は `docs/QA_REPORT.md` に追記済み。
 2026-06-01: Ticket #4 (T5) SQLite スキーマ・永続化の QA 確認完了。`PRAGMA foreign_keys=ON` 有効化による参照整合性、重複排除（dedupe）、収集実行記録の整合性、およびすべての設計整合性を検証済。証跡は `docs/QA_REPORT.md` に追記済み。
 
-6. QA PASS 後、OpenCode 実装で Ticket #7 (T8) `collect runner` (fail-open 統合) へ進む。
-
 ## 次に実行すべきアクション (優先順)
 
 1. ~~Ticket #5 (T6) Codex レビュー~~ ✅ PASS (2026-06-01)。Critical/High/Medium/Low 指摘なし。

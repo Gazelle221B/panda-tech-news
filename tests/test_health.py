@@ -125,7 +125,7 @@ def test_health_warning_threshold(session: Session, setup_source: None) -> None:
         session.commit()
     health = session.get(SourceHealth, "src1")
     assert health is not None
-    assert health.consecutive_failures >= 3
+    assert health.consecutive_failures == 3
 
 
 def test_health_last_error_updates(session: Session, setup_source: None) -> None:
