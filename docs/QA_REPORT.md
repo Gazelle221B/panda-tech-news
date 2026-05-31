@@ -137,3 +137,29 @@ QA の目的は **「受け入れ条件 (要件側) を満たしているか」*
 
 - なし。Codex レビューの High/Medium/Low 指摘事項（外部キー有効化、total_sources不一致、descインデックス、info表示）は再レビューにてすべて修正・合格していることを確認済。
 
+## Ticket #5 (T6) seen 管理 / dedupe QA (検収日: 2026-06-01)
+
+### 最終動作確認
+
+- [x] (N/A) python -m karyu_tech_news collect が完走する (次タスク T10)
+- [x] 同じソースを2回 collect しても重複登録されない（`UNIQUE(source_id, item_key)` による `insert_items` 内での dedupe が正しく行われ、既存レコードがスキップされることを確認）
+- [x] 同一バッチ（1回の `insert_items` 呼び出し）内に重複アイテムが存在しても、1件だけが保存されることを確認（SQLAlchemy の autoflush と `select` による存在チェックで担保）
+- [x] テストがすべてグリーン（pytest 65件パス、`tests/test_dedupe.py` の5件追加分を含む）
+
+### UI/UX
+
+- (N/A)
+
+### 回帰
+
+- 既存機能影響: なし。
+
+### 整合性確認
+
+- DESIGN.md ↔ 実装差分: 一致（`UNIQUE(source_id, item_key)` の制約および空 `item_key` の禁止要件を満たしている）
+- 実装 ↔ テスト結果 (TEST_LOG.md): 一致
+- README.md / PROJECT_STATE.md / AGENTS.md の更新: 反映済
+
+### 未解決リスク
+
+- なし。次タスク Ticket #6 (T7) `source_health` の fail-open 管理へ進行可能。
