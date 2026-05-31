@@ -405,3 +405,70 @@ Critical / High / Medium / Low 指摘なし。Ticket #5 (T6) は、既存 `inser
 
 - T6 範囲では追加必須テストなし。
 - `insert_items()` の同一バッチ内重複は手元で追加確認済み。必要なら将来の回帰テストとして `tests/test_dedupe.py` に固定してもよいが、今回の PASS 条件ではブロッカーではない。
+
+## T7 source_health 更新  (レビュー日: 2026-06-01)
+
+### 総合判定: PASS
+
+Critical / High / Medium / Low 指摘なし。Ticket #6 (T7) は、既存 `update_source_health_success()` / `update_source_health_failure()` の状態遷移を追加テストで固定する範囲として DESIGN.md / domain/collection.md に適合している。次工程 Antigravity QA へ進行可能。
+
+### 確認した証跡 (必須)
+
+- 確認したファイル:
+  - `tests/test_health.py`
+  - `src/karyu_tech_news/store/repo.py`
+  - `src/karyu_tech_news/store/schema.py`
+  - `docs/TEST_LOG.md`
+  - `docs/PROJECT_STATE.md`
+  - `docs/DESIGN.md`
+  - `docs/domain/collection.md`
+  - `docs/requirements-v1.0.md`
+- 根拠とした差分/行:
+  - `src/karyu_tech_news/store/schema.py:73-84` — `source_health` が `source_id` 主キー / `sources.id` 外部キーと健全性カラムを持つ。
+  - `src/karyu_tech_news/store/repo.py:101-110` — 成功時に `last_success_at` を更新し、`consecutive_failures` と直近エラー状態をリセット。
+  - `src/karyu_tech_news/store/repo.py:113-123` — 失敗時に `last_failure_at`、`consecutive_failures + 1`、`last_error` を更新。
+  - `tests/test_health.py:54-65` — 初回成功時のレコード作成と成功状態を検証。
+  - `tests/test_health.py:68-79` — 初回失敗時のレコード作成と失敗状態を検証。
+  - `tests/test_health.py:82-105` — 連続失敗後の成功リセットを検証。
+  - `tests/test_health.py:108-128` — 連続失敗の累積と警告閾値到達を検証。
+  - `tests/test_health.py:131-169` — `last_error` と成功/失敗タイムスタンプ更新を検証。
+  - `tests/test_health.py:172-196` — 成功→失敗→成功→失敗の状態遷移サイクルを検証。
+  - `docs/TEST_LOG.md:254-298` — T7 実装内容・検証結果・T8 への引き継ぎ。
+- 実行/確認したテスト:
+  - `uv run python -m karyu_tech_news validate-sources` → `OK: 11 sources loaded (9 enabled, 2 disabled)`。
+  - `uv run pytest tests/test_health.py -q` → `8 passed`。
+  - `uv run pytest --collect-only -q` → `test_health.py: 8` を含む合計 73 tests。
+  - `uv run pytest` → `73 passed in 0.82s`。
+  - `uv run ruff check .` → `All checks passed!`。
+  - `uv run mypy src tests` → `Success: no issues found in 17 source files`。
+  - `git ls-files -u` → unmerged file なし。
+  - `rg -n "<<<<<<<|=======|>>>>>>>" .` → conflict marker なし。
+
+### 設計適合性
+
+- requirements-v1.0.md FR-050 の「成功時 `last_success_at` 更新、`consecutive_failures=0`」に適合。
+- requirements-v1.0.md FR-051 の「失敗時 `last_failure_at` 更新、`consecutive_failures += 1`、`last_error` 保存」に適合。
+- requirements-v1.0.md FR-052 / domain/collection.md §5.1 の `consecutive_failures >= 3` 警告閾値をテストで固定している。
+- SourceHealth は Source に従属する設計を維持しており、外部キー enforcement は T5 再レビュー済み。
+- Architecture status: CLEAR。T7 は既存 store 層の仕様固定テストであり、新規依存や Sprint 1A スコープ外実装はない。
+
+### 指摘事項
+
+| 重大度 | 箇所 | 内容 | 要求対応 |
+|---|---|---|---|
+| Critical | なし | なし | なし |
+| High | なし | なし | なし |
+| Medium | なし | なし | なし |
+| Low | なし | なし | なし |
+
+### セキュリティ / 並行性
+
+- secret 漏洩: なし。テストデータのみ。
+- SQL injection: 該当なし。既存 SQLAlchemy ORM 更新関数の仕様固定テスト。
+- SQLite integrity: `SourceHealth` の orphan 拒否は既存 `tests/test_store.py` と T5 再レビューで確認済み。
+- 並行更新: Sprint 1A は単一プロセス前提。複数 collect の同時更新は非ゴールであり、今回のブロッカーではない。
+
+### テスト不足
+
+- T7 範囲では追加必須テストなし。
+- `FetchResult.ok` に基づく実際の `source_health` 呼び分けは Ticket #7 (T8) collect runner 側で検証する。

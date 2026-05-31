@@ -250,3 +250,49 @@ uv run mypy src tests
 
 - `update_source_health_success()` / `update_source_health_failure()` は既に実装済み。
 - Ticket #6 (T7) はテストの拡充に焦点を当てる。
+
+## T7: source_health 更新  (実装: OpenCode / 日付: 2026-06-01)
+
+### 実行コマンド
+
+```bash
+uv run pytest -v
+uv run ruff check .
+uv run mypy src tests
+```
+
+### 結果サマリー
+
+- pytest: **73 passed** / failed 0 (test_cli.py 8 + test_config.py 16 + test_normalize.py 12 + test_fetcher.py 12 + test_store.py 12 + test_dedupe.py 5 + test_health.py 8)。
+- ruff check: All checks passed。
+- mypy --strict: Success, no issues found in 17 source files。
+
+### 実装内容
+
+**新規ファイル**:
+- `tests/test_health.py` — 8 テスト (初回成功/失敗時のレコード作成、連続失敗後の成功リセット、累積失敗、警告閾値、last_error 更新、タイムスタンプ更新、成功/失敗サイクル)
+
+**実装方針**:
+- `store/repo.py` の拡張は不要。既存の `update_source_health_success()` / `update_source_health_failure()` が既に実装済み。
+- Ticket #6 (T7) はテストの拡充に焦点を当て、source_health の状態遷移をより詳細に検証。
+
+**テストケース**:
+- `test_health_first_success_creates_record`: 初回成功時に source_health レコードが作成され、last_success_at が設定される。
+- `test_health_first_failure_creates_record`: 初回失敗時に source_health レコードが作成され、consecutive_failures=1、last_failure_at、last_error が設定される。
+- `test_health_success_resets_after_failures`: 連続失敗後に成功すると consecutive_failures が 0 にリセットされ、last_success_at が更新される。
+- `test_health_consecutive_failures_accumulate`: 連続失敗で consecutive_failures が累積する（5回）。
+- `test_health_warning_threshold`: consecutive_failures が 3 に到達（Discord 警告の閾値）。
+- `test_health_last_error_updates`: last_error が最新の error で更新される。
+- `test_health_timestamps_update_correctly`: last_success_at と last_failure_at のタイムスタンプが正しく更新される。
+- `test_health_success_failure_cycle`: 成功→失敗→成功→失敗のサイクルで正しく状態が遷移する。
+
+### DESIGN.md §4 / domain/collection.md §4.3 準拠
+
+- 成功時: `last_success_at` 更新、`consecutive_failures = 0` にリセット (FR-050)。
+- 失敗時: `last_failure_at` 更新、`consecutive_failures += 1`、`last_error` 保存 (FR-051)。
+- `consecutive_failures >= 3`: Discord 収集サマリーで⚠️警告表示 (FR-052)。
+
+### 引き継ぎポイント (Ticket #7 collect runner)
+
+- `update_source_health_success()` / `update_source_health_failure()` は `collect/runner.py` で `FetchResult.ok` に基づき呼び出す。
+- Ticket #7 (T8) は `fetch_one()` + `insert_items()` + `source_health` 更新を統合し、fail-open を実装。
