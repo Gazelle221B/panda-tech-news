@@ -10,9 +10,9 @@
 
 ## ステータス
 
-- フェーズ: **Sprint 1A 実装中** — Ticket #1 (CLI スケルトン) + Ticket #2 先行 (ソーススキーマ / `validate-sources`) 完了
+- フェーズ: **Sprint 1A 実装中** — Ticket #3 まで完了 (CLI / sources.yaml / fetcher / fail-open)
 - ソース検証: 完了 (2026-05-29)。有効9本 (ADOPT 5 + 監視 4) / 保留2本。詳細は [docs/source-selection-spike-v0.1.md](docs/source-selection-spike-v0.1.md) §7
-- 次アクション: Ticket #3 (RSS/RSSHub フェッチャ, fail-open) → Ticket #4 (SQLite スキーマ)
+- 次アクション: Ticket #4 (SQLite スキーマ・永続化層)
 
 ## ドキュメント地図
 

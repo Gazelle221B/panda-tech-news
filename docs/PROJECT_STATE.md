@@ -1,11 +1,11 @@
 # プロジェクト状態
 
-> 最終更新: 2026-05-30 / 更新者: Antigravity (テックリード / QA)
+> 最終更新: 2026-05-31 / 更新者: Codex (独立レビュー)
 > 本ファイルは全エージェントが随時更新する。**Antigravity の内部記憶ではなくここを真の記憶とする** (WORKFLOW §13)。
 
 ## 現在のフェーズ
 
-**Sprint 1A 実装中** — Ticket #1 (CLIスケルトン) + Ticket #2先行 (ソーススキーマ / `validate-sources`) 完了・検証グリーン
+**Sprint 1A 実装中** — Ticket #3 (RSS/RSSHub フェッチャ) 完了・検証グリーン
 
 | ステップ | 状態 |
 |---|---|
@@ -24,8 +24,8 @@
 | 初期ソース URL ローカル検証 | ✅ 完了 (2026-05-29)。有効9本(ADOPT5+監視4)/保留2本。meeting3.md・Spike §7 |
 | `config/sources.yaml` の enabled 確定 | ✅ 確定 (11本中9有効、jiqizhixin-rss/huxiu-rss は disabled 保持) |
 | `src/karyu_tech_news/` Ticket #1 + #2先行 | ✅ 完了。CLI(version/validate-sources/info)+Pydanticスキーマ。pytest 24 pass / ruff・mypy(strict) clean |
-| Ticket #3 (RSS/RSSHub フェッチャ, fail-open) | ⏳ 次の実装対象 |
-| Ticket #4 (SQLite スキーマ・永続化) | ⏳ 未着手 |
+| Ticket #3 (RSS/RSSHub フェッチャ, fail-open) | ✅ 完了 (2026-05-31)。collect/normalize.py + fetcher.py。pytest 48 pass / ruff・mypy(strict) clean |
+| Ticket #4 (SQLite スキーマ・永続化) | ⏳ 次の実装対象 |
 
 ## 作業中ブランチ
 
@@ -51,7 +51,7 @@
 
 ## Codex レビューの直近結果
 
-2026-05-30: T1 + T3(schema) 独立レビュー PASS。Critical/High/Medium/Low 指摘なし。証跡は `docs/REVIEW_REPORT.md` に追記済み。
+2026-05-31: T4 (Ticket #3 RSS/RSSHub フェッチャ) 独立レビュー PASS。Critical/High/Medium 指摘なし、Low 2件 (duration_ms 計測範囲、README/AGENTS ステータス同期)。証跡は `docs/REVIEW_REPORT.md` に追記済み。
 
 ## Antigravity QA の直近結果
 
@@ -59,10 +59,9 @@
 
 ## 次に実行すべきアクション (優先順)
 
-1. ~~ソース検証~~ ✅ / ~~sources.yaml 確定~~ ✅ / ~~Ticket #1 + #2先行 実装~~ ✅ (検証グリーン)
-2. **Ticket #3**: RSS/RSSHub フェッチャ実装。`SourcesFile.enabled_sources()` を入力に `FetchResult` のリストを返す。fail-open の中核 (1ソース失敗で全体を止めない、例外は FetchResult に包む)。design-inheritance §1, §11 準拠。`httpx` + `feedparser`、タイムアウト30s・リトライ2回 (FR-012/013)。
-3. **Ticket #4**: SQLite スキーマ + 永続化層 (`UNIQUE(source_id, item_key)`、item_key 生成順 external_id→link→hash)。`init-db` コマンド。
-4. Ticket #5 (dedupe) 〜 #9 (Discord) を依存グラフに沿って。
+1. ~~ソース検証~~ ✅ / ~~sources.yaml 確定~~ ✅ / ~~Ticket #1 + #2先行 実装~~ ✅ / ~~Ticket #3 フェッチャ~~ ✅ (検証グリーン)
+2. **Ticket #4**: SQLite スキーマ + 永続化層 (`UNIQUE(source_id, item_key)`、item_key 生成順 external_id→link→hash)。`init-db` コマンド。
+3. Ticket #5 (dedupe) 〜 #9 (Discord) を依存グラフに沿って。
 
 ## 人間判断待ちの事項
 
@@ -93,4 +92,5 @@ meeting.md / meeting2.md / tik-choco コードdump の全読に基づき作成:
 | 2026-05-30 | Codex | T1 + T3(schema) 独立レビュー PASS を `docs/REVIEW_REPORT.md` に記録。次アクションは Ticket #3 |
 || 2026-05-30 | Antigravity | AGENTS.md / CLAUDE.md 追加 (2026-05-30) |
 || 2026-05-30 | Claude Code | AGENTS.md/CLAUDE.md + architecture.md / domain/collection.md / styleguide.md / README.md 追加。T1+T2 実装ベースに知識ベース文書を整備 |
-
+| 2026-05-31 | OpenCode | Ticket #3 (T4) RSS/RSSHub フェッチャ実装完了。collect/normalize.py + fetcher.py + テスト 24件追加。pytest 48 pass / ruff・mypy(strict) clean |
+| 2026-05-31 | Codex | T4 RSS/RSSHub フェッチャ独立レビュー PASS を `docs/REVIEW_REPORT.md` に記録。Critical/High/Medium 指摘なし |

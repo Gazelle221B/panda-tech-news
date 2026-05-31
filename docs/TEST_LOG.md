@@ -71,3 +71,46 @@ uv run mypy src
 - `config.SourcesFile.enabled_sources()` を入力に `FetchResult` のリストを返す (design-inheritance §1, §11)。
 - fail-open: 1ソース失敗で全体を止めない。例外は FetchResult に包む。
 - 検証データは ADOPT 5本(実 entries) + 監視 4本(entries=0 の正常空振り) + disabled 2本 の3状態を最初から扱える。
+
+## T4: RSS/RSSHub 取得モジュール (フェッチャ + 正規化)  (実装: OpenCode / 日付: 2026-05-31)
+
+### 実行コマンド
+
+```bash
+uv run pytest -v
+uv run ruff check .
+uv run mypy src tests
+```
+
+### 結果サマリー
+
+- pytest: **48 passed** / failed 0 (test_cli.py 8 + test_config.py 16 + test_normalize.py 12 + test_fetcher.py 12)。
+- ruff check: All checks passed。
+- mypy --strict: Success, no issues found in 11 source files。
+
+### 実装内容
+
+**新規ファイル**:
+- `src/karyu_tech_news/collect/__init__.py` — モジュール初期化
+- `src/karyu_tech_news/collect/normalize.py` — RawItem/FetchResult 型定義、item_key 生成 (FR-021)、canonical_url_hash (FR-022)、feedparser entry 正規化
+- `src/karyu_tech_news/collect/fetcher.py` — httpx + feedparser 取得、リトライ (FR-013)、タイムアウト (FR-012)、fail-open (FR-060)、RSSHub URL 展開 (ADR-0004)
+- `tests/test_normalize.py` — 12 テスト (item_key 優先順、canonical_url_hash 正規化、entry 変換)
+- `tests/test_fetcher.py` — 12 テスト (取得成功、リトライ、タイムアウト、bozo 判定、fail-open、RSSHub 展開)
+
+**主要仕様**:
+- `generate_item_key()`: external_id → link → sha256(title|published_at|source_id) の優先順 (FR-021)
+- `compute_canonical_url_hash()`: scheme/host 小文字化、末尾スラッシュ除去、UTM パラメータ除去、クエリソート (FR-022)
+- `fetch_one()`: 単一ソース取得、タイムアウト 30s、リトライ最大 2 回、bozo=1 でも entries>=1 なら採用 (Spike §6)
+- fail-open: 例外は `FetchResult(ok=False, error=...)` に包む (styleguide §7, noqa: BLE001)
+- `expand_rsshub_url()`: `http://localhost:1200` を `RSSHUB_BASE_URL` で置換 (ADR-0004)
+
+### 既知制限
+
+- DB 層 (store/) は未実装。`collect` CLI コマンドは T8 (runner) 以降で統合。
+- feedparser は型スタブなし (`# type: ignore[import-untyped]` で対応)。
+
+### 引き継ぎポイント (Ticket #4 SQLite)
+
+- `RawItem` を `items` テーブルに INSERT。`UNIQUE(source_id, item_key)` で dedupe (FR-031)。
+- `FetchResult` の `ok` に基づき `source_health` を更新 (FR-050/051)。
+- `collect_runs` に実行ログを記録 (FR-034)。

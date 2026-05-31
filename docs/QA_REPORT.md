@@ -77,3 +77,31 @@ QA の目的は **「受け入れ条件 (要件側) を満たしているか」*
 ### 未解決リスク
 
 - なし (次タスク T3 へ進行可能)
+
+## T4 RSS/RSSHub フェッチャ実装 QA (検収日: 2026-05-31)
+
+### 最終動作確認
+
+- [x] 1ソースが失敗しても全体が止まらない (fail-openの実装確認)
+- [x] (N/A) SQLite に items が蓄積される (次タスク T5/T6以降)
+- [x] URL の scheme/host 小文字化や UTM パラメータ除去が正しく行われ canonical_url_hash が計算される (FR-022)
+- [x] external_id → link → sha256(...) の順で item_key が生成される (FR-021)
+- [x] テストがすべてグリーン (pytest 48件パス)
+
+### UI/UX
+
+- (N/A)
+
+### 回帰
+
+- 既存機能影響: なし。config 等の修正も既存機能を壊していない。
+
+### 整合性確認
+
+- DESIGN.md ↔ 実装差分: 一致
+- 実装 ↔ テスト結果 (TEST_LOG.md): 一致
+- README.md / PROJECT_STATE.md / AGENTS.md の更新: 反映済
+
+### 未解決リスク
+
+- Codex の Low 指摘事項 (duration_ms に HTTP 待ち時間を含める件) は、Ticket #4 以降でメトリクス利用する前に対応すること。

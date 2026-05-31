@@ -1,6 +1,6 @@
 {
   "version": "1.0.0",
-  "lastScanned": 1780076172460,
+  "lastScanned": 1780167303378,
   "projectRoot": "/Users/kairyon/projects/panda-tech-news",
   "techStack": {
     "languages": [
@@ -41,40 +41,103 @@
     "workspaces": [],
     "mainDirectories": [
       "docs",
-      "scripts"
+      "scripts",
+      "src",
+      "tests"
     ],
     "gitBranches": null
   },
   "customNotes": [],
   "directoryMap": {
+    "config": {
+      "path": "config",
+      "purpose": "Configuration files",
+      "fileCount": 4,
+      "lastAccessed": 1780167303368,
+      "keyFiles": [
+        "hal_persona.yaml",
+        "llm_profiles.yaml",
+        "show_format.yaml",
+        "sources.yaml"
+      ]
+    },
+    "data": {
+      "path": "data",
+      "purpose": "Data files",
+      "fileCount": 1,
+      "lastAccessed": 1780167303369,
+      "keyFiles": []
+    },
     "docs": {
       "path": "docs",
       "purpose": "Documentation",
-      "fileCount": 6,
-      "lastAccessed": 1780076172451,
+      "fileCount": 22,
+      "lastAccessed": 1780167303370,
       "keyFiles": [
-        "WORKFLOW.md",
-        "meeting.md",
-        "meeting2.md",
-        "requirements-v1.0.md",
-        "source-selection-spike-v0.1.md"
+        "DESIGN.md",
+        "IMPLEMENTATION_PLAN.md",
+        "PROJECT_STATE.md",
+        "QA_REPORT.md",
+        "REVIEW_REPORT.md"
+      ]
+    },
+    "prompts": {
+      "path": "prompts",
+      "purpose": null,
+      "fileCount": 4,
+      "lastAccessed": 1780167303371,
+      "keyFiles": [
+        "architect.md",
+        "implement.md",
+        "qa.md",
+        "review.md"
       ]
     },
     "scripts": {
       "path": "scripts",
       "purpose": "Build/utility scripts",
-      "fileCount": 1,
-      "lastAccessed": 1780076172452,
+      "fileCount": 2,
+      "lastAccessed": 1780167303371,
       "keyFiles": [
+        "spike_curl_check.sh",
         "spike_feedparser_check.py"
+      ]
+    },
+    "src": {
+      "path": "src",
+      "purpose": "Source code",
+      "fileCount": 0,
+      "lastAccessed": 1780167303371,
+      "keyFiles": []
+    },
+    "tests": {
+      "path": "tests",
+      "purpose": "Test files",
+      "fileCount": 2,
+      "lastAccessed": 1780167303372,
+      "keyFiles": [
+        "test_cli.py",
+        "test_config.py"
       ]
     }
   },
   "hotPaths": [
     {
       "path": "docs/PROJECT_STATE.md",
-      "accessCount": 12,
-      "lastAccessed": 1780129708671,
+      "accessCount": 13,
+      "lastAccessed": 1780136445026,
+      "type": "file"
+    },
+    {
+      "path": "AGENTS.md",
+      "accessCount": 9,
+      "lastAccessed": 1780167672057,
+      "type": "file"
+    },
+    {
+      "path": "README.md",
+      "accessCount": 9,
+      "lastAccessed": 1780167677131,
       "type": "file"
     },
     {
@@ -84,33 +147,27 @@
       "type": "file"
     },
     {
-      "path": "README.md",
-      "accessCount": 5,
-      "lastAccessed": 1780129503922,
-      "type": "file"
-    },
-    {
       "path": "docs/meeting.md",
       "accessCount": 4,
       "lastAccessed": 1780077388209,
       "type": "file"
     },
     {
+      "path": "pyproject.toml",
+      "accessCount": 4,
+      "lastAccessed": 1780136446055,
+      "type": "file"
+    },
+    {
       "path": ".env.example",
-      "accessCount": 3,
-      "lastAccessed": 1780129472404,
+      "accessCount": 4,
+      "lastAccessed": 1780136469259,
       "type": "file"
     },
     {
       "path": "docker-compose.yml",
-      "accessCount": 3,
-      "lastAccessed": 1780129480099,
-      "type": "file"
-    },
-    {
-      "path": "pyproject.toml",
-      "accessCount": 3,
-      "lastAccessed": 1780129551730,
+      "accessCount": 4,
+      "lastAccessed": 1780136470263,
       "type": "file"
     },
     {
@@ -120,45 +177,135 @@
       "type": "file"
     },
     {
+      "path": "docs/roadmap.md",
+      "accessCount": 3,
+      "lastAccessed": 1780136457203,
+      "type": "file"
+    },
+    {
       "path": "docs/meeting2.md",
       "accessCount": 2,
       "lastAccessed": 1780077402273,
       "type": "file"
     },
     {
-      "path": "docs/roadmap.md",
+      "path": "docs/DESIGN.md",
       "accessCount": 2,
-      "lastAccessed": 1780078228904,
+      "lastAccessed": 1780136444681,
       "type": "file"
     },
     {
       "path": "docs/WORKFLOW.md",
-      "accessCount": 1,
-      "lastAccessed": 1780076347476,
-      "type": "file"
-    },
-    {
-      "path": "docs/requirements-v1.0.md",
-      "accessCount": 1,
-      "lastAccessed": 1780076347867,
-      "type": "file"
-    },
-    {
-      "path": "docs/source-selection-spike-v0.1.md",
-      "accessCount": 1,
-      "lastAccessed": 1780076349973,
-      "type": "file"
-    },
-    {
-      "path": "docs/DESIGN.md",
-      "accessCount": 1,
-      "lastAccessed": 1780076488727,
+      "accessCount": 2,
+      "lastAccessed": 1780136445334,
       "type": "file"
     },
     {
       "path": "docs/IMPLEMENTATION_PLAN.md",
-      "accessCount": 1,
-      "lastAccessed": 1780076538320,
+      "accessCount": 2,
+      "lastAccessed": 1780136445665,
+      "type": "file"
+    },
+    {
+      "path": "docs/requirements-v1.0.md",
+      "accessCount": 2,
+      "lastAccessed": 1780136456693,
+      "type": "file"
+    },
+    {
+      "path": "docs/source-selection-spike-v0.1.md",
+      "accessCount": 2,
+      "lastAccessed": 1780136458220,
+      "type": "file"
+    },
+    {
+      "path": "docs/architecture-podcast-station.md",
+      "accessCount": 2,
+      "lastAccessed": 1780136458707,
+      "type": "file"
+    },
+    {
+      "path": "docs/design-inheritance-tc-newsflow.md",
+      "accessCount": 2,
+      "lastAccessed": 1780136459729,
+      "type": "file"
+    },
+    {
+      "path": "docs/hal-persona.md",
+      "accessCount": 2,
+      "lastAccessed": 1780136459987,
+      "type": "file"
+    },
+    {
+      "path": "docs/editorial-policy.md",
+      "accessCount": 2,
+      "lastAccessed": 1780136466213,
+      "type": "file"
+    },
+    {
+      "path": "docs/show-format.md",
+      "accessCount": 2,
+      "lastAccessed": 1780136466735,
+      "type": "file"
+    },
+    {
+      "path": "docs/adr/ADR-0001-python-single-language.md",
+      "accessCount": 2,
+      "lastAccessed": 1780136467249,
+      "type": "file"
+    },
+    {
+      "path": "src/karyu_tech_news/main.py",
+      "accessCount": 2,
+      "lastAccessed": 1780136468268,
+      "type": "file"
+    },
+    {
+      "path": "src/karyu_tech_news/config.py",
+      "accessCount": 2,
+      "lastAccessed": 1780136468757,
+      "type": "file"
+    },
+    {
+      "path": "config/sources.yaml",
+      "accessCount": 2,
+      "lastAccessed": 1780136471304,
+      "type": "file"
+    },
+    {
+      "path": "tests/test_config.py",
+      "accessCount": 2,
+      "lastAccessed": 1780138803186,
+      "type": "file"
+    },
+    {
+      "path": "docs/adr/ADR-0005-llm-roles-ab-test.md",
+      "accessCount": 2,
+      "lastAccessed": 1780138803460,
+      "type": "file"
+    },
+    {
+      "path": "prompts/review.md",
+      "accessCount": 2,
+      "lastAccessed": 1780160644353,
+      "type": "file"
+    },
+    {
+      "path": "prompts/implement.md",
+      "accessCount": 2,
+      "lastAccessed": 1780160644420,
+      "type": "file"
+    },
+    {
+      "path": "prompts/qa.md",
+      "accessCount": 2,
+      "lastAccessed": 1780160644471,
+      "type": "file"
+    },
+    {
+      "path": "docs/architecture.md",
+      "accessCount": 2,
+      "lastAccessed": 1780167656124,
       "type": "file"
     },
     {
@@ -171,12 +318,6 @@
       "path": "docs/QA_REPORT.md",
       "accessCount": 1,
       "lastAccessed": 1780076613073,
-      "type": "file"
-    },
-    {
-      "path": "docs/adr/ADR-0001-python-single-language.md",
-      "accessCount": 1,
-      "lastAccessed": 1780076640922,
       "type": "file"
     },
     {
@@ -198,57 +339,15 @@
       "type": "file"
     },
     {
-      "path": "docs/hal-persona.md",
-      "accessCount": 1,
-      "lastAccessed": 1780076747442,
-      "type": "file"
-    },
-    {
-      "path": "docs/show-format.md",
-      "accessCount": 1,
-      "lastAccessed": 1780076789886,
-      "type": "file"
-    },
-    {
-      "path": "docs/editorial-policy.md",
-      "accessCount": 1,
-      "lastAccessed": 1780076835739,
-      "type": "file"
-    },
-    {
       "path": "prompts/architect.md",
       "accessCount": 1,
       "lastAccessed": 1780076858515,
       "type": "file"
     },
     {
-      "path": "prompts/implement.md",
-      "accessCount": 1,
-      "lastAccessed": 1780076884687,
-      "type": "file"
-    },
-    {
-      "path": "prompts/review.md",
-      "accessCount": 1,
-      "lastAccessed": 1780076912062,
-      "type": "file"
-    },
-    {
-      "path": "prompts/qa.md",
-      "accessCount": 1,
-      "lastAccessed": 1780076937825,
-      "type": "file"
-    },
-    {
       "path": "scripts/spike_curl_check.sh",
       "accessCount": 1,
       "lastAccessed": 1780077627995,
-      "type": "file"
-    },
-    {
-      "path": "config/sources.yaml",
-      "accessCount": 1,
-      "lastAccessed": 1780077648246,
       "type": "file"
     },
     {
@@ -267,24 +366,6 @@
       "path": "config/show_format.yaml",
       "accessCount": 1,
       "lastAccessed": 1780077705418,
-      "type": "file"
-    },
-    {
-      "path": "docs/design-inheritance-tc-newsflow.md",
-      "accessCount": 1,
-      "lastAccessed": 1780077805401,
-      "type": "file"
-    },
-    {
-      "path": "docs/architecture-podcast-station.md",
-      "accessCount": 1,
-      "lastAccessed": 1780077874473,
-      "type": "file"
-    },
-    {
-      "path": "docs/adr/ADR-0005-llm-roles-ab-test.md",
-      "accessCount": 1,
-      "lastAccessed": 1780077942612,
       "type": "file"
     },
     {
@@ -312,27 +393,33 @@
       "type": "file"
     },
     {
-      "path": "src/karyu_tech_news/config.py",
-      "accessCount": 1,
-      "lastAccessed": 1780129293717,
-      "type": "file"
-    },
-    {
-      "path": "src/karyu_tech_news/main.py",
-      "accessCount": 1,
-      "lastAccessed": 1780129315815,
-      "type": "file"
-    },
-    {
-      "path": "tests/test_config.py",
-      "accessCount": 1,
-      "lastAccessed": 1780129348840,
-      "type": "file"
-    },
-    {
       "path": "tests/test_cli.py",
       "accessCount": 1,
       "lastAccessed": 1780129361998,
+      "type": "file"
+    },
+    {
+      "path": "docs/domain/collection.md",
+      "accessCount": 1,
+      "lastAccessed": 1780139013783,
+      "type": "file"
+    },
+    {
+      "path": "docs/styleguide.md",
+      "accessCount": 1,
+      "lastAccessed": 1780139072578,
+      "type": "file"
+    },
+    {
+      "path": "docs/commit-rules.md",
+      "accessCount": 1,
+      "lastAccessed": 1780160776024,
+      "type": "file"
+    },
+    {
+      "path": "docs/adr/INDEX.md",
+      "accessCount": 1,
+      "lastAccessed": 1780167622286,
       "type": "file"
     }
   ],
