@@ -145,7 +145,7 @@ def info(ctx: typer.Context) -> None:
     """環境設定の確認 (秘密情報は set/not set のみ表示)."""
     settings = ctx.obj
     typer.echo(f"karyu-tech-news {__version__}")
-    typer.echo("Sprint phase: 1A (Ticket #1 + #2 schema)")
+    typer.echo("Sprint phase: 1A (Ticket #4 SQLite)")
     typer.echo("")
     typer.echo("Settings:")
     typer.echo(f"  RSSHUB_BASE_URL:           {settings.rsshub_base_url}")
@@ -158,6 +158,29 @@ def info(ctx: typer.Context) -> None:
         f"{'(set)' if settings.discord_error_webhook_url else '(not set)'}"
     )
     typer.echo(f"  LOG_LEVEL:                 {settings.log_level}")
+
+
+@app.command("init-db")
+def init_db(
+    db_path: Path = typer.Option(
+        Path("data/state.db"),
+        "--db-path",
+        "-d",
+        help="SQLite データベースのパス",
+        show_default=True,
+    ),
+) -> None:
+    """SQLite データベースを初期化 (テーブル作成).
+
+    Sprint 1A Ticket #4 実装。
+    冪等: 2回実行しても壊れない。
+    """
+    from karyu_tech_news.store.repo import create_db_engine
+    from karyu_tech_news.store.repo import init_db as init_database
+
+    engine = create_db_engine(db_path)
+    init_database(engine)
+    typer.secho(f"Database initialized: {db_path}", fg=typer.colors.GREEN)
 
 
 if __name__ == "__main__":

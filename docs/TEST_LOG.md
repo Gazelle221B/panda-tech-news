@@ -114,3 +114,96 @@ uv run mypy src tests
 - `RawItem` を `items` テーブルに INSERT。`UNIQUE(source_id, item_key)` で dedupe (FR-031)。
 - `FetchResult` の `ok` に基づき `source_health` を更新 (FR-050/051)。
 - `collect_runs` に実行ログを記録 (FR-034)。
+
+## T5: SQLite スキーマ + 永続化層  (実装: OpenCode / 日付: 2026-05-31)
+
+### 実行コマンド
+
+```bash
+uv run pytest -v
+uv run ruff check .
+uv run mypy src tests
+```
+
+### 結果サマリー
+
+- pytest: **57 passed** / failed 0 (test_cli.py 8 + test_config.py 16 + test_normalize.py 12 + test_fetcher.py 12 + test_store.py 9)。
+- ruff check: All checks passed。
+- mypy --strict: Success, no issues found in 15 source files。
+
+### 実装内容
+
+**新規ファイル**:
+- `src/karyu_tech_news/store/__init__.py` — モジュール初期化
+- `src/karyu_tech_news/store/schema.py` — SQLAlchemy テーブル定義 (sources, items, source_health, collect_runs)
+- `src/karyu_tech_news/store/repo.py` — CRUD 関数 (upsert_source, insert_items, update_source_health_*, create/finish_collect_run)
+- `tests/test_store.py` — 9 テスト (冪等性、UNIQUE制約、dedupe、source_health 更新、collect_run ライフサイクル)
+
+**変更ファイル**:
+- `src/karyu_tech_news/main.py` — `init-db` コマンド追加
+
+**主要仕様**:
+- `create_db_engine()`: SQLite エンジン作成 (パスの親ディレクトリ自動作成)
+- `init_db()`: スキーマ初期化（冪等、2回実行しても壊れない）
+- `upsert_source()`: ソース追加/更新
+- `insert_items()`: アイテム追加（UNIQUE制約で自動スキップ、空の item_key は ValueError）
+- `update_source_health_success()`: 成功時 consecutive_failures=0 にリセット
+- `update_source_health_failure()`: 失敗時 consecutive_failures += 1、last_error 保存
+- `create_collect_run()` / `finish_collect_run()`: 収集実行記録の作成と完了
+
+**DESIGN.md §4 準拠**:
+- `UNIQUE(source_id, item_key)` 制約 (FR-031)
+- `hash` 単体 UNIQUE なし（禁止事項遵守）
+- `item_key` 空での INSERT 防止 (ValueError 発生)
+- インデックス: `idx_items_canonical_hash`, `idx_items_published`
+
+### 既知制限
+
+- `collect` CLI コマンドは T8 (runner) 以降で統合。
+- `post-summary` CLI コマンドは T9 (Discord) で実装。
+
+### 引き継ぎポイント (Ticket #5 dedupe)
+
+- `insert_items()` で既に UNIQUE 制約による dedupe を実装済み。
+- Ticket #5 は `store/repo.py` の拡張ではなく、T8 (runner) で `insert_items()` を呼び出す形で統合。
+
+## T5 修正: Codex レビュー指摘対応  (実装: OpenCode / 日付: 2026-06-01)
+
+### 実行コマンド
+
+```bash
+uv run pytest -v
+uv run ruff check .
+uv run mypy src tests
+```
+
+### 結果サマリー
+
+- pytest: **60 passed** / failed 0 (test_cli.py 8 + test_config.py 16 + test_normalize.py 12 + test_fetcher.py 12 + test_store.py 12)。
+- ruff check: All checks passed。
+- mypy --strict: Success, no issues found in 15 source files。
+
+### 修正内容
+
+**High 指摘対応**:
+- `src/karyu_tech_news/store/repo.py` — `create_db_engine()` で SQLAlchemy event listener を使い、接続時に `PRAGMA foreign_keys=ON` を実行。外部キー制約を実効化。
+- `tests/test_store.py` — 存在しない `source_id` への insert/update が `IntegrityError` を発生させることを確認するテストを 2件追加。
+
+**Medium 指摘対応**:
+- `src/karyu_tech_news/store/repo.py` — `finish_collect_run()` で `run.total_sources` と `len(results)` の不一致を検出し、`ValueError` を発生させるように修正。
+- `tests/test_store.py` — 不一致時に `ValueError` が発生することを確認するテストを追加。既存の `test_collect_run_lifecycle` を `total_sources=2` に修正。
+
+**Low 指摘対応**:
+- `src/karyu_tech_news/store/schema.py` — `idx_items_published` を `text("published_at DESC")` に修正し、設計 SQL と一致させる。
+- `src/karyu_tech_news/main.py` — `info` コマンドの Sprint 表示を `1A (Ticket #4 SQLite)` に更新。
+
+### 追加テスト
+
+- `test_insert_items_rejects_orphan_source_id`: 存在しない `source_id` への insert が `IntegrityError` を発生させることを確認。
+- `test_update_source_health_rejects_orphan_source_id`: 存在しない `source_id` への source_health 更新が `IntegrityError` を発生させることを確認。
+- `test_finish_collect_run_rejects_total_sources_mismatch`: `total_sources` と `len(results)` の不一致時に `ValueError` が発生することを確認。
+
+### DESIGN.md §4 / domain/collection.md §3.1 準拠
+
+- 外部キー制約 `REFERENCES sources(id)` が SQLite 実行時に実効化された。
+- `SourceHealth は Source に従属` という不変条件が `IntegrityError` で保証される。

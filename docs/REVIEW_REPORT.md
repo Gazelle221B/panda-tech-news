@@ -210,3 +210,136 @@ Critical / High 指摘なし。T4 の実装範囲は DESIGN.md / IMPLEMENTATION_
 - T4 範囲の必須テスト (feedparser モック、timeout、retry、bozo=1+entries 採用、fail-open、RSSHub URL 展開) は存在し、全パス。
 - `duration_ms` が HTTP 待ち時間を含むことを固定するテストは未追加。Low 指摘として Ticket #4 以降のログ/健全性実装前に補うのが望ましい。
 - RSSHub 実インスタンス疎通はローカル環境依存のため未実施。IMPLEMENTATION_PLAN の Integration Test では CI スキップ可・ローカルのみの扱いであり、T4 unit review のブロッカーではない。
+
+## T5 SQLite スキーマ + 永続化層  (レビュー日: 2026-06-01)
+
+### 総合判定: FAIL
+
+High 指摘 1 件。`sources` への参照整合性が実際の SQLite 実行時に守られておらず、DESIGN.md §4 / domain/collection.md §3.1 の不変条件を満たしていない。修正後に再レビューが必要。
+
+### 確認した証跡 (必須)
+
+- 確認したファイル:
+  - `src/karyu_tech_news/store/__init__.py`
+  - `src/karyu_tech_news/store/schema.py`
+  - `src/karyu_tech_news/store/repo.py`
+  - `src/karyu_tech_news/main.py`
+  - `tests/test_store.py`
+  - `docs/TEST_LOG.md`
+  - `docs/PROJECT_STATE.md`
+  - `docs/DESIGN.md`
+  - `docs/domain/collection.md`
+  - `docs/architecture.md`
+- 根拠とした差分/行:
+  - `src/karyu_tech_news/store/schema.py:25-45` — `sources` テーブルと `SourceHealth` relationship。
+  - `src/karyu_tech_news/store/schema.py:47-69` — `items` テーブル、`UNIQUE(source_id, item_key)`、canonical/published indexes。
+  - `src/karyu_tech_news/store/schema.py:72-83` — `source_health` テーブル、`source_id` 外部キー。
+  - `src/karyu_tech_news/store/schema.py:86-98` — `collect_runs` テーブル。
+  - `src/karyu_tech_news/store/repo.py:22-32` — SQLite engine 作成と `create_all()` 初期化。
+  - `src/karyu_tech_news/store/repo.py:35-58` — `upsert_source()`。
+  - `src/karyu_tech_news/store/repo.py:61-90` — `insert_items()` と空 `item_key` 防止。
+  - `src/karyu_tech_news/store/repo.py:93-115` — `source_health` 成功/失敗更新。
+  - `src/karyu_tech_news/store/repo.py:118-146` — `collect_runs` 作成/完了。
+  - `src/karyu_tech_news/main.py:163-183` — `init-db` CLI。
+  - `tests/test_store.py:45-224` — schema 冪等性、source upsert、dedupe、source_health、collect_run の 9 テスト。
+  - `docs/TEST_LOG.md:118-168` — T5 実装内容・検証結果・引き継ぎ。
+  - `docs/PROJECT_STATE.md:8-29` — Ticket #4 完了状態への更新。
+- 実行/確認したテスト:
+  - `uv run python -m karyu_tech_news validate-sources` → `OK: 11 sources loaded (9 enabled, 2 disabled)`。
+  - `uv run pytest` → `57 passed in 0.44s`。
+  - `uv run ruff check .` → `All checks passed!`。
+  - `uv run mypy src tests` → `Success: no issues found in 15 source files`。
+  - `uv run python -m karyu_tech_news init-db --db-path <tmp>/state.db` を 2 回実行 → 2 回とも成功、DB ファイル作成を確認。
+  - 追加確認: 存在しない `source_id` の `RawItem` を `insert_items()` し、同じく存在しない `source_id` で `update_source_health_failure()` 後に `commit()` → `orphan_insert_count=1`, `committed_orphan_rows=yes`。
+- DESIGN.md との対応:
+  - §4 のテーブル構造、`UNIQUE(source_id, item_key)`、`hash` 単体 UNIQUE 禁止、index 名は概ね適合。
+  - §4 の `REFERENCES sources(id)` と domain/collection.md §3.1 の「SourceHealth は Source に従属」は、SQLite 実行時の外部キー enforcement が無効なため未達。
+  - §7 の Sprint 1A 越境、`.env` 混入、LLM/TTS/動画/YouTube/Playwright/Cookie 必須ルート混入はなし。
+
+### 設計適合性
+
+- DESIGN.md §4 の schema 形状は概ね実装されているが、SQLite の外部キー enforcement が有効化されていないため参照整合性の実効性に欠ける。
+- Architecture status: BLOCK。`store` は `collect.normalize.RawItem` / `FetchResult` を import しており `architecture.md` の表では store の import 許可が config のみになっている。ただし DESIGN.md §3.2 では collect が store を import してよいという片方向依存だけを明示しており、T5 では型受け渡しのための実務上の結合として許容可能。ブロック理由は import 境界ではなく DB 参照整合性。
+
+### 指摘事項
+
+| 重大度 | 箇所 | 内容 | 要求対応 |
+|---|---|---|---|
+| Critical | なし | なし | なし |
+| High | `src/karyu_tech_news/store/repo.py:22-25` / `src/karyu_tech_news/store/repo.py:61-90` / `src/karyu_tech_news/store/repo.py:93-115` | SQLite では `PRAGMA foreign_keys=ON` を接続ごとに有効化しない限り `ForeignKey("sources.id")` が実際には enforcement されない。現状、存在しない `source_id` の item と source_health が commit できる。これは DESIGN.md §4 の `REFERENCES sources(id)` と domain/collection.md §3.1「SourceHealth は Source に従属」に反する。 | `create_db_engine()` で SQLAlchemy event listener により接続時 `PRAGMA foreign_keys=ON` を設定し、存在しない source への item/source_health commit が `IntegrityError` になるテストを追加する。必要なら `insert_items()` / `update_source_health_*()` 側でも source 存在チェックまたは runner での source upsert 順序を固定する。 |
+| Medium | `src/karyu_tech_news/store/repo.py:118-146` / `tests/test_store.py:207-224` | `finish_collect_run()` は `run.total_sources` と `len(results)` の不一致を検出せず、実行記録が実処理数と食い違う状態を保存できる。domain/collection.md §3.3 は「集計値は実際の処理結果と一致する」と定義している。 | `finish_collect_run()` で `total_sources = len(results)` に更新するか、不一致時に `ValueError` にする。どちらかをテストで固定する。 |
+| Low | `src/karyu_tech_news/store/schema.py:54` | DESIGN.md §4 の SQL 例は `idx_items_published ON items(published_at DESC)` だが、実装は通常の ascending index。現時点では機能不具合ではないが、最新記事順クエリの意図とズレる。 | 必要なら `Index("idx_items_published", Item.published_at.desc())` 相当に寄せる。少なくとも設計上「DESC は例示であり昇順 index で十分」なら文書側を明確化する。 |
+| Low | `src/karyu_tech_news/main.py:148` | `info` コマンドの Sprint 表示がまだ `Ticket #1 + #2 schema` のまま。T5 の実装完了状態とユーザー向け CLI 表示がズレている。 | `Sprint phase: 1A` のようなチケット非依存表現へ変更するか、現在の完了チケットに同期する。 |
+
+### セキュリティ / 並行性
+
+- secret 漏洩: なし。
+- SQL injection: SQLAlchemy ORM / expression API 利用で直接文字列連結 SQL はなし。
+- SQLite integrity: High 指摘の通り、外部キー enforcement が無効なため orphan row を防げない。
+- 並行更新: Sprint 1A は単一プロセス前提。`insert_items()` の事前 SELECT → INSERT は並行 collect では race しうるが、architecture.md §1.1 で並行 collect は非ゴールのためブロッカーではない。
+
+### テスト不足
+
+- `PRAGMA foreign_keys=ON` と外部キー違反時の `IntegrityError` テストが不足。
+- `finish_collect_run()` の集計整合性テストが不足。
+- `init-db` CLI の冪等性は手動確認済みだが、CLI レベルの自動テストは未追加。現時点では repo/schema の unit test で最低限は満たす。
+
+## T5 SQLite スキーマ + 永続化層 再レビュー  (レビュー日: 2026-06-01)
+
+### 総合判定: PASS
+
+初回レビューの High / Medium / Low 指摘はすべて対応済み。Critical / High / Medium 指摘なし。Ticket #4 (T5) は次工程 Antigravity QA へ進行可能。
+
+### 確認した証跡 (必須)
+
+- 確認したファイル:
+  - `src/karyu_tech_news/store/schema.py`
+  - `src/karyu_tech_news/store/repo.py`
+  - `src/karyu_tech_news/main.py`
+  - `tests/test_store.py`
+  - `docs/TEST_LOG.md`
+  - `docs/PROJECT_STATE.md`
+- 初回レビュー指摘への対応:
+  - High: `src/karyu_tech_news/store/repo.py:22-33` — SQLAlchemy `connect` event で `PRAGMA foreign_keys=ON` を設定。
+  - High: `tests/test_store.py:227-255` — orphan item / orphan source_health が `IntegrityError` になるテストを追加。
+  - Medium: `src/karyu_tech_news/store/repo.py:141-153` — `run.total_sources` と `len(results)` の不一致時に `ValueError`。
+  - Medium: `tests/test_store.py:257-265` — total_sources 不一致の回帰テストを追加。
+  - Low: `src/karyu_tech_news/store/schema.py:55` — `idx_items_published` を `published_at DESC` で作成。
+  - Low: `src/karyu_tech_news/main.py:143-160` — `info` の Sprint 表示を Ticket #4 SQLite に同期。
+- 実行/確認したテスト:
+  - `uv run python -m karyu_tech_news validate-sources` → `OK: 11 sources loaded (9 enabled, 2 disabled)`。
+  - `uv run pytest` → `60 passed in 0.37s`。
+  - `uv run ruff check .` → `All checks passed!`。
+  - `uv run mypy src tests` → `Success: no issues found in 15 source files`。
+  - `uv run python -m karyu_tech_news init-db --db-path <tmp>/state.db` を 2 回実行 → 2 回とも成功、DB ファイル作成を確認。
+  - 追加確認: 存在しない `source_id` の item / source_health commit → `orphan_item=blocked`, `orphan_health=blocked`。
+  - 追加確認: `sqlite_master` の `idx_items_published` DDL → `CREATE INDEX idx_items_published ON items (published_at DESC)`。
+  - `uv run python -m karyu_tech_news info` → `Sprint phase: 1A (Ticket #4 SQLite)`。
+
+### 設計適合性
+
+- DESIGN.md §4 の `REFERENCES sources(id)` は SQLite 実行時にも enforcement されるようになった。
+- domain/collection.md §3.1 の「SourceHealth は Source に従属」は外部キー制約で保証される。
+- domain/collection.md §3.3 の collect_run 集計整合性は `total_sources` 不一致の `ValueError` で保護された。
+- Architecture status: CLEAR。初回レビューの BLOCK 理由は解消済み。
+
+### 指摘事項
+
+| 重大度 | 箇所 | 内容 | 要求対応 |
+|---|---|---|---|
+| Critical | なし | なし | なし |
+| High | なし | なし | なし |
+| Medium | なし | なし | なし |
+| Low | なし | なし | なし |
+
+### セキュリティ / 並行性
+
+- secret 漏洩: なし。
+- SQL injection: SQLAlchemy ORM / expression API 利用で直接文字列連結 SQL なし。
+- SQLite integrity: orphan item / source_health は `IntegrityError` で拒否されることを確認済み。
+- 並行更新: Sprint 1A は単一プロセス前提。`UNIQUE(source_id, item_key)` による最終防衛は維持されている。
+
+### テスト不足
+
+- T5 再レビュー範囲では追加必須テストなし。
+- `init-db` CLI の冪等性は手動確認済み。CLI 自動テストは将来の CLI integration ticket で扱う。

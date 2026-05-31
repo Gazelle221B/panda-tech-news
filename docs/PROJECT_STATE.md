@@ -1,11 +1,11 @@
 # プロジェクト状態
 
-> 最終更新: 2026-05-31 / 更新者: Codex (独立レビュー)
+> 最終更新: 2026-06-01 / 更新者: Antigravity (QA)
 > 本ファイルは全エージェントが随時更新する。**Antigravity の内部記憶ではなくここを真の記憶とする** (WORKFLOW §13)。
 
 ## 現在のフェーズ
 
-**Sprint 1A 実装中** — Ticket #3 (RSS/RSSHub フェッチャ) 完了・検証グリーン
+**Sprint 1A 実装中** — Ticket #4 (SQLite スキーマ・永続化) Antigravity QA PASS
 
 | ステップ | 状態 |
 |---|---|
@@ -25,7 +25,8 @@
 | `config/sources.yaml` の enabled 確定 | ✅ 確定 (11本中9有効、jiqizhixin-rss/huxiu-rss は disabled 保持) |
 | `src/karyu_tech_news/` Ticket #1 + #2先行 | ✅ 完了。CLI(version/validate-sources/info)+Pydanticスキーマ。pytest 24 pass / ruff・mypy(strict) clean |
 | Ticket #3 (RSS/RSSHub フェッチャ, fail-open) | ✅ 完了 (2026-05-31)。collect/normalize.py + fetcher.py。pytest 48 pass / ruff・mypy(strict) clean |
-| Ticket #4 (SQLite スキーマ・永続化) | ⏳ 次の実装対象 |
+| Ticket #4 (SQLite スキーマ・永続化) | ✅ Antigravity QA PASS (2026-06-01)。PRAGMA foreign_keys=ON 有効化、total_sources 不一致検出、idx_items_published DESC 修正、info Sprint 表示更新。pytest 60 pass / ruff・mypy(strict) clean |
+| Ticket #5 (seen 管理 / dedupe) | ⏸️ 次のアクション（T5 `insert_items` で実装済み、T8 runner で統合） |
 
 ## 作業中ブランチ
 
@@ -51,17 +52,19 @@
 
 ## Codex レビューの直近結果
 
-2026-05-31: T4 (Ticket #3 RSS/RSSHub フェッチャ) 独立レビュー PASS。Critical/High/Medium 指摘なし、Low 2件 (duration_ms 計測範囲、README/AGENTS ステータス同期)。証跡は `docs/REVIEW_REPORT.md` に追記済み。
+2026-06-01: T5 (Ticket #4 SQLite スキーマ + 永続化層) 再レビュー PASS。初回レビューの High/Medium/Low 指摘はすべて対応済み。Critical/High/Medium/Low 指摘なし。証跡は `docs/REVIEW_REPORT.md` に追記済み。
 
 ## Antigravity QA の直近結果
 
+2026-06-01: Ticket #4 (T5) SQLite スキーマ・永続化の QA 確認完了。`PRAGMA foreign_keys=ON` 有効化による参照整合性、重複排除（dedupe）、収集実行記録の整合性、およびすべての設計整合性を検証済。証跡は `docs/QA_REPORT.md` に追記済み。
 2026-05-31: Ticket #3 (T4) RSS/RSSHub フェッチャ実装の QA 確認完了。DESIGN/実装差分/テスト結果/各種文書の整合性をすべて確認済。Codex の duration_ms 指摘事項も対応完了。証跡は `docs/QA_REPORT.md` に追記済み。
 
 ## 次に実行すべきアクション (優先順)
 
-1. ~~ソース検証~~ ✅ / ~~sources.yaml 確定~~ ✅ / ~~Ticket #1 + #2先行 実装~~ ✅ / ~~Ticket #3 フェッチャ~~ ✅ (検証グリーン)
-2. **Ticket #4**: SQLite スキーマ + 永続化層 (`UNIQUE(source_id, item_key)`、item_key 生成順 external_id→link→hash)。`init-db` コマンド。
-3. Ticket #5 (dedupe) 〜 #9 (Discord) を依存グラフに沿って。
+1. ~~Ticket #4 レビュー指摘修正~~ ✅ 完了 (2026-06-01)。PRAGMA foreign_keys=ON 有効化、total_sources 不一致検出、idx_items_published DESC 修正、info Sprint 表示更新。pytest 60 pass / ruff・mypy(strict) clean。
+2. ~~Codex 再レビュー~~ ✅ PASS (2026-06-01)。Critical/High/Medium/Low 指摘なし。
+3. ~~Antigravity QA~~ ✅ PASS (2026-06-01)。SQLite 永続化層の参照整合性とスキーマ整合性を検収。
+4. **Ticket #5 (T6)**: seen 管理 / dedupe (T5 `insert_items` 内で既に実装済み、結合に向けてテストなどを拡充)、**Ticket #6 (T7)** source_health、**Ticket #7 (T8)** collect runner へ進む。
 
 ## 人間判断待ちの事項
 
@@ -95,3 +98,8 @@ meeting.md / meeting2.md / tik-choco コードdump の全読に基づき作成:
 | 2026-05-31 | OpenCode | Ticket #3 (T4) RSS/RSSHub フェッチャ実装完了。collect/normalize.py + fetcher.py + テスト 24件追加。pytest 48 pass / ruff・mypy(strict) clean |
 | 2026-05-31 | Codex | T4 RSS/RSSHub フェッチャ独立レビュー PASS を `docs/REVIEW_REPORT.md` に記録。Critical/High/Medium 指摘なし |
 | 2026-05-31 | Antigravity | PR #1 の Codex/Copilot 指摘コメントへの対応・コード及びドキュメント修正完了 |
+| 2026-05-31 | OpenCode | Ticket #4 (T5) SQLite スキーマ・永続化層実装完了。store/schema.py + repo.py + init-db CLI + テスト 9件追加。pytest 57 pass / ruff・mypy(strict) clean |
+| 2026-06-01 | Codex | T5 SQLite スキーマ + 永続化層の独立レビュー FAIL を `docs/REVIEW_REPORT.md` に記録。High 1件 |
+| 2026-06-01 | OpenCode | T5 Codex レビュー指摘対応完了。PRAGMA foreign_keys=ON 有効化、total_sources 不一致検出、idx_items_published DESC 修正、info Sprint 表示更新、テスト 3件追加。pytest 60 pass / ruff・mypy(strict) clean |
+| 2026-06-01 | Codex | T5 SQLite スキーマ + 永続化層の再レビュー PASS を `docs/REVIEW_REPORT.md` に記録。Critical/High/Medium/Low 指摘なし |
+| 2026-06-01 | Antigravity | Ticket #4 (T5) SQLite スキーマ・永続化層の QA 完了。すべての設計・受け入れ条件の適合を確認し QA PASS |
