@@ -67,6 +67,7 @@ AGENTS.md §8.3 を実行手順として再掲 (上から順に):
 
 詳細は AGENTS.md §8.2:
 - 実装は `agent/T<N>-impl` ブランチ。**`main` への直接 push 禁止**。
+- コンフリクト防止のため、PR マージ後はブランチを使い回さず、必ず最新の `main` から次のブランチを切り直す。
 - merge は **Codex レビュー PASS + Antigravity QA PASS + 人間承認** の三条件を満たした後のみ。
 - **AI エージェントは merge しない** (例外は明示的人間許可のみ, WORKFLOW §12)。
 

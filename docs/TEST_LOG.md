@@ -207,3 +207,46 @@ uv run mypy src tests
 
 - 外部キー制約 `REFERENCES sources(id)` が SQLite 実行時に実効化された。
 - `SourceHealth は Source に従属` という不変条件が `IntegrityError` で保証される。
+
+## T6: seen 管理 / dedupe  (実装: OpenCode / 日付: 2026-06-01)
+
+### 実行コマンド
+
+```bash
+uv run pytest -v
+uv run ruff check .
+uv run mypy src tests
+```
+
+### 結果サマリー
+
+- pytest: **65 passed** / failed 0 (test_cli.py 8 + test_config.py 16 + test_normalize.py 12 + test_fetcher.py 12 + test_store.py 12 + test_dedupe.py 5)。
+- ruff check: All checks passed。
+- mypy --strict: Success, no issues found in 16 source files。
+
+### 実装内容
+
+**新規ファイル**:
+- `tests/test_dedupe.py` — 5 テスト (同一 source+key の dedupe、異なる source で同一 key は別レコード、同一 source で異なる key は別レコード、バッチ投入時の部分的 dedupe、空バッチ)
+
+**実装方針**:
+- `store/repo.py` の拡張は不要。既存の `insert_items()` が既に UNIQUE 制約による dedupe を実装済み。
+- Ticket #5 (T6) はテストの拡充に焦点を当て、dedupe の動作をより詳細に検証。
+
+**テストケース**:
+- `test_dedupe_same_source_same_key`: 同一 source+key の2回投入で1行のみ存在。
+- `test_dedupe_different_source_same_key`: 異なる source で同一 key は別レコードとして保存（クロスソース重複は Sprint 1A では許容）。
+- `test_dedupe_same_source_different_keys`: 同一 source で異なる key は別レコードとして保存。
+- `test_dedupe_batch_insert_mixed`: バッチ投入時の部分的な重複（一部は新規、一部は既存）。既存アイテムは更新されず、新規アイテムのみ追加。
+- `test_dedupe_empty_batch`: 空バッチは0件を返す。
+
+### DESIGN.md §4 / domain/collection.md §3.2 準拠
+
+- `UNIQUE(source_id, item_key)` 制約による dedupe が正常に動作。
+- クロスソース重複は Sprint 1A では別レコードとして許容 (FR-041)。
+- `item_key` 空での INSERT 防止は `test_insert_items_empty_key_rejected` で既に検証済み。
+
+### 引き継ぎポイント (Ticket #6 source_health)
+
+- `update_source_health_success()` / `update_source_health_failure()` は既に実装済み。
+- Ticket #6 (T7) はテストの拡充に焦点を当てる。
