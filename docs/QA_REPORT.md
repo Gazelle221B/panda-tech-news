@@ -105,3 +105,35 @@ QA の目的は **「受け入れ条件 (要件側) を満たしているか」*
 ### 未解決リスク
 
 - なし。Codex の Low 指摘事項 (duration_ms に HTTP 待ち時間を含める件) は、2026-05-31 PRコメント対応にて修正・検証完了。
+
+## Ticket #4 (T5) SQLite スキーマ・永続化 QA (検収日: 2026-06-01)
+
+### 最終動作確認
+
+- [x] スキーマ初期化 (`init-db`) がエラーなく動作し、2回連続実行しても壊れない（冪等）
+- [x] SQLAlchemy/SQLite において `PRAGMA foreign_keys=ON` が有効であり、存在しない `source_id` を持つアイテムや `source_health` レコードの挿入が `IntegrityError` で防がれる（参照整合性）
+- [x] アイテム追加時の重複排除（seen管理）が `UNIQUE(source_id, item_key)` に基づき正しく動作する（dedupe）
+- [x] 空の `item_key` を持つアイテムを挿入しようとした際、`ValueError` で防がれる
+- [x] 収集実行記録（`CollectRun`）の開始と完了、集計結果（成功数/失敗数/総アイテム数/新規アイテム数）が適切に記録される
+- [x] `finish_collect_run` 実行時、`total_sources` と実際の `FetchResult` 数が異なる場合は `ValueError` で防がれる
+- [x] データベースに `published_at DESC` のインデックス `idx_items_published` が意図通り作成されている
+- [x] テストがすべてグリーン（pytest 60件パス）
+
+### UI/UX
+
+- `info` コマンドが `Sprint phase: 1A (Ticket #4 SQLite)` と表示されることを確認
+
+### 回帰
+
+- 既存機能影響: なし。config / cli などの修正も既存機能を壊していない。
+
+### 整合性確認
+
+- DESIGN.md ↔ 実装差分: 一致（§4 のテーブル、インデックス、外部キー、seen管理などすべて適合）
+- 実装 ↔ テスト結果 (TEST_LOG.md): 一致
+- README.md / PROJECT_STATE.md / AGENTS.md の更新: 反映済
+
+### 未解決リスク
+
+- なし。Codex レビューの High/Medium/Low 指摘事項（外部キー有効化、total_sources不一致、descインデックス、info表示）は再レビューにてすべて修正・合格していることを確認済。
+
