@@ -115,21 +115,25 @@ def test_fetch_one_atom_feed() -> None:
 
 
 def test_fetch_one_bozo_with_entries_adopted() -> None:
-    bozo_with_entries = """<?xml version="1.0"?>
-<rss version="2.0">
-<channel><title>Bozo</title>
-<item><title>OK</title><link>https://x/1</link><guid>g1</guid></item>
-</channel></rss>"""
     source = _make_source()
     mock_resp = MagicMock()
-    mock_resp.text = bozo_with_entries
+    mock_resp.text = "dummy raw text"
     mock_resp.raise_for_status = MagicMock()
 
-    with patch("karyu_tech_news.collect.fetcher.httpx.get", return_value=mock_resp):
+    class MockFeed:
+        def __init__(self) -> None:
+            self.bozo = True
+            self.entries = [
+                {"title": "OK", "link": "https://x/1", "id": "g1"}
+            ]
+
+    with patch("karyu_tech_news.collect.fetcher.httpx.get", return_value=mock_resp), \
+         patch("karyu_tech_news.collect.fetcher.feedparser.parse", return_value=MockFeed()):
         result = fetch_one(source, "http://localhost:1200")
 
     assert result.ok is True
     assert len(result.items) == 1
+    assert result.items[0].title == "OK"
 
 
 def test_fetch_one_bozo_no_entries_failed() -> None:

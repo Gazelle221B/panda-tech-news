@@ -47,29 +47,26 @@ def _fetch_with_retry(url: str) -> str:
 
 
 def _parse_feed(text: str, source_id: str) -> FetchResult:
-    start = time.monotonic()
     feed = feedparser.parse(text)
     fetched_at = datetime.now(UTC)
 
     if feed.bozo and len(feed.entries) == 0:
-        elapsed = int((time.monotonic() - start) * 1000)
         bozo_exc = feed.get("bozo_exception", "unknown")
         return FetchResult(
             source_id=source_id,
             ok=False,
             items=[],
             error=f"bozo=1 with no entries: {bozo_exc}",
-            duration_ms=elapsed,
+            duration_ms=0,
         )
 
     items = [normalize_entry(entry, source_id, fetched_at) for entry in feed.entries]
-    elapsed = int((time.monotonic() - start) * 1000)
     return FetchResult(
         source_id=source_id,
         ok=True,
         items=items,
         error=None,
-        duration_ms=elapsed,
+        duration_ms=0,
     )
 
 
@@ -80,7 +77,10 @@ def fetch_one(source: SourceConfig, rsshub_base_url: str) -> FetchResult:
 
     try:
         text = _fetch_with_retry(url)
-        return _parse_feed(text, source.id)
+        res = _parse_feed(text, source.id)
+        elapsed = int((time.monotonic() - start) * 1000)
+        res.duration_ms = elapsed
+        return res
     except Exception as exc:  # noqa: BLE001
         elapsed = int((time.monotonic() - start) * 1000)
         logger.warning("fetch failed: %s: %s", source.id, exc)

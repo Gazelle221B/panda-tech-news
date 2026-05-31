@@ -55,7 +55,7 @@
 
 ## Antigravity QA の直近結果
 
-2026-05-30: 初期実装 (Ticket #1 + #2先行) の QA 確認完了。WORKFLOW に従い、初期ベースラインとして main にコミット。現在は Ticket #3 のため `agent/T3-impl` ブランチへ移行。
+2026-05-31: Ticket #3 (T4) RSS/RSSHub フェッチャ実装の QA 確認完了。DESIGN/実装差分/テスト結果/各種文書の整合性をすべて確認済。Codex の duration_ms 指摘事項も対応完了。証跡は `docs/QA_REPORT.md` に追記済み。
 
 ## 次に実行すべきアクション (優先順)
 
@@ -90,7 +90,8 @@ meeting.md / meeting2.md / tik-choco コードdump の全読に基づき作成:
 | 2026-05-30 | Claude Code | 初版作成、DESIGN/IMPLEMENTATION_PLAN 確定後の状態スナップショット |
 | 2026-05-30 | Claude Code | meeting3.md 反映: ソース検証完了(有効9本)、Ticket #1 + #2先行 実装・検証グリーン(pytest 24 / ruff / mypy strict) |
 | 2026-05-30 | Codex | T1 + T3(schema) 独立レビュー PASS を `docs/REVIEW_REPORT.md` に記録。次アクションは Ticket #3 |
-|| 2026-05-30 | Antigravity | AGENTS.md / CLAUDE.md 追加 (2026-05-30) |
-|| 2026-05-30 | Claude Code | AGENTS.md/CLAUDE.md + architecture.md / domain/collection.md / styleguide.md / README.md 追加。T1+T2 実装ベースに知識ベース文書を整備 |
+| 2026-05-30 | Antigravity | AGENTS.md / CLAUDE.md 追加 (2026-05-30) |
+| 2026-05-30 | Claude Code | AGENTS.md/CLAUDE.md + architecture.md / domain/collection.md / styleguide.md / README.md 追加。T1+T2 実装ベースに知識ベース文書を整備 |
 | 2026-05-31 | OpenCode | Ticket #3 (T4) RSS/RSSHub フェッチャ実装完了。collect/normalize.py + fetcher.py + テスト 24件追加。pytest 48 pass / ruff・mypy(strict) clean |
 | 2026-05-31 | Codex | T4 RSS/RSSHub フェッチャ独立レビュー PASS を `docs/REVIEW_REPORT.md` に記録。Critical/High/Medium 指摘なし |
+| 2026-05-31 | Antigravity | PR #1 の Codex/Copilot 指摘コメントへの対応・コード及びドキュメント修正完了 |

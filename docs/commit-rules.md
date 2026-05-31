@@ -11,7 +11,7 @@
 **「完了しました」と言う前、コミットする前に、下記3つすべてが緑であることを *その場で実行した出力* で確認する。記憶・推測・「さっき通った」で代用しない。**
 
 ```bash
-uv run pytest          # 全 pass (現状 24/24)
+uv run pytest          # 全 pass (現状 48/48)
 uv run ruff check .    # クリーン
 uv run mypy src tests  # strict クリーン
 ```

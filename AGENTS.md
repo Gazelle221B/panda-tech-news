@@ -73,7 +73,7 @@ uv run python -m karyu_tech_news validate-sources   # config/sources.yaml をス
 # または: uv run karyu validate-sources
 
 # 品質ゲート (PR 前に必ず通す)
-uv run pytest                                       # ユニットテスト (現状 24 / pass)
+uv run pytest                                       # ユニットテスト (現状 48 / pass)
 uv run ruff check .                                 # Lint
 uv run mypy src tests                               # 型 (strict)
 
@@ -135,7 +135,7 @@ panda-tech-news/
 │   ├── collect/  (T3-T4 で追加: fetcher / normalize / runner)
 │   ├── store/    (T5-T7 で追加: schema / repo)
 │   └── deliver/  (T9 で追加: discord)
-├── tests/                   # pytest (現状 24 / pass)
+├── tests/                   # pytest (現状 48 / pass)
 ├── scripts/                 # spike_curl_check.sh など検証スクリプト
 ├── data/                    # state.db 等 (.gitkeep 以外 git 管理外)
 └── assets/                  # bgm / jingles / voice_reference (素材本体は git 管理外)
