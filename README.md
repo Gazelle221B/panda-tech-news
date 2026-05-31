@@ -10,9 +10,9 @@
 
 ## ステータス
 
-- フェーズ: **Sprint 1A 実装中** — Ticket #1 (CLI スケルトン) + Ticket #2 先行 (ソーススキーマ / `validate-sources`) 完了
+- フェーズ: **Sprint 1A 実装中** — Ticket #3 まで完了 (CLI / sources.yaml / fetcher / fail-open)
 - ソース検証: 完了 (2026-05-29)。有効9本 (ADOPT 5 + 監視 4) / 保留2本。詳細は [docs/source-selection-spike-v0.1.md](docs/source-selection-spike-v0.1.md) §7
-- 次アクション: Ticket #3 (RSS/RSSHub フェッチャ, fail-open) → Ticket #4 (SQLite スキーマ)
+- 次アクション: Ticket #4 (SQLite スキーマ・永続化層)
 
 ## ドキュメント地図
 
@@ -22,12 +22,16 @@
 | 全体構想 | [docs/architecture-podcast-station.md](docs/architecture-podcast-station.md) | AIポッドキャスト局ビジョン (north star) |
 | ロードマップ | [docs/roadmap.md](docs/roadmap.md) | Sprint 1A→1B→2→3→局化 |
 | 設計 | [docs/DESIGN.md](docs/DESIGN.md) | **単一の真実の源** (Sprint 1A) |
+| アーキテクチャ | [docs/architecture.md](docs/architecture.md) | レイヤー責務・判断基準フローチャート |
+| ドメイン | [docs/domain/collection.md](docs/domain/collection.md) | 収集の用語・ビジネスルール・状態遷移 |
+| 規約 | [docs/styleguide.md](docs/styleguide.md) | コーディング規約・命名・スニペット |
+| コミット/完了ゲート | [docs/commit-rules.md](docs/commit-rules.md) | 完了宣言ゲート・コミット前チェック・DoD |
 | 設計継承 | [docs/design-inheritance-tc-newsflow.md](docs/design-inheritance-tc-newsflow.md) | Go版から継承する設計パターン |
 | 実装計画 | [docs/IMPLEMENTATION_PLAN.md](docs/IMPLEMENTATION_PLAN.md) | Sprint 1A タスク分解 |
 | ワークフロー | [docs/WORKFLOW.md](docs/WORKFLOW.md) | エージェント間契約 |
 | 状態 | [docs/PROJECT_STATE.md](docs/PROJECT_STATE.md) | 永続化された進捗 |
 | Spike | [docs/source-selection-spike-v0.1.md](docs/source-selection-spike-v0.1.md) | 初期10ソース選定 |
-| ADR | [docs/adr/](docs/adr/) | 重要決定の記録 (0001-0006) |
+| ADR | [docs/adr/INDEX.md](docs/adr/INDEX.md) | 重要決定の記録ハブ (0001-0006) + TEMPLATE |
 | 番組仕様 | [docs/hal-persona.md](docs/hal-persona.md), [docs/show-format.md](docs/show-format.md), [docs/editorial-policy.md](docs/editorial-policy.md) | HAL人格 / 構成 / 編集方針 |
 | プロンプト | [prompts/](prompts/) | 各エージェント宛指示 |
 

@@ -21,7 +21,13 @@ from karyu_tech_news.config import (
 # ---------- SourceConfig ----------
 
 def test_source_config_minimal_valid() -> None:
-    s = SourceConfig(id="deepseek-x", name="DeepSeek", url="https://example.com/feed", tier=1, category="AI")
+    s = SourceConfig(
+        id="deepseek-x",
+        name="DeepSeek",
+        url="https://example.com/feed",
+        tier=SourceTier.OFFICIAL,
+        category=SourceCategory.AI,
+    )
     assert s.tier is SourceTier.OFFICIAL
     assert s.category is SourceCategory.AI
     assert s.enabled is True
@@ -29,39 +35,83 @@ def test_source_config_minimal_valid() -> None:
 
 
 def test_source_config_tier_coerced_from_int() -> None:
-    s = SourceConfig(id="x", name="X", url="https://x/feed", tier=3, category="AI")
+    s = SourceConfig(
+        id="x",
+        name="X",
+        url="https://x/feed",
+        tier=3,  # type: ignore[arg-type]
+        category="AI",  # type: ignore[arg-type]
+    )
     assert s.tier is SourceTier.COMMUNITY
 
 
 def test_source_config_rejects_non_http_url() -> None:
     with pytest.raises(ValidationError):
-        SourceConfig(id="x", name="X", url="ftp://x/feed", tier=1, category="AI")
+        SourceConfig(
+            id="x",
+            name="X",
+            url="ftp://x/feed",
+            tier=SourceTier.OFFICIAL,
+            category=SourceCategory.AI,
+        )
 
 
 def test_source_config_allows_localhost_rsshub_url() -> None:
-    s = SourceConfig(id="x", name="X", url="http://localhost:1200/juejin/category/ai", tier=3, category="AI")
+    s = SourceConfig(
+        id="x",
+        name="X",
+        url="http://localhost:1200/juejin/category/ai",
+        tier=SourceTier.COMMUNITY,
+        category=SourceCategory.AI,
+    )
     assert s.url.startswith("http://localhost:1200")
 
 
 def test_source_config_rejects_bad_id_pattern() -> None:
     with pytest.raises(ValidationError):
-        SourceConfig(id="Has_Underscore_AndCaps", name="X", url="https://x/feed", tier=1, category="AI")
+        SourceConfig(
+            id="Has_Underscore_AndCaps",
+            name="X",
+            url="https://x/feed",
+            tier=SourceTier.OFFICIAL,
+            category=SourceCategory.AI,
+        )
 
 
 def test_source_config_rejects_unknown_tier() -> None:
     with pytest.raises(ValidationError):
-        SourceConfig(id="x", name="X", url="https://x/feed", tier=9, category="AI")
+        SourceConfig(
+            id="x",
+            name="X",
+            url="https://x/feed",
+            tier=9,  # type: ignore[arg-type]
+            category=SourceCategory.AI,
+        )
 
 
 def test_source_config_rejects_unknown_category() -> None:
     with pytest.raises(ValidationError):
-        SourceConfig(id="x", name="X", url="https://x/feed", tier=1, category="Politics")
+        SourceConfig(
+            id="x",
+            name="X",
+            url="https://x/feed",
+            tier=SourceTier.OFFICIAL,
+            category="Politics",  # type: ignore[arg-type]
+        )
 
 
 # ---------- SourcesFile ----------
 
-def _mk(id_: str, tier: int = 1, enabled: bool = True) -> SourceConfig:
-    return SourceConfig(id=id_, name=id_, url="https://x/feed", tier=tier, category="AI", enabled=enabled)
+def _mk(id_: str, tier: SourceTier | int = SourceTier.OFFICIAL, enabled: bool = True) -> SourceConfig:
+    tier_enum = tier if isinstance(tier, SourceTier) else SourceTier(tier)
+    return SourceConfig(
+        id=id_,
+        name=id_,
+        url="https://x/feed",
+        tier=tier_enum,
+        category=SourceCategory.AI,
+        enabled=enabled,
+    )
 
 
 def test_sources_file_unique_ids_enforced() -> None:

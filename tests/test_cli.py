@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 import yaml
 from typer.testing import CliRunner
 
@@ -72,7 +73,7 @@ def test_validate_sources_bad_url_exits_1(tmp_path: Path) -> None:
     assert result.exit_code == 1
 
 
-def test_info_masks_secrets(tmp_path: Path, monkeypatch) -> None:
+def test_info_masks_secrets(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("DISCORD_WEBHOOK_URL", "https://discord/secret-xyz")
     result = runner.invoke(app, ["--env-file", str(tmp_path / "absent.env"), "info"])
     assert result.exit_code == 0

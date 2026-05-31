@@ -1,11 +1,11 @@
 # プロジェクト状態
 
-> 最終更新: 2026-05-30 / 更新者: Claude Code (アーキテクト)
+> 最終更新: 2026-05-31 / 更新者: Codex (独立レビュー)
 > 本ファイルは全エージェントが随時更新する。**Antigravity の内部記憶ではなくここを真の記憶とする** (WORKFLOW §13)。
 
 ## 現在のフェーズ
 
-**Sprint 1A 実装中** — Ticket #1 (CLIスケルトン) + Ticket #2先行 (ソーススキーマ / `validate-sources`) 完了・検証グリーン
+**Sprint 1A 実装中** — Ticket #3 (RSS/RSSHub フェッチャ) 完了・検証グリーン
 
 | ステップ | 状態 |
 |---|---|
@@ -24,12 +24,12 @@
 | 初期ソース URL ローカル検証 | ✅ 完了 (2026-05-29)。有効9本(ADOPT5+監視4)/保留2本。meeting3.md・Spike §7 |
 | `config/sources.yaml` の enabled 確定 | ✅ 確定 (11本中9有効、jiqizhixin-rss/huxiu-rss は disabled 保持) |
 | `src/karyu_tech_news/` Ticket #1 + #2先行 | ✅ 完了。CLI(version/validate-sources/info)+Pydanticスキーマ。pytest 24 pass / ruff・mypy(strict) clean |
-| Ticket #3 (RSS/RSSHub フェッチャ, fail-open) | ⏳ 次の実装対象 |
-| Ticket #4 (SQLite スキーマ・永続化) | ⏳ 未着手 |
+| Ticket #3 (RSS/RSSHub フェッチャ, fail-open) | ✅ 完了 (2026-05-31)。collect/normalize.py + fetcher.py。pytest 48 pass / ruff・mypy(strict) clean |
+| Ticket #4 (SQLite スキーマ・永続化) | ⏳ 次の実装対象 |
 
 ## 作業中ブランチ
 
-未コミット。Ticket #1 + #2先行 は作業ツリーに実装済 (`src/karyu_tech_news/`, `tests/`, `pyproject.toml` 更新)。コミット/`agent/<task>` ブランチ運用 (WORKFLOW §11) に乗せるか直接コミットかは人間判断待ち。
+`agent/T3-impl` (初期実装 T1+T2 は `main` へコミット済)
 
 ## 直近の設計判断
 
@@ -51,24 +51,23 @@
 
 ## Codex レビューの直近結果
 
-2026-05-30: T1 + T3(schema) 独立レビュー PASS。Critical/High/Medium/Low 指摘なし。証跡は `docs/REVIEW_REPORT.md` に追記済み。
+2026-05-31: T4 (Ticket #3 RSS/RSSHub フェッチャ) 独立レビュー PASS。Critical/High/Medium 指摘なし、Low 2件 (duration_ms 計測範囲、README/AGENTS ステータス同期)。証跡は `docs/REVIEW_REPORT.md` に追記済み。
 
 ## Antigravity QA の直近結果
 
-未実施。最初の QA は T10 完了後を想定。
+2026-05-31: Ticket #3 (T4) RSS/RSSHub フェッチャ実装の QA 確認完了。DESIGN/実装差分/テスト結果/各種文書の整合性をすべて確認済。Codex の duration_ms 指摘事項も対応完了。証跡は `docs/QA_REPORT.md` に追記済み。
 
 ## 次に実行すべきアクション (優先順)
 
-1. ~~ソース検証~~ ✅ / ~~sources.yaml 確定~~ ✅ / ~~Ticket #1 + #2先行 実装~~ ✅ (検証グリーン)
-2. **Ticket #3**: RSS/RSSHub フェッチャ実装。`SourcesFile.enabled_sources()` を入力に `FetchResult` のリストを返す。fail-open の中核 (1ソース失敗で全体を止めない、例外は FetchResult に包む)。design-inheritance §1, §11 準拠。`httpx` + `feedparser`、タイムアウト30s・リトライ2回 (FR-012/013)。
-3. **Ticket #4**: SQLite スキーマ + 永続化層 (`UNIQUE(source_id, item_key)`、item_key 生成順 external_id→link→hash)。`init-db` コマンド。
-4. Ticket #5 (dedupe) 〜 #9 (Discord) を依存グラフに沿って。
+1. ~~ソース検証~~ ✅ / ~~sources.yaml 確定~~ ✅ / ~~Ticket #1 + #2先行 実装~~ ✅ / ~~Ticket #3 フェッチャ~~ ✅ (検証グリーン)
+2. **Ticket #4**: SQLite スキーマ + 永続化層 (`UNIQUE(source_id, item_key)`、item_key 生成順 external_id→link→hash)。`init-db` コマンド。
+3. Ticket #5 (dedupe) 〜 #9 (Discord) を依存グラフに沿って。
 
 ## 人間判断待ちの事項
 
 - ~~Python モジュール名~~ → **確定・実装済**: モジュール `karyu_tech_news`、配布名 `panda-tech-news` 維持、ビルドは hatchling (`packages = ["src/karyu_tech_news"]`)、console script `karyu`。
 - ~~ソース URL 実取得検証~~ → ✅ 完了 (2026-05-29)。
-- コミット/ブランチ運用: Ticket #1+#2先行 を `agent/<task>` ブランチに乗せるか直接コミットか。
+- ~~コミット/ブランチ運用: Ticket #1+#2先行 を `agent/<task>` ブランチに乗せるか直接コミットか。~~ → 初期実装として直接 `main` へコミット済。以降は `agent/<task>` 運用を厳格に適用。
 - 初期9本に Game/Subculture 系を1本予備で入れるか (Spike §3 B案、Sprint 1A 観察中に並行検討可)。
 - LLM 役割 A/B/C のどれを初期既定にするか (ADR-0005、実測後確定)。
 - HAL の声リファレンス確定タイミング (Sprint 2 までは保留可)。
@@ -91,3 +90,8 @@ meeting.md / meeting2.md / tik-choco コードdump の全読に基づき作成:
 | 2026-05-30 | Claude Code | 初版作成、DESIGN/IMPLEMENTATION_PLAN 確定後の状態スナップショット |
 | 2026-05-30 | Claude Code | meeting3.md 反映: ソース検証完了(有効9本)、Ticket #1 + #2先行 実装・検証グリーン(pytest 24 / ruff / mypy strict) |
 | 2026-05-30 | Codex | T1 + T3(schema) 独立レビュー PASS を `docs/REVIEW_REPORT.md` に記録。次アクションは Ticket #3 |
+| 2026-05-30 | Antigravity | AGENTS.md / CLAUDE.md 追加 (2026-05-30) |
+| 2026-05-30 | Claude Code | AGENTS.md/CLAUDE.md + architecture.md / domain/collection.md / styleguide.md / README.md 追加。T1+T2 実装ベースに知識ベース文書を整備 |
+| 2026-05-31 | OpenCode | Ticket #3 (T4) RSS/RSSHub フェッチャ実装完了。collect/normalize.py + fetcher.py + テスト 24件追加。pytest 48 pass / ruff・mypy(strict) clean |
+| 2026-05-31 | Codex | T4 RSS/RSSHub フェッチャ独立レビュー PASS を `docs/REVIEW_REPORT.md` に記録。Critical/High/Medium 指摘なし |
+| 2026-05-31 | Antigravity | PR #1 の Codex/Copilot 指摘コメントへの対応・コード及びドキュメント修正完了 |

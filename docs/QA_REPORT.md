@@ -49,3 +49,59 @@ QA の目的は **「受け入れ条件 (要件側) を満たしているか」*
 ## 履歴
 
 (検収ごとに追記)
+
+## T1 + T2/T3(schema) 初期実装 QA (検収日: 2026-05-30)
+
+### 最終動作確認
+
+- [x] (N/A) python -m karyu_tech_news collect が完走する (※本フェーズでは対象外)
+- [x] sources.yaml が正しくロードされ、11本中9本が enabled として認識される
+- [x] 各コマンド (`version`, `info`, `validate-sources`) がエラーなく動作する
+- [x] テストがすべてグリーン (pytest 24件パス)
+
+### UI/UX
+
+- Discord 投稿の可読性: (N/A)
+- CLI 出力: OK (Tier別・カテゴリ別の集計やマスク処理が要件通り動作している)
+
+### 回帰
+
+- 既存機能影響: なし (新規プロジェクト)
+
+### 整合性確認
+
+- DESIGN.md ↔ 実装差分: 一致
+- 実装 ↔ テスト結果 (TEST_LOG.md): 一致
+- README.md / PROJECT_STATE.md の更新: 反映済
+
+### 未解決リスク
+
+- なし (次タスク T3 へ進行可能)
+
+## T4 RSS/RSSHub フェッチャ実装 QA (検収日: 2026-05-31)
+
+### 最終動作確認
+
+- [x] 1ソースが失敗しても全体が止まらない (fail-openの実装確認)
+- [x] (N/A) SQLite に items が蓄積される (次タスク T5/T6以降)
+- [x] URL の scheme/host 小文字化や UTM パラメータ除去が正しく行われ canonical_url_hash が計算される (FR-022)
+- [x] external_id → link → sha256(...) の順で item_key が生成される (FR-021)
+- [x] テストがすべてグリーン (pytest 48件パス)
+
+### UI/UX
+
+- (N/A)
+
+### 回帰
+
+- 既存機能影響: なし。config 等の修正も既存機能を壊していない。
+
+### 整合性確認
+
+- DESIGN.md ↔ 実装差分: 一致
+- 実装 ↔ テスト結果 (TEST_LOG.md): 一致
+- README.md / PROJECT_STATE.md / AGENTS.md の更新: 反映済
+
+### 未解決リスク
+
+- なし。Codex の Low 指摘事項 (duration_ms に HTTP 待ち時間を含める件) は、2026-05-31 PRコメント対応にて修正・検証完了。
