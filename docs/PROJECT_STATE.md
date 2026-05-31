@@ -5,7 +5,7 @@
 
 ## 現在のフェーズ
 
-**Sprint 1A 実装中** — Ticket #5 (seen 管理 / dedupe) Antigravity QA PASS → 次: Ticket #6 (T7) source_health 更新
+**Sprint 1A 実装中** — Ticket #6 (T7) Antigravity QA PASS → 次: Ticket #7 (T8) collect runner 統合
 
 | ステップ | 状態 |
 |---|---|
@@ -27,11 +27,12 @@
 | Ticket #3 (RSS/RSSHub フェッチャ, fail-open) | ✅ 完了 (2026-05-31)。collect/normalize.py + fetcher.py。pytest 48 pass / ruff・mypy(strict) clean |
 | Ticket #4 (SQLite スキーマ・永続化) | ✅ Antigravity QA PASS (2026-06-01)。PRAGMA foreign_keys=ON 有効化、total_sources 不一致検出、idx_items_published DESC 修正、info Sprint 表示更新。pytest 60 pass / ruff・mypy(strict) clean |
 | Ticket #5 (seen 管理 / dedupe) | ✅ Antigravity QA PASS (2026-06-01)。`UNIQUE(source_id, item_key)` での dedupe 実装完了。pytest 65 pass / ruff・mypy(strict) clean |
-| Ticket #6 (source_health 更新) | ⏳ Ticket #6 (T7) 実装着手へ |
+| Ticket #6 (source_health 更新) | ✅ Antigravity QA PASS (2026-06-01)。FR-050/051/052に適合し正常動作を確認。pytest 73 pass / ruff・mypy(strict) clean |
+| Ticket #7 (collect runner: fail-open 統合) | ⏳ Ticket #7 (T8) 実装着手へ |
 
 ## 作業中ブランチ
 
-`agent/T5-impl`
+`agent/T6-impl`
 
 ## 直近の設計判断
 
@@ -53,19 +54,25 @@
 
 ## Codex レビューの直近結果
 
-2026-06-01: T6 (Ticket #5 seen 管理 / dedupe) 独立レビュー PASS。Critical/High/Medium/Low 指摘なし。証跡は `docs/REVIEW_REPORT.md` に追記済み。
+2026-06-01: T7 (Ticket #6 source_health 更新) 独立レビュー PASS。Critical/High/Medium/Low 指摘なし。証跡は `docs/REVIEW_REPORT.md` に追記済み。
 
 ## Antigravity QA の直近結果
 
+2026-06-01: Ticket #6 (T7) source_health 更新の QA 確認完了。FR-050/051/052に適合し、正常な状態遷移とタイムゾーン対応を確認し QA PASS。証跡は `docs/QA_REPORT.md` に追記済み。
 2026-06-01: Ticket #5 (T6) seen 管理 / dedupe の QA 確認完了。`UNIQUE(source_id, item_key)` での重複排除、同一バッチ内の重複防止などを確認し QA PASS。証跡は `docs/QA_REPORT.md` に追記済み。
 2026-06-01: Ticket #4 (T5) SQLite スキーマ・永続化の QA 確認完了。`PRAGMA foreign_keys=ON` 有効化による参照整合性、重複排除（dedupe）、収集実行記録の整合性、およびすべての設計整合性を検証済。証跡は `docs/QA_REPORT.md` に追記済み。
+
+6. QA PASS 後、OpenCode 実装で Ticket #7 (T8) `collect runner` (fail-open 統合) へ進む。
 
 ## 次に実行すべきアクション (優先順)
 
 1. ~~Ticket #5 (T6) Codex レビュー~~ ✅ PASS (2026-06-01)。Critical/High/Medium/Low 指摘なし。
 2. ~~Ticket #5 (T6) Antigravity QA~~ ✅ PASS (2026-06-01)。seen 管理 / dedupe の最終 QA。
-3. **OpenCode 実装**: Ticket #6 (T7) `source_health` 更新 (成功/失敗/連続失敗) へ進む。
-4. 実装完了後、Codex レビュー → Antigravity QA の順で進める。
+3. ~~Ticket #6 (T7) source_health 更新~~ ✅ 完了 (2026-06-01)。
+4. ~~Ticket #6 (T7) Codex レビュー~~ ✅ PASS (2026-06-01)。
+5. ~~Ticket #6 (T7) Antigravity QA~~ ✅ PASS (2026-06-01)。source_health 更新の最終 QA。
+6. **OpenCode 実装**: Ticket #7 (T8) `collect runner` (fail-open 統合) へ進む。
+7. 実装完了後、Codex レビュー → Antigravity QA の順で進める。
 
 ## 人間判断待ちの事項
 
@@ -105,4 +112,7 @@ meeting.md / meeting2.md / tik-choco コードdump の全読に基づき作成:
 | 2026-06-01 | Codex | T5 SQLite スキーマ + 永続化層の再レビュー PASS を `docs/REVIEW_REPORT.md` に記録。Critical/High/Medium/Low 指摘なし |
 | 2026-06-01 | Antigravity | Ticket #4 (T5) SQLite スキーマ・永続化層の QA 完了。すべての設計・受け入れ条件の適合を確認し QA PASS |
 | 2026-06-01 | OpenCode | Ticket #5 (T6) seen 管理 / dedupe 完了。tests/test_dedupe.py に 5 テスト追加。pytest 65 pass / ruff・mypy(strict) clean |
+| 2026-06-01 | OpenCode | Ticket #6 (T7) source_health 更新完了。tests/test_health.py に 8 テスト追加。pytest 73 pass / ruff・mypy(strict) clean |
 | 2026-06-01 | Codex | T6 seen 管理 / dedupe の独立レビュー PASS を `docs/REVIEW_REPORT.md` に記録。Critical/High/Medium/Low 指摘なし |
+| 2026-06-01 | Codex | T7 source_health 更新の独立レビュー PASS を `docs/REVIEW_REPORT.md` に記録。Critical/High/Medium/Low 指摘なし |
+| 2026-06-01 | Antigravity | Ticket #6 (T7) source_health 更新の QA 完了。すべての設計・受け入れ条件の適合を確認し QA PASS |

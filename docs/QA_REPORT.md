@@ -163,3 +163,30 @@ QA の目的は **「受け入れ条件 (要件側) を満たしているか」*
 ### 未解決リスク
 
 - なし。次タスク Ticket #6 (T7) `source_health` の fail-open 管理へ進行可能。
+
+## Ticket #6 (T7) source_health 更新 QA (検収日: 2026-06-01)
+
+### 最終動作確認
+
+- [x] source_health が更新される（既存実装 `update_source_health_success` および `update_source_health_failure` によって、初回成功/失敗、連続失敗のカウントアップ/リセット、最新エラーの保存が正しく行われることを確認）
+- [x] SQLiteから取得する tz-naive な datetime に対し、正しく UTC timezone の情報を持たせて比較するアサーション処理が実装されている
+- [x] テストがすべてグリーン（pytest 73件パス、`tests/test_health.py` の8件追加分を含む）
+- [x] Ruff lint, Mypy strict, validate-sources すべてパス
+
+### UI/UX
+
+- (N/A) Discord警告 (consecutive_failures >= 3) の準備として、連続3回失敗時の状態遷移テストが整備されていることを確認。
+
+### 回帰
+
+- 既存機能影響: なし。
+
+### 整合性確認
+
+- DESIGN.md ↔ 実装差分: 一致 (FR-050, FR-051, FR-052 / domain/collection.md に完全に適合)
+- 実装 ↔ テスト結果 (TEST_LOG.md): 一致
+- README.md / PROJECT_STATE.md / AGENTS.md の更新: 反映済
+
+### 未解決リスク
+
+- なし。次タスク Ticket #7 (T8) collect runner (fail-open 統合) へ進行可能。
