@@ -402,3 +402,83 @@ uv run mypy src tests
 ### 追加テスト
 
 - `test_run_collect_new_items_matches_persisted_on_commit_failure`: `session.commit()` をモックして特定の呼び出しで失敗させ、`run.new_items` が保存済みItem件数と一致することを確認。
+
+## T9: Discord Webhook サマリー投稿  (実装: OpenCode / 日付: 2026-06-01)
+
+### 実行コマンド
+
+```bash
+uv run pytest -v
+uv run ruff check .
+uv run mypy src tests
+```
+
+### 結果サマリー
+
+- pytest: **87 passed** / failed 0 (test_cli.py 8 + test_config.py 16 + test_normalize.py 12 + test_fetcher.py 12 + test_store.py 12 + test_dedupe.py 5 + test_health.py 8 + test_runner_fail_open.py 8 + test_discord.py 6)。
+- ruff check: All checks passed。
+- mypy --strict: Success, no issues found in 22 source files。
+
+### 実装内容
+
+**新規ファイル**:
+- `src/karyu_tech_news/deliver/__init__.py` — モジュール初期化
+- `src/karyu_tech_news/deliver/discord.py` — `format_summary()` と `post_summary()` 関数
+- `tests/test_discord.py` — 6 テスト (基本的なサマリー形式、警告表示、Webhook送信成功/失敗、空URL、JST変換)
+
+**実装方針**:
+- `format_summary()` は `CollectRun` と `SourceHealth`、`Source`、`Item` から §14.1 形式のサマリーテキストを生成。
+  - JST変換: `started_at` を UTC から JST (UTC+9) に変換して表示。
+  - 実行時間: `finished_at - started_at` で計算。
+  - 警告表示: `consecutive_failures >= 3` のソースを一覧表示。
+  - Tier別/カテゴリ別カウント: `Item.fetched_at >= run.started_at` でフィルタリングし、`Source` の `tier` と `category` で集計。
+- `post_summary()` は httpx で Webhook に POST。失敗時はログのみで False を返す (fail-open, FR-071)。
+
+**テストケース**:
+- `test_format_summary_basic`: 基本的なサマリー形式が正しいことを確認。
+- `test_format_summary_with_unhealthy_sources`: `consecutive_failures >= 3` の警告が表示されることを確認。
+- `test_post_summary_success`: Webhook送信成功時にTrueを返すことを確認。
+- `test_post_summary_failure`: Webhook送信失敗時にFalseを返すことを確認 (fail-open, FR-071)。
+- `test_post_summary_empty_url`: Webhook URLが空の場合にFalseを返すことを確認。
+- `test_format_summary_jst_conversion`: JST変換が正しく動作することを確認。
+
+### DESIGN.md §3.2 / requirements-v1.0.md §14.1 / FR-070/071/072 準拠
+
+- **FR-070**: Discord Webhook へ収集サマリーを投稿。
+- **FR-071**: Webhook 投稿失敗時も収集処理は失敗扱いにしない (fail-open)。
+- **FR-072**: Sprint 1A では添付ファイルなし、Markdown本文投稿のみ。
+- **§14.1**: 指定されたフォーマット形式に適合 (日時、実行時間、成功/失敗、警告、新規アイテム、Tier別、カテゴリ別)。
+
+### 引き継ぎポイント (Ticket #9 CLI統合)
+
+- `post_summary()` を `main.py` の `collect` コマンドから呼び出す。
+- Ticket #9 (T10) は `collect` コマンドに `--post` オプションを追加し、収集後に自動で Discord に投稿する機能を統合。
+
+## T9 修正: Codex レビュー指摘対応  (実装: OpenCode / 日付: 2026-06-01)
+
+### 指摘内容
+
+**High**: `discord.py` の Tier/カテゴリ集計が `Item.fetched_at >= run.started_at` だけで、`run.finished_at` 以前に限定されていない。過去 run のサマリーを作ると、run 終了後に保存された item まで混ざる。
+
+### 修正内容
+
+- `src/karyu_tech_news/deliver/discord.py` — `run.finished_at` がある場合、item 集計条件に `Item.fetched_at <= run.finished_at` を追加。
+- `tests/test_discord.py` — run 終了後の item が Tier/カテゴリ集計に入らない回帰テストを追加。
+
+### 実行コマンド
+
+```bash
+uv run pytest -v
+uv run ruff check .
+uv run mypy src tests
+```
+
+### 結果サマリー
+
+- pytest: **88 passed** / failed 0 (test_cli.py 8 + test_config.py 16 + test_normalize.py 12 + test_fetcher.py 12 + test_store.py 12 + test_dedupe.py 5 + test_health.py 8 + test_runner_fail_open.py 8 + test_discord.py 7)。
+- ruff check: All checks passed。
+- mypy --strict: Success, no issues found in 22 source files。
+
+### 追加テスト
+
+- `test_format_summary_excludes_items_after_finished_at`: run 終了後に保存された item が Tier/カテゴリ集計に含まれないことを確認。
