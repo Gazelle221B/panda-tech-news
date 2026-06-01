@@ -1,11 +1,11 @@
 # プロジェクト状態
 
-> 最終更新: 2026-06-01 / 更新者: Codex (独立レビュー)
+> 最終更新: 2026-06-01 / 更新者: Antigravity (テックリード / QA)
 > 本ファイルは全エージェントが随時更新する。**Antigravity の内部記憶ではなくここを真の記憶とする** (WORKFLOW §13)。
 
 ## 現在のフェーズ
 
-**Sprint 1A 実装中** — Ticket #7 (T8) Antigravity QA PASS → 次: Ticket #8 (T9) Discord Webhook
+**Sprint 1A 実装中** — Ticket #8 (T9) Antigravity QA PASS → 次: Ticket #9 (T10) collect CLI結合
 
 | ステップ | 状態 |
 |---|---|
@@ -29,11 +29,12 @@
 | Ticket #5 (seen 管理 / dedupe) | ✅ Antigravity QA PASS (2026-06-01)。`UNIQUE(source_id, item_key)` での dedupe 実装完了。pytest 65 pass / ruff・mypy(strict) clean |
 | Ticket #6 (source_health 更新) | ✅ Antigravity QA PASS (2026-06-01)。FR-050/051/052に適合し正常動作を確認。pytest 73 pass / ruff・mypy(strict) clean |
 | Ticket #7 (collect runner: fail-open 統合) | ✅ Antigravity QA PASS (2026-06-01)。fail-open 設計および集計整合性の確実な動作を検証済。pytest 81 pass / ruff・mypy(strict) clean |
-| Ticket #8 (Discord Webhook サマリー投稿) | ⏳ Ticket #8 (T9) 実装着手へ |
+| Ticket #8 (Discord Webhook サマリー投稿) | ✅ Antigravity QA PASS (2026-06-01)。run 境界内の集計整合性、Webhook 送信時の fail-open 担保を確認。pytest 88 pass / ruff・mypy(strict) clean |
+| Ticket #9 (CLI統合: `collect` コマンド) | ⏳ Ticket #9 (T10) 実装着手へ |
 
 ## 作業中ブランチ
 
-`agent/T7-impl`
+`agent/T8-impl`
 
 ## 直近の設計判断
 
@@ -55,28 +56,22 @@
 
 ## Codex レビューの直近結果
 
-2026-06-01: T8 (Ticket #7 collect runner fail-open 統合) 再々レビュー PASS。Critical/High/Medium/Low 指摘なし。実 DB エラー時の fail-open と `collect_runs.new_items` 集計整合性を確認。証跡は `docs/REVIEW_REPORT.md` に追記済み。
+2026-06-01: T9 (Ticket #8 Discord Webhook サマリー投稿) 再レビュー PASS。Critical/High/Medium/Low 指摘なし。run 境界内の Tier/カテゴリ集計と Webhook fail-open を確認。証跡は `docs/REVIEW_REPORT.md` に追記済み。
+
 ## Antigravity QA の直近結果
 
+2026-06-01: Ticket #8 (T9) Discord Webhook サマリー投稿の QA 確認完了。要件 §14.1 に基づくサマリーフォーマットの正確性、JSTタイムゾーン変換、収集実行時間の正確性、そして Webhook 送信失敗時の fail-open 設計（FR-071）を確認し QA PASS。証跡は `docs/QA_REPORT.md` に追記済み。
 2026-06-01: Ticket #7 (T8) collect runner fail-open 統合の QA 確認完了。1ソースのDBエラーが後続処理に影響しないフェイルオープン設計、および `collect_runs` と `source_health` の正確な集計と状態遷移を確認し QA PASS。証跡は `docs/QA_REPORT.md` に追記済み。
 
 2026-06-01: Ticket #6 (T7) source_health 更新の QA 確認完了。FR-050/051/052に適合し、正常な状態遷移とタイムゾーン対応を確認し QA PASS。証跡は `docs/QA_REPORT.md` に追記済み。
 2026-06-01: Ticket #5 (T6) seen 管理 / dedupe の QA 確認完了。`UNIQUE(source_id, item_key)` での重複排除、同一バッチ内の重複防止などを確認し QA PASS。証跡は `docs/QA_REPORT.md` に追記済み。
 2026-06-01: Ticket #4 (T5) SQLite スキーマ・永続化の QA 確認完了。`PRAGMA foreign_keys=ON` 有効化による参照整合性、重複排除（dedupe）、収集実行記録の整合性、およびすべての設計整合性を検証済。証跡は `docs/QA_REPORT.md` に追記済み。
 
-## 次に実行すべきアクション (優先順)
-
-1. ~~Ticket #5 (T6) Codex レビュー~~ ✅ PASS (2026-06-01)。Critical/High/Medium/Low 指摘なし。
-2. ~~Ticket #5 (T6) Antigravity QA~~ ✅ PASS (2026-06-01)。seen 管理 / dedupe の最終 QA。
-3. ~~Ticket #6 (T7) source_health 更新~~ ✅ 完了 (2026-06-01)。
-4. ~~Ticket #6 (T7) Codex レビュー~~ ✅ PASS (2026-06-01)。
-5. ~~Ticket #6 (T7) Antigravity QA~~ ✅ PASS (2026-06-01)。source_health 更新の最終 QA。
-6. ~~Ticket #7 (T8) collect runner 統合~~ ✅ 実装完了 (2026-06-01)。collect/runner.py 実装、pytest 79 pass。
-7. ~~T8 Codex レビュー High 指摘対応~~ ✅ 完了 (2026-06-01)。session.rollback() 追加、IntegrityError 回帰テスト追加。pytest 80 pass。
-8. ~~T8 Codex 再レビュー High 指摘対応~~ ✅ 完了 (2026-06-01)。`total_new_items` 加算を commit 成功後へ移動。pytest 81 pass。
-9. ~~T8 Codex 再々レビュー~~ ✅ PASS (2026-06-01)。
-10. ~~Ticket #7 (T8) Antigravity QA~~ ✅ PASS (2026-06-01)。collect runner 統合の最終 QA。
-11. **OpenCode 実装**: Ticket #8 (T9) Discord Webhook サマリー投稿 へ進む。
+1. ~~Ticket #8 (T9) Discord Webhook サマリー投稿~~ ✅ 実装完了 (2026-06-01)。deliver/discord.py 実装、pytest 87 pass。
+2. ~~T9 Codex レビュー High 指摘対応~~ ✅ 完了 (2026-06-01)。run.finished_at 上限追加、回帰テスト追加。pytest 88 pass。
+3. ~~T9 Codex 再レビュー~~ ✅ PASS (2026-06-01)。Critical/High/Medium/Low 指摘なし。
+4. ~~Antigravity QA~~ ✅ PASS (2026-06-01)。T9 Discord Webhook サマリー投稿の最終 QA。
+5. **OpenCode 実装**: Ticket #9 (T10) `collect` CLI 結合へ進む。
 
 ## 人間判断待ちの事項
 
@@ -127,3 +122,8 @@ meeting.md / meeting2.md / tik-choco コードdump の全読に基づき作成:
 | 2026-06-01 | OpenCode | T8 Codex 再レビュー指摘対応完了。total_new_items加算をcommit成功後に移動、commit失敗時の回帰テスト追加。pytest 81 pass / ruff・mypy(strict) clean |
 | 2026-06-01 | Codex | T8 collect runner 統合の再々レビュー PASS を `docs/REVIEW_REPORT.md` に記録。Critical/High/Medium/Low 指摘なし |
 | 2026-06-01 | Antigravity | Ticket #7 (T8) collect runner fail-open 統合の QA 完了。すべての設計・受け入れ条件の適合を確認し QA PASS |
+| 2026-06-01 | OpenCode | Ticket #8 (T9) Discord Webhook サマリー投稿完了。deliver/discord.py 実装、format_summary + post_summary。tests/test_discord.py に 6 テスト追加。pytest 87 pass / ruff・mypy(strict) clean |
+| 2026-06-01 | Codex | T9 Discord Webhook サマリー投稿の独立レビュー FAIL を `docs/REVIEW_REPORT.md` に記録。High 1件: run 終了後の item が Tier/カテゴリ集計に混ざる |
+| 2026-06-01 | OpenCode | T9 Codex レビュー指摘対応完了。`format_summary()` の item 集計条件に `Item.fetched_at <= run.finished_at` を追加、回帰テスト追加。pytest 88 pass / ruff・mypy(strict) clean |
+| 2026-06-01 | Codex | T9 Discord Webhook サマリー投稿の再レビュー PASS を `docs/REVIEW_REPORT.md` に記録。Critical/High/Medium/Low 指摘なし |
+| 2026-06-01 | Antigravity | Ticket #8 (T9) Discord Webhook サマリー投稿の QA 完了。すべての設計・受け入れ条件の適合を確認し QA PASS |

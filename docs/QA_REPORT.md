@@ -219,3 +219,38 @@ QA の目的は **「受け入れ条件 (要件側) を満たしているか」*
 ### 未解決リスク
 
 - なし。次タスク Ticket #8 (T9) Discord Webhook サマリー投稿 へ進行可能。
+
+## Ticket #8 (T9) Discord Webhook サマリー投稿 QA (検収日: 2026-06-01)
+
+### 最終動作確認
+
+- [x] Discord Webhook サマリーが要件 §14.1 形式で正しく構築されることを確認 (`format_summary`)
+- [x] JST タイムゾーンへの日時変換が正しく機能していることを確認 (UTC日時からJST日時への変換)
+- [x] 実行時間（finished_at - started_at）が秒単位（小数点以下1桁）で正確に表示されることを確認
+- [x] 成功・失敗ソースの数が正しく表示されることを確認
+- [x] `consecutive_failures >= 3` に達したソースがある場合、`⚠️ 要対応` として表示されることを確認
+- [x] `run.started_at <= Item.fetched_at <= run.finished_at` の期間内にフェッチされたアイテムのみがTier/カテゴリのカウント集計対象になることを確認し、異なるrunのアイテムが混入しないことをテストで確認
+- [x] Webhook投稿失敗時（HTTP 4xx/5xx やネットワークエラー）でも例外を外部に伝播させず、ログ記録のみに留めて `False` を返す fail-open 設計（FR-071）を確認
+- [x] テストがすべてグリーン（pytest 88件パス、`tests/test_discord.py` 7件追加）
+- [x] Ruff lint, Mypy strict, validate-sources すべてパス
+
+### UI/UX
+
+- Discord 投稿用のサマリーテキストの可読性が非常に高く、要件 §14.1 に完全に適合している。
+- 実行時間や新規アイテムのTier別、カテゴリ別のカウント出力フォーマットも要件に忠実。
+
+### 回帰
+
+- 既存機能影響: なし。新規モジュール `deliver/` を作成し、既存の SQLite や収集側の機能を壊さずに独立して追加されている。
+
+### 整合性確認
+
+- DESIGN.md ↔ 実装差分: 一致 (FR-070, FR-071, FR-072 / §14.1 / §8.8 / §12.3 の要件すべてに適合)
+- 実装 ↔ テスト結果 (TEST_LOG.md): 一致
+- README.md / PROJECT_STATE.md / AGENTS.md の更新: 反映済
+
+### 未解決リスク
+
+- なし。Codex レビューで指摘された「`format_summary` が run 期間外の無関係なアイテムを集計してしまう」問題は、`run.started_at` と `run.finished_at` に基づく fetched_at のフィルタリングを追加した再実装と回帰テストによって完全に解決されていることを確認。
+- 次タスク Ticket #9 (T10) `collect` CLI 結合へ進行可能。
+

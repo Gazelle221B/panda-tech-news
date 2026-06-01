@@ -655,3 +655,135 @@ High 指摘 1 件。通常の品質ゲートは通っているが、実際の SQ
 
 - T8 範囲では追加必須テストなし。
 - CLI `collect` への結合は Ticket #10、Discord サマリー連携は Ticket #8/T9 で扱う。
+
+## T9 Discord Webhook サマリー投稿  (レビュー日: 2026-06-01)
+
+### 総合判定: FAIL
+
+High 指摘 1 件。`post_summary()` の fail-open と Webhook 本文投稿は概ね要件に沿っているが、`format_summary()` の Tier/カテゴリ集計が対象 `CollectRun` の終了時刻で上限を切っていない。そのため、過去 run を指定してサマリーを作ると、後続 run の item まで混ざり、`new_items` と Tier/カテゴリ内訳が食い違う。Discord サマリーは T9 の主成果物なので、修正後に再レビューが必要。
+
+### 確認した証跡 (必須)
+
+- 確認したファイル:
+  - `src/karyu_tech_news/deliver/discord.py`
+  - `src/karyu_tech_news/deliver/__init__.py`
+  - `tests/test_discord.py`
+  - `docs/TEST_LOG.md`
+  - `docs/PROJECT_STATE.md`
+  - `docs/requirements-v1.0.md`
+  - `docs/show-format.md`
+  - `docs/IMPLEMENTATION_PLAN.md`
+  - `docs/DESIGN.md`
+- 根拠とした差分/行:
+  - `src/karyu_tech_news/deliver/discord.py:19-74` — `format_summary()` が Discord 収集サマリー本文を生成。
+  - `src/karyu_tech_news/deliver/discord.py:49-51` — item 集計が `Item.fetched_at >= run.started_at` のみで、`run.finished_at` 以前に限定していない。
+  - `src/karyu_tech_news/deliver/discord.py:77-94` — `post_summary()` は HTTP POST 失敗時に例外を外へ出さず `False` を返す。
+  - `tests/test_discord.py:62-115` — 基本サマリー形式を検証。
+  - `tests/test_discord.py:118-146` — `consecutive_failures >= 3` の警告表示を検証。
+  - `tests/test_discord.py:149-179` — Webhook 成功/失敗/空 URL を検証。
+  - `tests/test_discord.py:182-208` — JST 変換を検証。
+  - `docs/requirements-v1.0.md:529-539` — FR-070/071/072。
+  - `docs/requirements-v1.0.md:946-968` / `docs/show-format.md:83-105` — Sprint 1A サマリー形式。
+- 追加再現:
+  - run1: `new_items=1`, `finished_at=started+10秒`。
+  - run1 終了後に同一 source の item を 1 件追加。
+  - `format_summary(session, run1)` の出力は `📥 新規アイテム: 1件` なのに、`Tier1 公式: 2件` / `AI: 2` となる。
+- 実行/確認したテスト:
+  - `uv run python -m karyu_tech_news validate-sources` → `OK: 11 sources loaded (9 enabled, 2 disabled)`。
+  - `uv run pytest tests/test_discord.py -q` → `6 passed`。
+  - `uv run pytest` → `87 passed in 0.84s`。
+  - `uv run ruff check .` → `All checks passed!`。
+  - `uv run mypy src tests` → `Success: no issues found in 22 source files`。
+  - `git ls-files -u` → unmerged file なし。
+  - `rg -n "^(<<<<<<<|=======|>>>>>>>)" .` → conflict marker なし。
+
+### 設計適合性
+
+- FR-070: Webhook 投稿関数は実装済み。
+- FR-071: HTTP 例外/失敗時に外へ例外を出さない fail-open は満たしている。
+- FR-072: 添付なし、Markdown 本文のみの投稿で適合。
+- ただし DESIGN.md §3.1 には `post-summary [--run-id <id>]` があり、`format_summary(session, run)` は引数の `CollectRun` に閉じたサマリーを返す必要がある。現在は run 終了後の item を含めるため、過去 run のサマリーが不正確。
+- Architecture status: BLOCK。投稿の主データであるサマリー集計が run 境界を守れていない。
+
+### 指摘事項
+
+| 重大度 | 箇所 | 内容 | 要求対応 |
+|---|---|---|---|
+| Critical | なし | なし | なし |
+| High | `src/karyu_tech_news/deliver/discord.py:49-51` / `tests/test_discord.py:62-115` | Tier/カテゴリ集計が `Item.fetched_at >= run.started_at` のみで、`run.finished_at` 以前に限定されていない。過去 run のサマリーを生成すると、後続 run で保存された item も集計され、`new_items` と内訳が不一致になる。 | `run.finished_at` がある場合は `Item.fetched_at <= run.finished_at` も条件に入れる。回帰テストとして、対象 run 終了後に別 item を追加しても Tier/カテゴリ集計に含まれないこと、少なくとも `new_items` と内訳が食い違わないことを確認する。 |
+| Medium | なし | なし | なし |
+| Low | なし | なし | なし |
+
+### セキュリティ / 並行性
+
+- secret 漏洩: なし。Webhook URL は引数で受け取り、テスト URL のみ。
+- SQL injection: SQLAlchemy expression API 利用で直接文字列連結 SQL なし。
+- Webhook fail-open: `httpx.post()` / `raise_for_status()` の例外を捕捉して `False` を返す。
+- 並行性: Sprint 1A は単一プロセス前提。今回のブロッカーは並行性ではなく run 境界の集計条件。
+
+### テスト不足
+
+- 対象 run 終了後の item が Tier/カテゴリ集計に混ざらないことを確認するテストが不足。
+- HTTP 4xx/5xx の `raise_for_status()` 例外テストは未追加だが、実装上は `except` で `False` になるため、今回のブロッカーではない。
+
+## T9 Discord Webhook サマリー投稿 再レビュー  (レビュー日: 2026-06-01)
+
+### 総合判定: PASS
+
+前回 High 指摘は解消済み。`format_summary()` は対象 `CollectRun` の `started_at` 以降かつ `finished_at` 以前の item のみを Tier/カテゴリ集計に含めるようになり、過去 run のサマリーに後続 item が混ざらない。Critical / High / Medium / Low 指摘なし。Ticket #8 (T9) は次工程 Antigravity QA へ進行可能。
+
+### 確認した証跡 (必須)
+
+- 確認したファイル:
+  - `src/karyu_tech_news/deliver/discord.py`
+  - `src/karyu_tech_news/deliver/__init__.py`
+  - `tests/test_discord.py`
+  - `docs/TEST_LOG.md`
+  - `docs/PROJECT_STATE.md`
+  - `docs/requirements-v1.0.md`
+  - `docs/show-format.md`
+  - `docs/IMPLEMENTATION_PLAN.md`
+- 修正確認:
+  - `src/karyu_tech_news/deliver/discord.py:49-52` — item 集計条件に `Item.fetched_at <= run.finished_at` が追加された。
+  - `tests/test_discord.py:211-253` — run 終了後に保存された item が Tier/カテゴリ集計に含まれない回帰テストを追加。
+- 追加再現:
+  - run1: `new_items=1`, `finished_at=started+10秒`。
+  - run1 終了後に同一 source の item を 1 件追加。
+  - `format_summary(session, run1)` は `📥 新規アイテム: 1件`, `Tier1 公式: 1件`, `AI: 1` を出力し、後続 item を混ぜない。
+- 実行/確認したテスト:
+  - `uv run python -m karyu_tech_news validate-sources` → `OK: 11 sources loaded (9 enabled, 2 disabled)`。
+  - `uv run pytest tests/test_discord.py -q` → `7 passed`。
+  - `uv run pytest` → `88 passed in 0.87s`。
+  - `uv run ruff check .` → `All checks passed!`。
+  - `uv run mypy src tests` → `Success: no issues found in 22 source files`。
+  - `git ls-files -u` → unmerged file なし。
+  - `rg -n "^(<<<<<<<|=======|>>>>>>>)" .` → conflict marker なし。
+
+### 設計適合性
+
+- FR-070: Discord Webhook への収集サマリー投稿関数がある。
+- FR-071: Webhook 投稿失敗時も例外を外へ出さず `False` を返す fail-open 挙動。
+- FR-072: 添付なし、Markdown 本文投稿のみ。
+- requirements-v1.0.md §14.1 / show-format.md §7 の Sprint 1A サマリー形式に適合。
+- Architecture status: CLEAR。`deliver` は `store` を読み取るだけで、逆向き依存や Sprint 1A スコープ外実装はない。
+
+### 指摘事項
+
+| 重大度 | 箇所 | 内容 | 要求対応 |
+|---|---|---|---|
+| Critical | なし | なし | なし |
+| High | なし | なし | なし |
+| Medium | なし | なし | なし |
+| Low | なし | なし | なし |
+
+### セキュリティ / 並行性
+
+- secret 漏洩: なし。Webhook URL は引数で受け取り、テスト URL のみ。
+- SQL injection: SQLAlchemy expression API 利用で直接文字列連結 SQL なし。
+- Webhook fail-open: `httpx.post()` / `raise_for_status()` の例外を捕捉して `False` を返す。
+- 並行性: Sprint 1A は単一プロセス前提。T9 範囲で追加ブロッカーなし。
+
+### テスト不足
+
+- T9 範囲では追加必須テストなし。
+- `post-summary` CLI / `collect --post` への結合は Ticket #9 (T10) で扱う。
