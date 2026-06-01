@@ -472,3 +472,186 @@ Critical / High / Medium / Low 指摘なし。Ticket #6 (T7) は、既存 `updat
 
 - T7 範囲では追加必須テストなし。
 - `FetchResult.ok` に基づく実際の `source_health` 呼び分けは Ticket #7 (T8) collect runner 側で検証する。
+
+## T8 collect runner (fail-open 統合)  (レビュー日: 2026-06-01)
+
+### 総合判定: FAIL
+
+High 指摘 1 件。通常の品質ゲートは通っているが、実際の SQLAlchemy DB エラー時に `run_collect()` が停止し、後続ソースへ進めない。Ticket #7 (T8) の中核である fail-open 要件 (FR-060) に反するため、修正後に再レビューが必要。
+
+### 確認した証跡 (必須)
+
+- 確認したファイル:
+  - `src/karyu_tech_news/collect/runner.py`
+  - `tests/test_runner_fail_open.py`
+  - `src/karyu_tech_news/collect/fetcher.py`
+  - `src/karyu_tech_news/store/repo.py`
+  - `docs/TEST_LOG.md`
+  - `docs/PROJECT_STATE.md`
+  - `docs/DESIGN.md`
+  - `docs/domain/collection.md`
+  - `docs/IMPLEMENTATION_PLAN.md`
+  - `docs/requirements-v1.0.md`
+- 根拠とした差分/行:
+  - `src/karyu_tech_news/collect/runner.py:24-73` — `run_collect()` が `fetch_one()` → `insert_items()` → `source_health` 更新 → `finish_collect_run()` を統合。
+  - `src/karyu_tech_news/collect/runner.py:41-63` — DB エラーを捕捉して失敗 `FetchResult` に変換しようとしているが、SQLAlchemy の failed transaction を rollback していない。
+  - `tests/test_runner_fail_open.py:244-287` — DB エラー継続テストは `insert_items()` を通常 `Exception` でモックしており、実 DB flush/commit 失敗後の `PendingRollbackError` を検出できない。
+  - `docs/architecture.md:87-106` — 1 ソースの例外でループを抜けてはならない。
+  - `docs/IMPLEMENTATION_PLAN.md:51-53` — T8 は 1 ソース例外でも他ソース完走 / `collect_runs` 追加が合格条件。
+  - `docs/requirements-v1.0.md:515-519` — FR-060: 1 つのソース取得が失敗してもパイプライン全体を止めない。
+- 実行/確認したテスト:
+  - `uv run python -m karyu_tech_news validate-sources` → `OK: 11 sources loaded (9 enabled, 2 disabled)`。
+  - `uv run pytest tests/test_runner_fail_open.py -q` → `6 passed`。
+  - `uv run pytest` → `79 passed in 0.68s`。
+  - `uv run ruff check .` → `All checks passed!`。
+  - `uv run mypy src tests` → `Success: no issues found in 19 source files`。
+  - 追加再現: 実 SQLite の外部キー違反を `insert_items()` commit で発生させると、`run_collect()` は `PendingRollbackError` を投げて停止。`fetch_one()` 呼び出しは 2 回で止まり、3 ソース目へ進まない。
+
+### 設計適合性
+
+- `fetch_one()` 由来の `FetchResult(ok=False)` については fail-open できている。
+- `insert_items()` が通常例外を投げるモックケースについては fail-open できている。
+- しかし、実 DB flush/commit 失敗時は SQLAlchemy `Session` が rollback 必須状態になり、次の `update_source_health_failure()` / `session.commit()` が `PendingRollbackError` で失敗する。
+- Architecture status: BLOCK。T8 の中核要件である「1ソースの例外でループを抜けない」が、実 DB エラーで破れる。
+
+### 指摘事項
+
+| 重大度 | 箇所 | 内容 | 要求対応 |
+|---|---|---|---|
+| Critical | なし | なし | なし |
+| High | `src/karyu_tech_news/collect/runner.py:53-56` / `tests/test_runner_fail_open.py:252-264` | DB エラー捕捉後に `session.rollback()` せず同じ `Session` で `update_source_health_failure()` と `commit()` を実行している。実際の `IntegrityError` などでは Session が failed transaction 状態になり、`PendingRollbackError` で runner 全体が停止する。現行テストは `insert_items()` を通常例外でモックしているため、この失敗を検出できない。 | `except` ブロックの先頭で `session.rollback()` してから source_health failure を記録する。さらに、実 SQLite で commit 時の `IntegrityError` を起こす回帰テストを追加し、該当ソースは failed、後続ソースは処理継続、`collect_runs.finished_at` が埋まることを確認する。 |
+| Medium | なし | なし | なし |
+| Low | なし | なし | なし |
+
+### セキュリティ / 並行性
+
+- secret 漏洩: なし。テストデータのみ。
+- SQL injection: SQLAlchemy ORM / expression API 利用で直接文字列連結 SQL なし。
+- DB 整合性: 外部キー enforcement 自体は T5 で有効化済み。ただし、その enforcement による実エラーを runner が fail-open 処理できていない。
+- 並行更新: Sprint 1A は単一プロセス前提。今回のブロッカーは並行性ではなくトランザクション復旧。
+
+### テスト不足
+
+- 実 DB の flush/commit 失敗を使った fail-open 回帰テストが不足。
+- `fetch_one()` 自体が予期せず例外を投げた場合の runner レベル保護は未検証。ただし現在の `fetch_one()` は内部で例外を `FetchResult(ok=False)` に包むため、High 指摘の対象は DB エラー復旧に限定する。
+
+## T8 collect runner (fail-open 統合) 再レビュー  (レビュー日: 2026-06-01)
+
+### 総合判定: FAIL
+
+前回 High 指摘のうち、DB エラー後に `session.rollback()` して後続ソースへ進む点は改善済み。ただし、実 DB の flush/commit 失敗では `insert_items()` が返した件数を commit 前に `total_new_items` へ加算しているため、rollback された未保存 item まで `collect_runs.new_items` に含まれる。`new_items` は Persisted のみを数える設計であり、収集サマリーの基礎データが誤るため修正が必要。
+
+### 確認した証跡 (必須)
+
+- 確認したファイル:
+  - `src/karyu_tech_news/collect/runner.py`
+  - `tests/test_runner_fail_open.py`
+  - `src/karyu_tech_news/store/repo.py`
+  - `docs/TEST_LOG.md`
+  - `docs/PROJECT_STATE.md`
+  - `docs/domain/collection.md`
+  - `docs/IMPLEMENTATION_PLAN.md`
+- 修正確認:
+  - `src/karyu_tech_news/collect/runner.py:53-57` — DB エラー捕捉時に `session.rollback()` が追加された。
+  - `tests/test_runner_fail_open.py:290-343` — `IntegrityError` 相当の回帰テストが追加された。
+- 追加再現:
+  - 実 SQLite の外部キー違反を `insert_items()` 後の flush で発生させると、`run_collect()` は停止せず 3 ソース目まで処理する。
+  - 同じ再現で実際に保存された `items` は 2 件だが、`collect_runs.new_items` は 3 になる。
+  - 再現出力: `run 2 1 3 3 True`, `fetch_calls 3`, `items 2`。
+- 実行/確認したテスト:
+  - `uv run python -m karyu_tech_news validate-sources` → `OK: 11 sources loaded (9 enabled, 2 disabled)`。
+  - `uv run pytest tests/test_runner_fail_open.py -q` → `7 passed`。
+  - `uv run pytest` → `80 passed in 0.82s`。
+  - `uv run ruff check .` → `All checks passed!`。
+  - `uv run mypy src tests` → `Success: no issues found in 19 source files`。
+  - `git ls-files -u` → unmerged file なし。
+  - `rg -n "^(<<<<<<<|=======|>>>>>>>)" .` → conflict marker なし。
+
+### 設計適合性
+
+- fail-open の「停止しない」は修正済み。
+- しかし domain/collection.md §5.2 は `collect_runs.new_items` を Persisted のみと定義している。rollback された failed source の item を `new_items` に含めるのは設計不適合。
+- domain/collection.md §3.3 の「集計値は実際の処理結果と一致する」にも反する。
+- Architecture status: BLOCK。runner は完走するが、collect_run 集計が実保存状態と食い違う。
+
+### 指摘事項
+
+| 重大度 | 箇所 | 内容 | 要求対応 |
+|---|---|---|---|
+| Critical | なし | なし | なし |
+| High | `src/karyu_tech_news/collect/runner.py:43-46` / `src/karyu_tech_news/collect/runner.py:53-64` / `tests/test_runner_fail_open.py:290-343` | `total_new_items += new_count` が commit 前に実行される。`insert_items()` が pending item を追加して戻った後、`update_source_health_success()` の autoflush や `session.commit()` で実 DB エラーが起きると、その item は rollback されるが `total_new_items` だけ増えたままになる。追加テストは `insert_items()` をモックして `IntegrityError` を投げるため、実 DB の flush 失敗後に `new_items` が過大計上されるケースを検出できない。 | `total_new_items` への加算を `session.commit()` 成功後に移動する、または失敗時に当該 `new_count` を加算しない構造にする。回帰テストはモック例外だけでなく、実 SQLite の FK/UNIQUE などで flush/commit 失敗を起こし、保存済み `Item` 件数と `run.new_items` が一致することを確認する。 |
+| Medium | なし | なし | なし |
+| Low | なし | なし | なし |
+
+### セキュリティ / 並行性
+
+- secret 漏洩: なし。テストデータのみ。
+- SQL injection: SQLAlchemy ORM / expression API 利用で直接文字列連結 SQL なし。
+- DB 整合性: 実 DB エラー時の transaction 復旧は改善済み。ただし collect_run 集計の整合性が未解消。
+- 並行更新: Sprint 1A は単一プロセス前提。今回のブロッカーは並行性ではなく集計整合性。
+
+### テスト不足
+
+- 実 SQLite の flush/commit 失敗で `run.new_items` が保存済み item 件数と一致することを確認する回帰テストが不足。
+- 追加された `test_run_collect_real_sqlite_integrity_error` は名前とコメントに「実SQLite」とあるが、実際には `insert_items()` をモックしているため、今回の過大計上を検出できない。
+
+## T8 collect runner (fail-open 統合) 再々レビュー  (レビュー日: 2026-06-01)
+
+### 総合判定: PASS
+
+前回までの High 指摘は解消済み。実 DB エラー時も runner は後続ソースへ進み、`collect_runs.new_items` は保存済み Item 件数と一致する。Critical / High / Medium / Low 指摘なし。Ticket #7 (T8) は次工程 Antigravity QA へ進行可能。
+
+### 確認した証跡 (必須)
+
+- 確認したファイル:
+  - `src/karyu_tech_news/collect/runner.py`
+  - `tests/test_runner_fail_open.py`
+  - `src/karyu_tech_news/store/repo.py`
+  - `docs/TEST_LOG.md`
+  - `docs/PROJECT_STATE.md`
+  - `docs/domain/collection.md`
+  - `docs/IMPLEMENTATION_PLAN.md`
+- 修正確認:
+  - `src/karyu_tech_news/collect/runner.py:43-46` — `total_new_items += new_count` が `session.commit()` 成功後に移動した。
+  - `src/karyu_tech_news/collect/runner.py:53-57` — DB エラー捕捉時に `session.rollback()` してから source_health failure を記録する。
+  - `tests/test_runner_fail_open.py:346-391` — commit 失敗時に `run.new_items` が保存済み Item 件数と一致する回帰テストを追加。
+- 追加再現:
+  - 実 SQLite の外部キー違反を `insert_items()` 後の flush で発生させても、`run_collect()` は 3 ソース目まで処理する。
+  - 同じ再現で `collect_runs.new_items` は 2、保存済み `items` も 2。
+  - 再現出力: `run 2 1 3 2 True`, `fetch_calls 3`, `items 2`。
+- 実行/確認したテスト:
+  - `uv run python -m karyu_tech_news validate-sources` → `OK: 11 sources loaded (9 enabled, 2 disabled)`。
+  - `uv run pytest tests/test_runner_fail_open.py -q` → `8 passed`。
+  - `uv run pytest` → `81 passed in 1.06s`。
+  - `uv run ruff check .` → `All checks passed!`。
+  - `uv run mypy src tests` → `Success: no issues found in 19 source files`。
+  - `git ls-files -u` → unmerged file なし。
+  - `rg -n "^(<<<<<<<|=======|>>>>>>>)" .` → conflict marker なし。
+
+### 設計適合性
+
+- requirements-v1.0.md FR-060 の「1つのソース取得が失敗しても、パイプライン全体を止めない」に適合。
+- domain/collection.md §5.2 の「Deduped は新規としてカウントしない / `collect_runs.new_items` は Persisted のみ加算」に適合。
+- domain/collection.md §3.3 の「集計値は実際の処理結果と一致する」を満たす。
+- Architecture status: CLEAR。runner は `fetch_one()` / `insert_items()` / `source_health` / `collect_runs` を最小統合しており、Sprint 1A スコープ外依存はない。
+
+### 指摘事項
+
+| 重大度 | 箇所 | 内容 | 要求対応 |
+|---|---|---|---|
+| Critical | なし | なし | なし |
+| High | なし | なし | なし |
+| Medium | なし | なし | なし |
+| Low | なし | なし | なし |
+
+### セキュリティ / 並行性
+
+- secret 漏洩: なし。テストデータのみ。
+- SQL injection: SQLAlchemy ORM / expression API 利用で直接文字列連結 SQL なし。
+- DB 整合性: 実 DB エラー時の rollback と collect_run 集計整合性を確認済み。
+- 並行更新: Sprint 1A は単一プロセス前提。`insert_items()` の SELECT → INSERT 競合は非ゴール。
+
+### テスト不足
+
+- T8 範囲では追加必須テストなし。
+- CLI `collect` への結合は Ticket #10、Discord サマリー連携は Ticket #8/T9 で扱う。

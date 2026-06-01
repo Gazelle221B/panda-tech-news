@@ -190,3 +190,32 @@ QA の目的は **「受け入れ条件 (要件側) を満たしているか」*
 ### 未解決リスク
 
 - なし。次タスク Ticket #7 (T8) collect runner (fail-open 統合) へ進行可能。
+
+## Ticket #7 (T8) collect runner fail-open 統合 QA (検収日: 2026-06-01)
+
+### 最終動作確認
+
+- [x] 1ソースが例外を投げても全体が止まらない（`runner.py` 内の `try-except` および `session.rollback()` の実装により、DBエラー等が発生しても後続のソース処理が継続されるフェイルオープン設計を確認）
+- [x] SQLite に items が蓄積される（`insert_items` と各ソース毎のコミットにより安全に蓄積されることを確認）
+- [x] source_health が更新される（フェッチの成否および DB 例外の有無に応じて正しく状態更新・DB コミットが行われる）
+- [x] `collect_runs` に正しい集計情報が登録される（特にDBコミット失敗時には新規アイテム数にカウントされないロジックを回帰テストで担保）
+- [x] テストがすべてグリーン（pytest 81件パス、`tests/test_runner_fail_open.py` 8件追加）
+- [x] Ruff lint, Mypy strict, validate-sources すべてパス
+
+### UI/UX
+
+- (N/A)
+
+### 回帰
+
+- 既存機能影響: なし。既存モジュールの関数（fetch_one, insert_items 等）の呼び出し順序や引数の使われ方が要件仕様に従っている。
+
+### 整合性確認
+
+- DESIGN.md ↔ 実装差分: 一致 (FR-050, 051, 052, 060 に適合。セッション境界やエラーハンドリングも要件通り)
+- 実装 ↔ テスト結果 (TEST_LOG.md): 一致
+- README.md / PROJECT_STATE.md / AGENTS.md の更新: 反映済 (PROJECT_STATE.md は本QA完了後に更新)
+
+### 未解決リスク
+
+- なし。次タスク Ticket #8 (T9) Discord Webhook サマリー投稿 へ進行可能。

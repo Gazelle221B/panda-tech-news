@@ -296,3 +296,109 @@ uv run mypy src tests
 
 - `update_source_health_success()` / `update_source_health_failure()` は `collect/runner.py` で `FetchResult.ok` に基づき呼び出す。
 - Ticket #7 (T8) は `fetch_one()` + `insert_items()` + `source_health` 更新を統合し、fail-open を実装。
+
+## T8: collect runner (fail-open 統合)  (実装: OpenCode / 日付: 2026-06-01)
+
+### 実行コマンド
+
+```bash
+uv run pytest -v
+uv run ruff check .
+uv run mypy src tests
+```
+
+### 結果サマリー
+
+- pytest: **79 passed** / failed 0 (test_cli.py 8 + test_config.py 16 + test_normalize.py 12 + test_fetcher.py 12 + test_store.py 12 + test_dedupe.py 5 + test_health.py 8 + test_runner_fail_open.py 6)。
+- ruff check: All checks passed。
+- mypy --strict: Success, no issues found in 19 source files。
+
+### 実装内容
+
+**新規ファイル**:
+- `src/karyu_tech_news/collect/runner.py` — `run_collect()` 関数 (fail-open 統合)
+- `tests/test_runner_fail_open.py` — 6 テスト (全成功、1失敗継続、複数失敗、全失敗、空ソース、DB エラー継続)
+
+**実装方針**:
+- `run_collect()` は全ソースを順次処理し、各ソースごとに `fetch_one()` → `insert_items()` → `update_source_health_success/failure()` を実行。
+- **fail-open**: 各ソースの処理で例外が発生しても、次のソースへ進む。
+  - `fetch_one()` は既に fail-open 実装（例外をキャッチして `FetchResult(ok=False)` を返す）。
+  - `insert_items()` で DB エラーが発生した場合も、`FetchResult` を `ok=False` に変更して続行。
+- `collect_runs` で実行記録を管理（開始時に作成、終了時に完了処理）。
+
+**テストケース**:
+- `test_run_collect_all_success`: 全ソースが成功するケース。
+- `test_run_collect_one_failure_continues`: 1ソースが失敗しても他のソースが完走する。
+- `test_run_collect_multiple_failures`: 複数のソースが失敗しても残りが完走する。
+- `test_run_collect_all_fail`: 全ソースが失敗するケース。
+- `test_run_collect_empty_sources`: 空のソースリストでも正常に動作する。
+- `test_run_collect_db_error_continues`: `insert_items()` で DB エラーが発生しても他のソースが完走する。
+
+### DESIGN.md §2.3 / domain/collection.md §5.3 準拠
+
+- **fail-open (FR-060)**: 1ソースの失敗で全体を止めない。
+- **CollectRun 管理**: 収集開始時にレコードを作成、終了時に完了処理。
+- **source_health 更新**: `FetchResult.ok` に基づき `update_source_health_success/failure()` を呼び出す。
+
+### 引き継ぎポイント (Ticket #8 Discord Webhook)
+
+- `run_collect()` の戻り値 `CollectRun` を使って、Discord に収集サマリーを投稿。
+- Ticket #8 (T9) は `deliver/discord.py` を実装し、`collect_runs` と `source_health` からサマリーを生成。
+
+## T8 修正: Codex レビュー指摘対応  (実装: OpenCode / 日付: 2026-06-01)
+
+### 指摘内容
+
+**High**: `runner.py` のDBエラー処理で `session.rollback()` が欠けており、実SQLiteのIntegrityError発生時にfailed transaction状態で後続処理が失敗する問題。
+
+### 修正内容
+
+- `src/karyu_tech_news/collect/runner.py` — DBエラー処理の先頭で `session.rollback()` を呼び出すように修正。
+- `tests/test_runner_fail_open.py` — `insert_items()` をモックしてIntegrityErrorを発生させる回帰テストを追加。
+
+### 実行コマンド
+
+```bash
+uv run pytest -v
+uv run ruff check .
+uv run mypy src tests
+```
+
+### 結果サマリー
+
+- pytest: **80 passed** / failed 0 (test_cli.py 8 + test_config.py 16 + test_normalize.py 12 + test_fetcher.py 12 + test_store.py 12 + test_dedupe.py 5 + test_health.py 8 + test_runner_fail_open.py 7)。
+- ruff check: All checks passed。
+- mypy --strict: Success, no issues found in 19 source files。
+
+### 追加テスト
+
+- `test_run_collect_real_sqlite_integrity_error`: `insert_items()` をモックしてIntegrityErrorを発生させ、`session.rollback()` が正しく呼ばれ、後続のソースが処理されることを確認。
+
+## T8 追加修正: Codex 再レビュー指摘対応  (実装: OpenCode / 日付: 2026-06-01)
+
+### 指摘内容
+
+**High**: `runner.py` の line 43 で `total_new_items += new_count` が `session.commit()` 前に実行されている。実DBのflush/commitで失敗するとrollbackされてitemは保存されないが、`total_new_items`だけ増えたままになる。
+
+### 修正内容
+
+- `src/karyu_tech_news/collect/runner.py` — `total_new_items += new_count` を `session.commit()` 成功後に移動。
+- `tests/test_runner_fail_open.py` — `session.commit()` をモックして特定の呼び出しで失敗させ、`run.new_items == 保存済みItem件数` を確認する回帰テストを追加。
+
+### 実行コマンド
+
+```bash
+uv run pytest -v
+uv run ruff check .
+uv run mypy src tests
+```
+
+### 結果サマリー
+
+- pytest: **81 passed** / failed 0 (test_cli.py 8 + test_config.py 16 + test_normalize.py 12 + test_fetcher.py 12 + test_store.py 12 + test_dedupe.py 5 + test_health.py 8 + test_runner_fail_open.py 8)。
+- ruff check: All checks passed。
+- mypy --strict: Success, no issues found in 19 source files。
+
+### 追加テスト
+
+- `test_run_collect_new_items_matches_persisted_on_commit_failure`: `session.commit()` をモックして特定の呼び出しで失敗させ、`run.new_items` が保存済みItem件数と一致することを確認。
