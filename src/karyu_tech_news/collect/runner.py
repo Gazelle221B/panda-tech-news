@@ -26,7 +26,13 @@ def run_collect(
     sources: list[SourceConfig],
     rsshub_base_url: str,
 ) -> CollectRun:
-    """全ソースを収集して CollectRun を返す. fail-open."""
+    """全ソースを収集して CollectRun を返す. fail-open.
+
+    前提条件:
+        提供された sources に含まれるソースは、呼び出し側で事前に
+        DB (sources テーブル) へ upsert されていること。
+        (upsert されていない場合、外部キー制約違反で fail-open が機能しない)
+    """
     run = create_collect_run(session, len(sources))
     session.commit()
 

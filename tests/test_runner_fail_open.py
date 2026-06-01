@@ -287,10 +287,10 @@ def test_run_collect_db_error_continues(
     assert health3.consecutive_failures == 0
 
 
-def test_run_collect_real_sqlite_integrity_error(
+def test_run_collect_mocked_insert_integrity_error(
     session: Session, setup_sources: list[SourceConfig]
 ) -> None:
-    """実SQLiteのIntegrityErrorが発生してもfail-openが機能することを確認する回帰テスト.
+    """insert_items()をモックしてIntegrityErrorを送出した場合でもfail-openが機能することを確認するテスト.
 
     insert_items()をモックしてIntegrityErrorを発生させ、session.rollback()が正しく
     呼ばれ、後続のsrc3が処理されることを確認する。
@@ -363,8 +363,8 @@ def test_run_collect_new_items_matches_persisted_on_commit_failure(
 
     def mock_commit() -> None:
         commit_call_count[0] += 1
-        # 2回目のcommit（src2のinsert後のcommit）で失敗させる
-        if commit_call_count[0] == 2:
+        # 3回目のcommit（create_collect_runの1回 + src1の1回 + src2の1回）で失敗させる
+        if commit_call_count[0] == 3:
             raise IntegrityError("statement", {}, Exception("UNIQUE constraint failed"))
         original_commit()
 
