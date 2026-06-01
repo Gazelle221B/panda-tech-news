@@ -1,11 +1,11 @@
 # プロジェクト状態
 
-> 最終更新: 2026-06-01 / 更新者: Codex (独立レビュー)
+> 最終更新: 2026-06-01 / 更新者: Antigravity (テックリード / QA)
 > 本ファイルは全エージェントが随時更新する。**Antigravity の内部記憶ではなくここを真の記憶とする** (WORKFLOW §13)。
 
 ## 現在のフェーズ
 
-**Sprint 1A 実装中** — Ticket #7 (T8) Antigravity QA PASS → 次: Ticket #8 (T9) Discord Webhook
+**Sprint 1A 実装中** — Ticket #8 (T9) Discord Webhook 実装着手
 
 | ステップ | 状態 |
 |---|---|
@@ -33,7 +33,7 @@
 
 ## 作業中ブランチ
 
-`agent/T7-impl`
+`agent/T8-impl`
 
 ## 直近の設計判断
 
@@ -64,19 +64,10 @@
 2026-06-01: Ticket #5 (T6) seen 管理 / dedupe の QA 確認完了。`UNIQUE(source_id, item_key)` での重複排除、同一バッチ内の重複防止などを確認し QA PASS。証跡は `docs/QA_REPORT.md` に追記済み。
 2026-06-01: Ticket #4 (T5) SQLite スキーマ・永続化の QA 確認完了。`PRAGMA foreign_keys=ON` 有効化による参照整合性、重複排除（dedupe）、収集実行記録の整合性、およびすべての設計整合性を検証済。証跡は `docs/QA_REPORT.md` に追記済み。
 
-## 次に実行すべきアクション (優先順)
-
-1. ~~Ticket #5 (T6) Codex レビュー~~ ✅ PASS (2026-06-01)。Critical/High/Medium/Low 指摘なし。
-2. ~~Ticket #5 (T6) Antigravity QA~~ ✅ PASS (2026-06-01)。seen 管理 / dedupe の最終 QA。
-3. ~~Ticket #6 (T7) source_health 更新~~ ✅ 完了 (2026-06-01)。
-4. ~~Ticket #6 (T7) Codex レビュー~~ ✅ PASS (2026-06-01)。
-5. ~~Ticket #6 (T7) Antigravity QA~~ ✅ PASS (2026-06-01)。source_health 更新の最終 QA。
-6. ~~Ticket #7 (T8) collect runner 統合~~ ✅ 実装完了 (2026-06-01)。collect/runner.py 実装、pytest 79 pass。
-7. ~~T8 Codex レビュー High 指摘対応~~ ✅ 完了 (2026-06-01)。session.rollback() 追加、IntegrityError 回帰テスト追加。pytest 80 pass。
-8. ~~T8 Codex 再レビュー High 指摘対応~~ ✅ 完了 (2026-06-01)。`total_new_items` 加算を commit 成功後へ移動。pytest 81 pass。
-9. ~~T8 Codex 再々レビュー~~ ✅ PASS (2026-06-01)。
-10. ~~Ticket #7 (T8) Antigravity QA~~ ✅ PASS (2026-06-01)。collect runner 統合の最終 QA。
-11. **OpenCode 実装**: Ticket #8 (T9) Discord Webhook サマリー投稿 へ進む。
+1. **OpenCode 実装**: Ticket #8 (T9) Discord Webhook サマリー投稿 の実装。
+2. **Codex レビュー**: T9 の独立レビュー。
+3. **Antigravity QA**: T9 の最終 QA。
+4. **結合フェーズ**: Ticket #9 (T10) `collect` CLI 結合へ進む。
 
 ## 人間判断待ちの事項
 
