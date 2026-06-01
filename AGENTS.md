@@ -19,8 +19,8 @@
 ## 2. 現在のフェーズ (随時更新は `docs/PROJECT_STATE.md`)
 
 - **Sprint 1A 実装中** — 収集基盤の検証 (LLM/TTS/動画/YouTube は実装しない)
-- 完了: Ticket #3 まで (CLI / ソーススキーマ / RSS・RSSHub フェッチャ / fail-open)
-- 次: **Ticket #4** (SQLite スキーマ・永続化層)
+- 完了: Ticket #8 まで (DB永続化 / dedupe / fail-open収集 / Discord Webhook)
+- 次: **Ticket #9** (CLI統合: collect コマンド)
 - 作業ブランチ: `agent/T4-impl`
 
 ## 3. 絶対 NG (禁止事項) — 最優先

@@ -91,5 +91,5 @@ def post_summary(webhook_url: str, content: str) -> bool:
         logger.info("Discord Webhook posted successfully")
         return True
     except Exception as exc:  # noqa: BLE001
-        logger.error("Discord Webhook post failed: %s", exc)
+        logger.exception("Discord Webhook post failed: %s", exc)
         return False
