@@ -5,7 +5,7 @@
 
 ## 現在のフェーズ
 
-**Sprint 1A 実装中** — Ticket #8 (T9) Antigravity QA PASS → 次: Ticket #9 (T10) collect CLI結合
+**Sprint 1A 実装中** — Ticket #9 (T10) 実装中 (CLI統合: collect コマンド)
 
 | ステップ | 状態 |
 |---|---|
@@ -30,11 +30,11 @@
 | Ticket #6 (source_health 更新) | ✅ Antigravity QA PASS (2026-06-01)。FR-050/051/052に適合し正常動作を確認。pytest 73 pass / ruff・mypy(strict) clean |
 | Ticket #7 (collect runner: fail-open 統合) | ✅ Antigravity QA PASS (2026-06-01)。fail-open 設計および集計整合性の確実な動作を検証済。pytest 81 pass / ruff・mypy(strict) clean |
 | Ticket #8 (Discord Webhook サマリー投稿) | ✅ Antigravity QA PASS (2026-06-01)。run 境界内の集計整合性、Webhook 送信時の fail-open 担保を確認。pytest 88 pass / ruff・mypy(strict) clean |
-| Ticket #9 (CLI統合: `collect` コマンド) | ⏳ Ticket #9 (T10) 実装着手へ |
+| Ticket #9 (CLI統合: `collect` コマンド) | ⏳ Ticket #9 (T10) 実装中 |
 
 ## 作業中ブランチ
 
-`agent/T8-impl`
+`agent/T9-impl`
 
 ## 直近の設計判断
 
@@ -71,7 +71,7 @@
 2. ~~T9 Codex レビュー High 指摘対応~~ ✅ 完了 (2026-06-01)。run.finished_at 上限追加、回帰テスト追加。pytest 88 pass。
 3. ~~T9 Codex 再レビュー~~ ✅ PASS (2026-06-01)。Critical/High/Medium/Low 指摘なし。
 4. ~~Antigravity QA~~ ✅ PASS (2026-06-01)。T9 Discord Webhook サマリー投稿の最終 QA。
-5. **OpenCode 実装**: Ticket #9 (T10) `collect` CLI 結合へ進む。
+5. **OpenCode 実装**: Ticket #9 (T10) `collect` CLI 結合の実装を開始。
 
 ## 人間判断待ちの事項
 
