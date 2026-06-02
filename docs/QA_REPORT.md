@@ -254,3 +254,34 @@ QA の目的は **「受け入れ条件 (要件側) を満たしているか」*
 - なし。Codex レビューで指摘された「`format_summary` が run 期間外の無関係なアイテムを集計してしまう」問題は、`run.started_at` と `run.finished_at` に基づく fetched_at のフィルタリングを追加した再実装と回帰テストによって完全に解決されていることを確認。
 - 次タスク Ticket #9 (T10) `collect` CLI 結合へ進行可能。
 
+## Ticket #9 (T10) `collect` CLI結合 QA (検収日: 2026-06-02)
+
+### 最終動作確認
+
+- [x] `python -m karyu_tech_news collect` が完走する
+- [x] 10本前後のソースを取得できる（設定済みの9ソースが対象となることを確認）
+- [x] 1ソースが失敗しても全体が止まらない（fail-openの継続動作を確認）
+- [x] SQLite に items が蓄積される（実CLI実行により 71 件の新規アイテム蓄積を確認）
+- [x] 同じソースを2回 collect しても重複登録されない（実CLIを2回実行し 2回目は `0 new items` となることを確認）
+- [x] `python -m karyu_tech_news collect --dry-run` 時はDB書き込みなしで対象ソースのみが出力される
+- [x] `--source` 指定時に未知IDやdisabled IDが混ざる場合は exit 1 で終了する
+- [x] テストがすべてグリーン (pytest 104件パス)
+- [x] Ruff lint, Mypy strict すべてパス
+
+### UI/UX
+
+- (N/A) CLI出力がシンプルで分かりやすく、dry-run 表示も要件通り。
+
+### 回帰
+
+- 既存機能影響: なし。既存の各モジュールを `main.py` に繋ぎこむ実装であり、個別の動作は壊れていない。
+
+### 整合性確認
+
+- DESIGN.md ↔ 実装差分: 一致
+- 実装 ↔ テスト結果 (TEST_LOG.md): 一致
+- README.md / PROJECT_STATE.md / AGENTS.md の更新: 反映済 (PROJECT_STATE.md は本QA完了後に更新)
+
+### 未解決リスク
+
+- なし。Sprint 1A のすべての完了条件（DoD）を満たしたため、Sprint 1A の手動運用・観察期間 (T11) へ進行可能。

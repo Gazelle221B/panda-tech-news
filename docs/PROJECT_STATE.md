@@ -1,11 +1,11 @@
 # プロジェクト状態
 
-> 最終更新: 2026-06-01 / 更新者: Antigravity (テックリード / QA)
+> 最終更新: 2026-06-02 / 更新者: Codex (独立レビュアー)
 > 本ファイルは全エージェントが随時更新する。**Antigravity の内部記憶ではなくここを真の記憶とする** (WORKFLOW §13)。
 
 ## 現在のフェーズ
 
-**Sprint 1A 実装中** — Ticket #9 (T10) 実装中 (CLI統合: collect コマンド)
+**Sprint 1A 完了** — Ticket #9 (T10) Antigravity QA PASS → 次: Ticket #11 (T11) 3日連続稼働観察
 
 | ステップ | 状態 |
 |---|---|
@@ -30,7 +30,7 @@
 | Ticket #6 (source_health 更新) | ✅ Antigravity QA PASS (2026-06-01)。FR-050/051/052に適合し正常動作を確認。pytest 73 pass / ruff・mypy(strict) clean |
 | Ticket #7 (collect runner: fail-open 統合) | ✅ Antigravity QA PASS (2026-06-01)。fail-open 設計および集計整合性の確実な動作を検証済。pytest 81 pass / ruff・mypy(strict) clean |
 | Ticket #8 (Discord Webhook サマリー投稿) | ✅ Antigravity QA PASS (2026-06-01)。run 境界内の集計整合性、Webhook 送信時の fail-open 担保を確認。pytest 88 pass / ruff・mypy(strict) clean |
-| Ticket #9 (CLI統合: `collect` コマンド) | ⏳ Ticket #9 (T10) 実装中 |
+| Ticket #9 (CLI統合: `collect` コマンド) | ✅ Antigravity QA PASS (2026-06-02)。dry-run、実実行、重複排除、不正引数処理を実CLIで確認。pytest 104 pass / ruff・mypy(strict) clean |
 
 ## 作業中ブランチ
 
@@ -56,10 +56,17 @@
 
 ## Codex レビューの直近結果
 
+2026-06-02: T10 (Ticket #9 CLI統合: `collect` コマンド) 再々レビュー PASS。Critical/High/Medium/Low 指摘なし。`--source` 複数指定時の未知/disabled ID検証、DB更新統合テスト、Webhook fail-open を確認。証跡は `docs/REVIEW_REPORT.md` に追記済み。
+
+2026-06-02: T10 (Ticket #9 CLI統合: `collect` コマンド) 再レビュー FAIL。High 1件: 複数 `--source` 指定時に未知/disabled IDを黙って無視する。Medium 1件: dry-run の `source_health` 未書き込み確認不足。証跡は `docs/REVIEW_REPORT.md` に追記済み。
+
+2026-06-02: T10 (Ticket #9 CLI統合: `collect` コマンド) 独立レビュー FAIL。High 1件: `collect --source <id>` 未実装。Medium 1件: T10受け入れ条件のDB状態検証不足。証跡は `docs/REVIEW_REPORT.md` に追記済み。
+
 2026-06-01: T9 (Ticket #8 Discord Webhook サマリー投稿) 再レビュー PASS。Critical/High/Medium/Low 指摘なし。run 境界内の Tier/カテゴリ集計と Webhook fail-open を確認。証跡は `docs/REVIEW_REPORT.md` に追記済み。
 
 ## Antigravity QA の直近結果
 
+2026-06-02: Ticket #9 (T10) `collect` CLI 結合の QA 確認完了。実CLIを用いた完走、DBへのアイテム新規追加（71件）、同一バッチでの重複排除、不正な `--source` 指定に対する exit 1 終了など、要件 §15.1 および実装計画の DoD をすべて満たしていることを確認し QA PASS。証跡は `docs/QA_REPORT.md` に追記済み。
 2026-06-01: Ticket #8 (T9) Discord Webhook サマリー投稿の QA 確認完了。要件 §14.1 に基づくサマリーフォーマットの正確性、JSTタイムゾーン変換、収集実行時間の正確性、そして Webhook 送信失敗時の fail-open 設計（FR-071）を確認し QA PASS。証跡は `docs/QA_REPORT.md` に追記済み。
 2026-06-01: Ticket #7 (T8) collect runner fail-open 統合の QA 確認完了。1ソースのDBエラーが後続処理に影響しないフェイルオープン設計、および `collect_runs` と `source_health` の正確な集計と状態遷移を確認し QA PASS。証跡は `docs/QA_REPORT.md` に追記済み。
 
@@ -67,11 +74,11 @@
 2026-06-01: Ticket #5 (T6) seen 管理 / dedupe の QA 確認完了。`UNIQUE(source_id, item_key)` での重複排除、同一バッチ内の重複防止などを確認し QA PASS。証跡は `docs/QA_REPORT.md` に追記済み。
 2026-06-01: Ticket #4 (T5) SQLite スキーマ・永続化の QA 確認完了。`PRAGMA foreign_keys=ON` 有効化による参照整合性、重複排除（dedupe）、収集実行記録の整合性、およびすべての設計整合性を検証済。証跡は `docs/QA_REPORT.md` に追記済み。
 
-1. ~~Ticket #8 (T9) Discord Webhook サマリー投稿~~ ✅ 実装完了 (2026-06-01)。deliver/discord.py 実装、pytest 87 pass。
-2. ~~T9 Codex レビュー High 指摘対応~~ ✅ 完了 (2026-06-01)。run.finished_at 上限追加、回帰テスト追加。pytest 88 pass。
-3. ~~T9 Codex 再レビュー~~ ✅ PASS (2026-06-01)。Critical/High/Medium/Low 指摘なし。
-4. ~~Antigravity QA~~ ✅ PASS (2026-06-01)。T9 Discord Webhook サマリー投稿の最終 QA。
-5. **OpenCode 実装**: Ticket #9 (T10) `collect` CLI 結合の実装を開始。
+1. ~~Ticket #9 (T10) `collect` CLI 結合~~ ✅ 実装完了 (2026-06-02)。`main.py` および `cli.py` に `collect` コマンドを統合。
+2. ~~T10 Codex レビュー~~ ✅ PASS (2026-06-02)。High 指摘対応（`--source` 不正IDの厳密チェック）完了。
+3. ~~Antigravity QA~~ ✅ PASS (2026-06-02)。T10 `collect` CLI 結合の最終 QA完了。Sprint 1A 実装のすべての完了条件を満たす。
+4. **人間承認 & Merge**: T10 のマージ待ち。
+5. 次アクション: Ticket #11 (T11) 3日連続稼働観察（手動運用）へ進む。
 
 ## 人間判断待ちの事項
 
@@ -127,3 +134,10 @@ meeting.md / meeting2.md / tik-choco コードdump の全読に基づき作成:
 | 2026-06-01 | OpenCode | T9 Codex レビュー指摘対応完了。`format_summary()` の item 集計条件に `Item.fetched_at <= run.finished_at` を追加、回帰テスト追加。pytest 88 pass / ruff・mypy(strict) clean |
 | 2026-06-01 | Codex | T9 Discord Webhook サマリー投稿の再レビュー PASS を `docs/REVIEW_REPORT.md` に記録。Critical/High/Medium/Low 指摘なし |
 | 2026-06-01 | Antigravity | Ticket #8 (T9) Discord Webhook サマリー投稿の QA 完了。すべての設計・受け入れ条件の適合を確認し QA PASS |
+| 2026-06-01 | OpenCode | Ticket #9 (T10) CLI統合完了。main.py に collect コマンド追加、--post/--dry-run オプション実装。tests/test_cli_integration.py に 9 テスト追加。pytest 97 pass / ruff・mypy(strict) clean |
+| 2026-06-02 | Codex | T10 CLI統合の独立レビュー FAIL を `docs/REVIEW_REPORT.md` に記録。High 1件: `collect --source <id>` 未実装。Medium 1件: T10受け入れ条件のDB状態検証不足 |
+| 2026-06-02 | OpenCode | T10 Codex レビュー指摘対応完了。`--source` オプション追加、DB状態検証テスト追加。pytest 101 pass / ruff・mypy(strict) clean |
+| 2026-06-02 | Codex | T10 CLI統合の再レビュー FAIL を `docs/REVIEW_REPORT.md` に記録。High 1件: 複数 `--source` 指定時に未知/disabled IDを黙って無視する |
+| 2026-06-02 | OpenCode | T10 Codex 再レビュー指摘対応完了。複数 `--source` 指定時の未知/disabled ID検証を追加。pytest 104 pass / ruff・mypy(strict) clean |
+| 2026-06-02 | Codex | T10 CLI統合の再々レビュー PASS を `docs/REVIEW_REPORT.md` に記録。Critical/High/Medium/Low 指摘なし。次工程は Antigravity QA |
+| 2026-06-02 | Antigravity | Ticket #9 (T10) CLI統合の QA 完了。実CLIを用いた完走、重複排除、不正引数処理等の正常動作を確認し QA PASS |
