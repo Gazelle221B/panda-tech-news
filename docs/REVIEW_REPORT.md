@@ -787,3 +787,191 @@ High 指摘 1 件。`post_summary()` の fail-open と Webhook 本文投稿は�
 
 - T9 範囲では追加必須テストなし。
 - `post-summary` CLI / `collect --post` への結合は Ticket #9 (T10) で扱う。
+
+## T10 CLI統合 (`collect` コマンド) 独立レビュー  (レビュー日: 2026-06-02)
+
+### 総合判定: FAIL
+
+`collect` コマンドは追加され、`--dry-run` / `--post` と Discord 投稿の fail-open は基本的に動く。ただし DESIGN.md §3.1 の公開CLI契約にある `collect [--dry-run] [--source <id>]` の `--source` が未実装で、指定実行すると Typer が `No such option: --source` で終了する。T10はCLI統合タスクであり、公開インターフェース欠落のため次工程 Antigravity QA へは進めない。
+
+### 確認した証跡 (必須)
+
+- 確認したファイル:
+  - `src/karyu_tech_news/main.py`
+  - `tests/test_cli_integration.py`
+  - `src/karyu_tech_news/config.py`
+  - `src/karyu_tech_news/collect/runner.py`
+  - `docs/DESIGN.md`
+  - `docs/IMPLEMENTATION_PLAN.md`
+  - `docs/TEST_LOG.md`
+  - `docs/PROJECT_STATE.md`
+- 根拠とした差分/行:
+  - `src/karyu_tech_news/main.py:186-214` — `collect` のオプションに `--sources`, `--db-path`, `--post`, `--dry-run` はあるが `--source` がない。
+  - `src/karyu_tech_news/main.py:240-261` — 有効ソース全件を対象にし、単一 source id で絞り込む経路がない。
+  - `tests/test_cli_integration.py:60-65` — help テストは `--post` / `--dry-run` のみ確認し、`--source` を確認していない。
+  - `tests/test_cli_integration.py:124-147` — 成功系は `run_collect()` をモックして出力だけ検証しており、通常実行で `items` / `source_health` / `collect_runs` が更新されることを確認していない。
+  - `docs/DESIGN.md:37-42` — CLI契約に `collect [--dry-run] [--source <id>]` が明記されている。
+  - `docs/IMPLEMENTATION_PLAN.md:53-55` — T10テスト方針は「ドライランでDB書き込みなし / 通常実行で全テーブル更新」。
+- 実行/確認したテスト:
+  - `uv run python -m karyu_tech_news collect --help` → `--source` なし。
+  - `uv run python -m karyu_tech_news collect --source test-source --dry-run` → exit 2、`No such option: --source`。
+  - `uv run python -m karyu_tech_news validate-sources` → `OK: 11 sources loaded (9 enabled, 2 disabled)`。
+  - `uv run pytest tests/test_cli_integration.py -q` → `9 passed`。
+  - `uv run pytest` → `97 passed in 1.05s`。
+  - `uv run ruff check .` → `All checks passed!`。
+  - `uv run mypy src tests` → `Success: no issues found in 23 source files`。
+  - `git ls-files -u` → unmerged file なし。
+  - `rg -n "^(<<<<<<<|=======|>>>>>>>)" .` → conflict marker なし。
+
+### 設計適合性
+
+- `collect` コマンド追加、`--post` による Discord サマリー投稿、Webhook 失敗時の fail-open は概ね適合。
+- `DISCORD_WEBHOOK_URL` / `RSSHUB_BASE_URL` の設定読み込みは `Settings` と整合している。
+- ただし DESIGN.md §3.1 の `--source <id>` が欠落しており、CLI公開契約を満たしていない。
+- Architecture status: BLOCK。CLI統合タスクの公開オプションが欠落している。
+
+### 指摘事項
+
+| 重大度 | 箇所 | 内容 | 要求対応 |
+|---|---|---|---|
+| Critical | なし | なし | なし |
+| High | `src/karyu_tech_news/main.py:186-214` / `docs/DESIGN.md:37-42` | `collect` コマンドに設計上必須の `--source <id>` がない。単一ソースだけを収集する運用・デバッグ経路が使えず、`collect --source test-source --dry-run` は exit 2 になる。 | `source_id: str | None = typer.Option(None, "--source", help=...)` を追加し、有効ソースを指定IDに絞り込む。存在しないIDまたは disabled のID指定時は分かるエラーで exit 1。`--dry-run` と通常実行の両方で、対象ソースが1件に絞られるテストを追加する。 |
+| Medium | `tests/test_cli_integration.py:68-147` / `docs/IMPLEMENTATION_PLAN.md:53-55` | T10の受け入れテスト方針である「dry-runでDB書き込みなし / 通常実行で全テーブル更新」が実証されていない。現テストはdry-run後のDB状態を見ず、通常成功系は `run_collect()` をモックしているため、`collect` CLIから実際に `sources` / `items` / `source_health` / `collect_runs` が更新されることを保証しない。 | dry-run後に `sources` / `items` / `source_health` / `collect_runs` が0件のまま、通常実行では `fetch_one` 相当をモックして実 runner を通し、4テーブルが期待通り更新される統合テストを追加する。 |
+| Low | なし | なし | なし |
+
+### セキュリティ / 並行性
+
+- secret 漏洩: なし。`info` は Webhook URL を set/not set 表示に留めている。
+- SQL injection: CLI入力の `db_path` はSQLiteファイルパスとして渡され、SQL文字列連結は見当たらない。
+- Webhook fail-open: `post_summary()` の `False` を警告表示に留め、収集完了自体は失敗扱いにしていない。
+- 並行性: Sprint 1A は単一プロセス前提。今回のブロッカーは並行性ではなくCLI契約欠落。
+
+### テスト不足
+
+- `collect --source <id>` の help表示、dry-run、通常実行、未知ID、disabled ID のテストが不足。
+- dry-runがDBへ何も書かないことのDB状態検証が不足。
+- CLIから実 runner 経由で `items` / `source_health` / `collect_runs` まで更新される統合テストが不足。
+
+## T10 CLI統合 (`collect` コマンド) 再レビュー  (レビュー日: 2026-06-02)
+
+### 総合判定: FAIL
+
+前回指摘のうち `--source` オプション追加とDB更新の統合テスト追加は確認できた。ただし実装が「複数指定可能」を掲げた状態で、指定IDの一部が未知または disabled の場合に、そのIDを黙って無視して残りの有効ソースだけで成功終了する。CLIで明示指定したソースが収集されなかったことを検知できず、運用・デバッグ用途の `--source` として危険な挙動のため、T10はまだ次工程 Antigravity QA へ進めない。
+
+### 確認した証跡 (必須)
+
+- 確認したファイル:
+  - `src/karyu_tech_news/main.py`
+  - `tests/test_cli_integration.py`
+  - `docs/DESIGN.md`
+  - `docs/IMPLEMENTATION_PLAN.md`
+  - `docs/TEST_LOG.md`
+  - `docs/PROJECT_STATE.md`
+- 修正確認:
+  - `src/karyu_tech_news/main.py:203-207` — `--source` オプションが追加され、複数指定可能になった。
+  - `src/karyu_tech_news/main.py:250-258` — `source_ids` 指定時に enabled ソースへフィルタする。
+  - `tests/test_cli_integration.py:280-324` — `--source` の単一指定と単一未知IDのテストを追加。
+  - `tests/test_cli_integration.py:327-353` — dry-run 後に `sources` / `items` / `collect_runs` が0件であることを確認。
+  - `tests/test_cli_integration.py:356-411` — `fetch_one` のみモックして実 runner 経由のDB更新を確認。
+- 追加再現:
+  - `uv run python -m karyu_tech_news collect --source qbitai-feed --source nonexistent-source --dry-run` → exit 0、`qbitai-feed` のみ表示。
+  - `uv run python -m karyu_tech_news collect --source qbitai-feed --source jiqizhixin-rss --dry-run` → exit 0、disabled の `jiqizhixin-rss` を無視して `qbitai-feed` のみ表示。
+  - `uv run python -m karyu_tech_news collect --source nonexistent-source --dry-run` → exit 1。単独未知IDはエラーになる。
+- 実行/確認したテスト:
+  - `uv run python -m karyu_tech_news collect --help` → `--source` 表示あり。
+  - `uv run pytest tests/test_cli_integration.py -q` → `13 passed`。
+  - `uv run pytest` → `101 passed in 1.06s`。
+  - `uv run ruff check .` → `All checks passed!`。
+  - `uv run mypy src tests` → `Success: no issues found in 23 source files`。
+  - `git ls-files -u` + `rg -n "^(<<<<<<<|=======|>>>>>>>)" .` → unmerged file / conflict marker なし。
+
+### 設計適合性
+
+- DESIGN.md §3.1 の `collect [--dry-run] [--source <id>]` は、単一ID指定では実装された。
+- T10テスト方針の「通常実行で全テーブル更新」は、`fetch_one` のみモックして実DB更新を確認するテストにより改善された。
+- ただし現在のCLIは `--source` を複数指定可能と明示しており、複数指定時に未知ID/disabled IDを黙って無視する。指定したソースだけを収集するというCLI契約に対して部分成功が不可視になる。
+- Architecture status: BLOCK。明示指定された入力の一部を黙って捨てる挙動は、運用時の誤収集・誤検証につながる。
+
+### 指摘事項
+
+| 重大度 | 箇所 | 内容 | 要求対応 |
+|---|---|---|---|
+| Critical | なし | なし | なし |
+| High | `src/karyu_tech_news/main.py:250-258` / `tests/test_cli_integration.py:280-324` | `--source` 複数指定時、指定IDの一部が未知または disabled でも、少なくとも1件 enabled に一致すれば exit 0 で進む。例: `--source qbitai-feed --source nonexistent-source --dry-run` が成功し、未知IDを無視する。 | `source_ids` が指定された場合は、指定ID集合と enabled ID集合を突合し、未一致IDが1件でもあれば exit 1 で明示する。disabled ID も「指定されたが enabled ではない」ためエラーに含める。回帰テストとして valid+unknown、valid+disabled の混在指定が失敗することを追加する。 |
+| Medium | `tests/test_cli_integration.py:327-353` | dry-run のDB未書き込み確認が `sources` / `items` / `collect_runs` のみで、前回要求した `source_health` が未確認。実装上は作成されないはずだが、受け入れ条件の証跡として不足している。 | dry-runテストで `source_health` も0件であることを確認する。 |
+| Low | `tests/test_cli_integration.py:60-65` | helpテストが `--source` 表示を確認していない。実CLIでは表示されているが、公開オプションの回帰検知として弱い。 | `test_collect_help` に `assert "--source" in result.output` を追加する。 |
+
+### セキュリティ / 並行性
+
+- secret 漏洩: なし。Webhook URL は出力されず set/not set または投稿結果のみ。
+- SQL injection: SQLAlchemy API と固定クエリを使っており、ユーザー入力をSQL文字列に連結していない。
+- Webhook fail-open: T10範囲では維持されている。
+- 並行性: Sprint 1A は単一プロセス前提。今回のブロッカーは並行性ではなくCLI入力検証。
+
+### テスト不足
+
+- `--source` 複数指定で valid+unknown が失敗するテストが不足。
+- `--source` 複数指定で valid+disabled が失敗するテストが不足。
+- dry-run の `source_health` 未書き込み確認が不足。
+
+## T10 CLI統合 (`collect` コマンド) 再々レビュー  (レビュー日: 2026-06-02)
+
+### 総合判定: PASS
+
+前回 High 指摘は解消済み。`--source` 複数指定時に未知IDまたは disabled ID が1件でも含まれる場合は exit 1 で明示エラーになり、有効IDのみの場合は dry-run / collect 対象が期待通り絞り込まれる。T10のCLI統合は次工程 Antigravity QA へ進行可能。
+
+### 確認した証跡 (必須)
+
+- 確認したファイル:
+  - `src/karyu_tech_news/main.py`
+  - `tests/test_cli_integration.py`
+  - `docs/TEST_LOG.md`
+  - `docs/PROJECT_STATE.md`
+  - `docs/DESIGN.md`
+  - `docs/IMPLEMENTATION_PLAN.md`
+- 修正確認:
+  - `src/karyu_tech_news/main.py:250-260` — `source_ids` 指定時、enabled ID集合と突合し、未一致IDを `Invalid or disabled source IDs` として exit 1 にする。
+  - `tests/test_cli_integration.py:334-352` — valid+unknown の混在指定が exit 1 になることを確認。
+  - `tests/test_cli_integration.py:355-371` — disabled source 指定が exit 1 になることを確認。
+  - `tests/test_cli_integration.py:374-399` — valid source の複数指定が正常に動作することを確認。
+  - `tests/test_cli_integration.py:430-485` — `fetch_one` のみモックし、実 runner 経由で `sources` / `items` / `source_health` / `collect_runs` が更新されることを確認。
+- 追加再現:
+  - `uv run python -m karyu_tech_news collect --source qbitai-feed --dry-run` → exit 0、`qbitai-feed` のみ表示。
+  - `uv run python -m karyu_tech_news collect --source qbitai-feed --source nonexistent-source --dry-run` → exit 1、`Invalid or disabled source IDs: nonexistent-source`。
+  - `uv run python -m karyu_tech_news collect --source qbitai-feed --source jiqizhixin-rss --dry-run` → exit 1、`Invalid or disabled source IDs: jiqizhixin-rss`。
+- 実行/確認したテスト:
+  - `uv run python -m karyu_tech_news validate-sources` → `OK: 11 sources loaded (9 enabled, 2 disabled)`。
+  - `uv run python -m karyu_tech_news collect --help` → `--source` 表示あり。
+  - `uv run pytest tests/test_cli_integration.py -q` → `16 passed`。
+  - `uv run pytest` → `104 passed in 0.99s`。
+  - `uv run ruff check .` → `All checks passed!`。
+  - `uv run mypy src tests` → `Success: no issues found in 23 source files`。
+  - `git ls-files -u` → unmerged file なし。
+  - `rg -n "^(<<<<<<<|=======|>>>>>>>)" .` → conflict marker なし。
+
+### 設計適合性
+
+- DESIGN.md §3.1 の `collect [--dry-run] [--source <id>]` に適合。
+- IMPLEMENTATION_PLAN.md のT10テスト方針のうち、dry-runスキップと通常実行での主要4テーブル更新を確認済み。
+- Webhook投稿失敗時は警告表示に留まり、収集完了を失敗扱いしない fail-open を維持。
+- Architecture status: CLEAR。公開CLI契約、fail-open境界、DB更新経路に追加ブロッカーなし。
+
+### 指摘事項
+
+| 重大度 | 箇所 | 内容 | 要求対応 |
+|---|---|---|---|
+| Critical | なし | なし | なし |
+| High | なし | なし | なし |
+| Medium | なし | なし | なし |
+| Low | なし | なし | なし |
+
+### セキュリティ / 並行性
+
+- secret 漏洩: なし。Webhook URLはCLI出力に露出しない。
+- SQL injection: ユーザー入力をSQL文字列へ連結していない。
+- Webhook fail-open: `post_summary()` 失敗時も警告のみで継続する。
+- 並行性: Sprint 1A は単一プロセス前提。T10範囲で新規ブロッカーなし。
+
+### テスト不足
+
+- T10範囲で追加必須テストなし。

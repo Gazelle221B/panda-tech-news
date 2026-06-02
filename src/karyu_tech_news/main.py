@@ -183,5 +183,123 @@ def init_db(
     typer.secho(f"Database initialized: {db_path}", fg=typer.colors.GREEN)
 
 
+@app.command()
+def collect(
+    ctx: typer.Context,
+    sources_file: Path = typer.Option(
+        DEFAULT_SOURCES_PATH,
+        "--sources",
+        "-s",
+        help="sources.yaml のパス",
+        show_default=True,
+    ),
+    db_path: Path = typer.Option(
+        Path("data/state.db"),
+        "--db-path",
+        "-d",
+        help="SQLite データベースのパス",
+        show_default=True,
+    ),
+    source_ids: list[str] | None = typer.Option(
+        None,
+        "--source",
+        help="収集するソースID (複数指定可能、未指定時は全enabledソース)",
+    ),
+    post: bool = typer.Option(
+        False,
+        "--post",
+        "-p",
+        help="収集後に Discord に投稿",
+    ),
+    dry_run: bool = typer.Option(
+        False,
+        "--dry-run",
+        help="実際の収集・投稿をスキップ",
+    ),
+) -> None:
+    """RSS/RSSHub から収集して SQLite に保存.
+
+    Sprint 1A Ticket #9 (T10) 実装。
+    fail-open: 1ソースの失敗で全体を止めない。
+    """
+    from sqlalchemy.orm import Session
+
+    from karyu_tech_news.collect.runner import run_collect
+    from karyu_tech_news.deliver.discord import format_summary, post_summary
+    from karyu_tech_news.store.repo import (
+        create_db_engine,
+        upsert_source,
+    )
+    from karyu_tech_news.store.repo import (
+        init_db as init_database,
+    )
+
+    settings = ctx.obj
+
+    try:
+        sources_data = load_sources(sources_file)
+    except Exception as exc:
+        typer.secho(f"ERROR: Failed to load sources: {exc}", fg=typer.colors.RED, err=True)
+        raise typer.Exit(code=1) from exc
+
+    enabled = sources_data.enabled_sources()
+    if not enabled:
+        typer.secho("WARNING: No enabled sources found", fg=typer.colors.YELLOW)
+        raise typer.Exit(code=0)
+
+    if source_ids:
+        enabled_ids = {s.id for s in enabled}
+        invalid_ids = [sid for sid in source_ids if sid not in enabled_ids]
+        if invalid_ids:
+            typer.secho(
+                f"ERROR: Invalid or disabled source IDs: {', '.join(invalid_ids)}",
+                fg=typer.colors.RED,
+                err=True,
+            )
+            raise typer.Exit(code=1)
+        enabled = [s for s in enabled if s.id in source_ids]
+
+    if dry_run:
+        typer.echo(f"[DRY RUN] Would collect from {len(enabled)} sources:")
+        for s in enabled:
+            typer.echo(f"  - {s.id} ({s.name})")
+        if post:
+            typer.echo("[DRY RUN] Would post to Discord")
+        raise typer.Exit(code=0)
+
+    engine = create_db_engine(db_path)
+    init_database(engine)
+
+    with Session(engine) as session:
+        for source in enabled:
+            upsert_source(session, source)
+        session.commit()
+
+        run = run_collect(session, enabled, settings.rsshub_base_url)
+
+        typer.echo("")
+        typer.secho(
+            f"Collection completed: {run.successful_sources}/{run.total_sources} sources, "
+            f"{run.new_items} new items",
+            fg=typer.colors.GREEN if run.failed_sources == 0 else typer.colors.YELLOW,
+        )
+
+        if post:
+            if not settings.discord_webhook_url:
+                typer.secho(
+                    "WARNING: DISCORD_WEBHOOK_URL not set, skipping Discord post",
+                    fg=typer.colors.YELLOW,
+                )
+            else:
+                summary = format_summary(session, run)
+                if post_summary(settings.discord_webhook_url, summary):
+                    typer.secho("Discord post sent successfully", fg=typer.colors.GREEN)
+                else:
+                    typer.secho(
+                        "WARNING: Discord post failed (continuing due to fail-open)",
+                        fg=typer.colors.YELLOW,
+                    )
+
+
 if __name__ == "__main__":
     app()
