@@ -45,23 +45,6 @@ def temp_sources_file(tmp_path: Path) -> Path:
     return sources_path
 
 
-def _make_raw_item(source_id: str, key: str) -> RawItem:
-    from datetime import UTC, datetime
-
-    now = datetime.now(UTC)
-    return RawItem(
-        item_key=key,
-        external_id=None,
-        title=f"Title {key}",
-        link=f"https://{source_id}/{key}",
-        summary=None,
-        published_at=now,
-        fetched_at=now,
-        source_id=source_id,
-        canonical_url_hash=f"hash-{source_id}-{key}",
-        raw_json={"k": "v"},
-    )
-
 
 def test_collect_help() -> None:
     result = runner.invoke(app, ["collect", "--help"])
@@ -432,7 +415,7 @@ def test_collect_updates_db_state(temp_sources_file: Path, temp_db: Path) -> Non
 
     from sqlalchemy import create_engine, text
 
-    from karyu_tech_news.collect.normalize import FetchResult, RawItem
+    from karyu_tech_news.collect.normalize import FetchResult
 
     now = datetime.now(UTC)
     item = RawItem(
