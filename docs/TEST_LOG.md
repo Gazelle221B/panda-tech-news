@@ -604,3 +604,23 @@ uv run mypy src tests
 - `test_collect_with_partial_invalid_sources`: 複数のsource_idsを指定し、その一部が無効なIDの場合にexit 1になることを確認。
 - `test_collect_with_disabled_source`: disabledのsource_idを指定した場合にexit 1になることを確認。
 - `test_collect_with_multiple_valid_sources`: 全てのsource_idsが有効な場合に正常に動作することを確認。
+
+## Ticket #11 (T11): 3日連続稼働観察 (手動運用)
+
+### 目的
+Sprint 1A で実装した収集基盤全体が、実際のソースに対して連続して動作し、エラー時も正しくフェイルオープンとして機能するか、および Discord へのサマリー投稿が正常に行われるかを3日間にわたり手動（または定期）実行で確認する。
+
+### 実行コマンド（例）
+```bash
+uv run python -m karyu_tech_news collect --post
+```
+
+### 稼働記録
+
+| 日付 (YYYY-MM-DD) | 実行時刻 (JST) | 取得ソース数 | 新規件数 | Discord 投稿 | エラー・特記事項 |
+|---|---|---|---|---|---|
+| Day 1: 2026-06-02 | | | | | |
+| Day 2: 2026-06-03 | | | | | |
+| Day 3: 2026-06-04 | | | | | |
+
+※ 3日間の安定稼働が確認できた時点で Sprint 1A は完全終了となり、Sprint 1B（LLM統合）へ進行可能となります。
