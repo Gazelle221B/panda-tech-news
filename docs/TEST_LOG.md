@@ -482,3 +482,125 @@ uv run mypy src tests
 ### 追加テスト
 
 - `test_format_summary_excludes_items_after_finished_at`: run 終了後に保存された item が Tier/カテゴリ集計に含まれないことを確認。
+
+## T10: CLI統合 (`collect` コマンド)  (実装: OpenCode / 日付: 2026-06-01)
+
+### 実行コマンド
+
+```bash
+uv run pytest -v
+uv run ruff check .
+uv run mypy src tests
+```
+
+### 結果サマリー
+
+- pytest: **97 passed** / failed 0 (test_cli.py 8 + test_config.py 16 + test_normalize.py 12 + test_fetcher.py 12 + test_store.py 12 + test_dedupe.py 5 + test_health.py 8 + test_runner_fail_open.py 8 + test_discord.py 7 + test_cli_integration.py 9)。
+- ruff check: All checks passed。
+- mypy --strict: Success, no issues found in 23 source files。
+
+### 実装内容
+
+**変更ファイル**:
+- `src/karyu_tech_news/main.py` — `collect` コマンドを追加 (`--post`, `--dry-run` オプション)
+- `tests/test_cli_integration.py` — 9 テスト (ヘルプ表示、dry-run、成功/失敗、Discord 投稿成功/失敗/未設定)
+
+**実装方針**:
+- `collect` コマンドは `runner.run_collect()` を呼び出し、収集結果を `CollectRun` として保存。
+- `--post` オプションで収集後に `discord.format_summary()` と `discord.post_summary()` を統合。
+- `--dry-run` オプションで実際の収集・投稿をスキップ。
+- ソースを `upsert_source()` でデータベースに登録してから収集を実行。
+- fail-open: Discord 投稿失敗時もプロセスを継続。
+
+**テストケース**:
+- `test_collect_help`: `collect --help` が正しく表示されることを確認。
+- `test_collect_dry_run`: `--dry-run` オプションで収集がスキップされることを確認。
+- `test_collect_dry_run_with_post`: `--dry-run --post` で Discord 投稿もスキップされることを確認。
+- `test_collect_no_enabled_sources`: 有効なソースがない場合に警告を表示して正常終了することを確認。
+- `test_collect_success`: 収集が成功した場合に正しいメッセージが表示されることを確認。
+- `test_collect_with_post_success`: `--post` オプションで Discord 投稿が成功することを確認。
+- `test_collect_with_post_no_webhook_url`: `DISCORD_WEBHOOK_URL` が未設定の場合に警告を表示することを確認。
+- `test_collect_with_post_failure`: Discord 投稿が失敗しても fail-open で継続することを確認。
+- `test_collect_with_failures`: 収集で失敗が発生しても正常に完了することを確認。
+
+### DESIGN.md §3.1 / requirements-v1.0.md §11.1 準拠
+
+- **CLI要件**: `python -m karyu_tech_news collect` が完走する。
+- **fail-open**: 1ソースの失敗で全体を止めない。
+- **Discord 投稿**: `--post` オプションで収集後に自動で投稿。
+
+## T10 修正: Codex レビュー指摘対応  (実装: OpenCode / 日付: 2026-06-01)
+
+### 指摘内容
+
+**High**: `collect --source <id>` が未実装。`DESIGN.md` のCLI契約では `collect [--dry-run] [--source <id>]` ですが、実行すると `No such option: --source` で exit 2 になります。
+
+**Medium**: T10受け入れ条件のDB状態検証が不足。現テストは `run_collect()` をモックしており、「dry-runでDB書き込みなし」「通常実行で `sources/items/source_health/collect_runs` 更新」を実証していません。
+
+### 修正内容
+
+- `src/karyu_tech_news/main.py` — `--source` オプションを追加（複数指定可能）。指定されたソースIDでフィルタリング。
+- `tests/test_cli_integration.py` — 4 テスト追加:
+  - `test_collect_with_source_option`: `--source` オプションで特定のソースのみ収集
+  - `test_collect_with_invalid_source_option`: 存在しないソースIDを指定した場合にエラー
+  - `test_collect_dry_run_no_db_write`: dry-run でDB書き込みがないことを確認
+  - `test_collect_updates_db_state`: 通常実行で `sources/items/source_health/collect_runs` が更新されることを確認
+
+### 実行コマンド
+
+```bash
+uv run pytest -v
+uv run ruff check .
+uv run mypy src tests
+```
+
+### 結果サマリー
+
+- pytest: **101 passed** / failed 0 (test_cli.py 8 + test_config.py 16 + test_normalize.py 12 + test_fetcher.py 12 + test_store.py 12 + test_dedupe.py 5 + test_health.py 8 + test_runner_fail_open.py 8 + test_discord.py 7 + test_cli_integration.py 13)。
+- ruff check: All checks passed。
+- mypy --strict: Success, no issues found in 23 source files。
+
+### 追加テスト
+
+- `test_collect_with_source_option`: `--source` オプションで特定のソースのみ収集することを確認。
+- `test_collect_with_invalid_source_option`: 存在しないソースIDを指定した場合にエラーになることを確認。
+- `test_collect_dry_run_no_db_write`: dry-run でDB書き込みがないことを確認（`sources/items/collect_runs` がすべて0件）。
+- `test_collect_updates_db_state`: 通常実行で `sources/items/source_health/collect_runs` が更新されることを確認（`fetch_one` のみモック、実際のDB書き込みを検証）。
+
+## T10 再レビュー指摘対応  (実装: OpenCode / 日付: 2026-06-02)
+
+### 指摘内容
+
+**High**: `--source` で複数指定時、一部が未知IDまたはdisabled IDでも残りがあればexit 0で進む。指定されたIDを黙って捨てるのは運用上危険。未一致IDが1件でもあればexit 1にするべき。
+
+### 修正内容
+
+- `src/karyu_tech_news/main.py` — `source_ids` 指定時、全てのIDがenabled sourcesに存在することを検証。未一致ID（未知またはdisabled）があれば、それらをリストアップしてexit 1。
+- `tests/test_cli_integration.py` — 3 テスト追加:
+  - `test_collect_with_partial_invalid_sources`: 複数のsource_idsを指定し、その一部が無効なIDの場合にexit 1になることを確認
+  - `test_collect_with_disabled_source`: disabledのsource_idを指定した場合にexit 1になることを確認
+  - `test_collect_with_multiple_valid_sources`: 全てのsource_idsが有効な場合に正常に動作することを確認
+- `tests/test_cli_integration.py` — 既存テスト更新:
+  - `test_collect_with_invalid_source_option`: エラーメッセージを新しい実装に合わせて更新
+- `tests/test_cli_integration.py` — フィクスチャ更新:
+  - `temp_sources_file`: disabled-sourceを追加
+
+### 実行コマンド
+
+```bash
+uv run pytest -v
+uv run ruff check .
+uv run mypy src tests
+```
+
+### 結果サマリー
+
+- pytest: **104 passed** / failed 0 (test_cli.py 8 + test_config.py 16 + test_normalize.py 12 + test_fetcher.py 12 + test_store.py 12 + test_dedupe.py 5 + test_health.py 8 + test_runner_fail_open.py 8 + test_discord.py 7 + test_cli_integration.py 16)。
+- ruff check: All checks passed。
+- mypy --strict: Success, no issues found in 23 source files。
+
+### 追加テスト
+
+- `test_collect_with_partial_invalid_sources`: 複数のsource_idsを指定し、その一部が無効なIDの場合にexit 1になることを確認。
+- `test_collect_with_disabled_source`: disabledのsource_idを指定した場合にexit 1になることを確認。
+- `test_collect_with_multiple_valid_sources`: 全てのsource_idsが有効な場合に正常に動作することを確認。
