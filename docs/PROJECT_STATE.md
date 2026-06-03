@@ -1,11 +1,11 @@
 # プロジェクト状態
 
-> 最終更新: 2026-06-03 / 更新者: Codex (独立レビュアー)
+> 最終更新: 2026-06-04 / 更新者: Claude Code (T11 完了 / Sprint 1A 完全終了)
 > 本ファイルは全エージェントが随時更新する。**Antigravity の内部記憶ではなくここを真の記憶とする** (WORKFLOW §13)。
 
 ## 現在のフェーズ
 
-**Sprint 1A 完了** — Ticket #9 (T10) Antigravity QA PASS。**Ticket #11 (T11) 3日連続稼働観察 進行中 (Day 2/3 完了, 2026-06-03。Discord 実配信成功)**
+**Sprint 1A 完全終了** 🎉 — T1〜T11 全完了。**Ticket #11 (T11) 3日連続稼働観察 完了** (Day1 06-02 / Day2 06-03 / Day3 06-04、全日 9/9 成功。Day2/Day3 にて Discord 実配信 HTTP 204 を確認)。**次フェーズ: Sprint 1B (LLM編集・台本生成) 解禁**
 
 | ステップ | 状態 |
 |---|---|
@@ -31,6 +31,7 @@
 | Ticket #7 (collect runner: fail-open 統合) | ✅ Antigravity QA PASS (2026-06-01)。fail-open 設計および集計整合性の確実な動作を検証済。pytest 81 pass / ruff・mypy(strict) clean |
 | Ticket #8 (Discord Webhook サマリー投稿) | ✅ Antigravity QA PASS (2026-06-01)。run 境界内の集計整合性、Webhook 送信時の fail-open 担保を確認。pytest 88 pass / ruff・mypy(strict) clean |
 | Ticket #9 (CLI統合: `collect` コマンド) | ✅ Antigravity QA PASS (2026-06-02)。dry-run、実実行、重複排除、不正引数処理を実CLIで確認。pytest 104 pass / ruff・mypy(strict) clean |
+| Ticket #11 (T11) 3日連続稼働観察 | ✅ 完了 (2026-06-04)。Day1-3 全 9/9 成功、Discord 実配信 (HTTP 204)、fail-open 健全、dedup 実DB実証。**Sprint 1A 完全終了** |
 
 ## 作業中ブランチ
 
@@ -80,8 +81,9 @@
 2. ~~T10 Codex レビュー~~ ✅ PASS (2026-06-02)。High 指摘対応（`--source` 不正IDの厳密チェック）完了。
 3. ~~Antigravity QA~~ ✅ PASS (2026-06-02)。T10 `collect` CLI 結合の最終 QA完了。Sprint 1A 実装のすべての完了条件を満たす。
 4. ~~人間承認 & Merge~~ ✅ T1〜T10 は main にマージ済 (PR #1〜#7、最新 `df4e931`)。
-5. ~~Ticket #11 (T11) 着手~~ ✅ 進行中: Day 1 (06-02) / Day 2 (06-03, Discord 実配信 HTTP 204) 完了。**残: Day 3 (06-04) の `collect --post` で 3日連続達成 → Sprint 1A 完全終了**。
+5. ~~Ticket #11 (T11) 3日連続稼働観察~~ ✅ **完了 (2026-06-04)**: Day1 (4新着) / Day2 (58新着, HTTP204) / Day3 (1新着, HTTP204)。全日 9/9 成功・fail-open 健全。Day2/Day3 にて Discord 配信確認。**Sprint 1A 完全終了**。
 6. doc-sync + テスト分離修正 (現ブランチ `agent/T11-impl`) は Codex レビュー PASS 済 (2026-06-03) → **人間承認でマージ可** (テストコード変更を含むため PR 経由推奨)。
+7. **次フェーズ: Sprint 1B (LLM編集・台本生成) 解禁** — LLM profile 定義 / MiMo・DeepSeek 接続確認 / Tier重みスコアリング / 3-5本選定 / Markdown台本 / A/B/C比較ログ ([roadmap.md](./roadmap.md) Sprint 1B 節)。
 
 ## 人間判断待ちの事項
 
@@ -149,3 +151,4 @@ meeting.md / meeting2.md / tik-choco コードdump の全読に基づき作成:
 | 2026-06-03 | Claude Code | ドキュメント同期: AGENTS.md/README/commit-rules/main.py を実装実態(T1-T10完了・CLI 5コマンド・pytest 104)に更新。`post-summary` 表記を `collect --post` に是正、⏳マーカー除去、テスト数48→104 |
 | 2026-06-03 | Claude Code | テスト分離修正: `test_cli_integration.py::test_collect_with_post_no_webhook_url` を `delenv`→`setenv("")` に変更 (実 .env webhook を `load_dotenv` が再投入する非hermetic欠陥)。実.env下でも pytest 104/ruff/mypy strict 緑。**テストコード変更につき merge 前に Codex レビュー要 (WORKFLOW §11)** |
 | 2026-06-03 | Codex | ドキュメント同期 + CLIテスト分離修正の独立レビュー PASS を `docs/REVIEW_REPORT.md` に記録。Critical/High/Medium/Low 指摘なし |
+| 2026-06-04 | Claude Code | T11 Day 3 実走: `collect --post` で 9/9成功・1新着・**Discord HTTP 204**。**3日連続稼働 (06-02/03/04) 達成 → T11 完了 → Sprint 1A 完全終了**。全日 fail-open 健全。fresh pytest 104/ruff/mypy strict 緑。TEST_LOG Day3 + 総括記入。次: Sprint 1B |

@@ -10,9 +10,9 @@
 
 ## ステータス
 
-- フェーズ: **Sprint 1A 実装完了** (T1〜T10 QA PASS) — **Ticket #11 (3日連続稼働観察) 進行中** (Day 2/3, Discord 実配信成功)
+- フェーズ: **Sprint 1A 完全終了** 🎉 (T1〜T11 完了) — T11 3日連続稼働観察 達成 (06-02/03/04 全日 9/9 成功。Day2/Day3 にて Discord 実配信 HTTP 204 を確認)
 - ソース検証: 完了 (2026-05-29)。有効9本 (ADOPT 5 + 監視 4) / 保留2本。詳細は [docs/source-selection-spike-v0.1.md](docs/source-selection-spike-v0.1.md) §7
-- 次アクション: T11 Day 3 (`collect --post` を 2026-06-04 に実行) → 完了で Sprint 1B (LLM統合) 解禁
+- 次アクション: **Sprint 1B (LLM編集・台本生成) 解禁** — LLM profile / MiMo・DeepSeek 接続 / Tier重みスコアリング / Markdown台本 ([docs/roadmap.md](docs/roadmap.md))
 
 ## ドキュメント地図
 
