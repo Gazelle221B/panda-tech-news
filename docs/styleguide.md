@@ -155,7 +155,7 @@ logger = logging.getLogger(__name__)      # モジュール毎に取得
 - 1 テスト 1 条件。`test_<対象>_<期待>` 命名。
 - 意図的な型違反テストは `# type: ignore[arg-type]` を付け、mypy strict を維持。
 - 実 `config/sources.yaml` を読む結合テストを 1 本持ち、確定構成 (11本中9有効) を固定する。
-- **環境変数を「未設定」にするテストは `monkeypatch.setenv("VAR", "")` (空文字固定) を使う。`delenv` で削除しない** — CLI は `main_callback` で `load_dotenv(.env)` を呼ぶため、削除したキーは実 `.env` から再投入される (`load_dotenv` の `override=False` は *既存キーのみ* skip)。空文字なら「存在するキー」として skip され、開発者の `.env` 値に汚染されない (`test_collect_with_post_no_webhook_url` の hermetic 化, 2026-06-03)。
+- **CLI / `load_dotenv(.env)` を経由するテストで、環境変数を「未設定」として扱いたい場合は `monkeypatch.setenv("VAR", "")` (空文字固定) を使う。`delenv` で削除しない** — `delenv` で削除してしまうと、CLIコマンドの `main_callback` 等で呼ばれる `load_dotenv(.env)` によって、開発者のローカル実ファイル (`.env`) から値が再投入され、テストが環境依存になってしまうため。空文字なら「既に環境変数が存在する」として上書きが skip される (`test_collect_with_post_no_webhook_url` の hermetic 化, 2026-06-03)。
 
 ```python
 def test_source_config_rejects_bad_id_pattern() -> None:
