@@ -975,3 +975,62 @@ High 指摘 1 件。`post_summary()` の fail-open と Webhook 本文投稿は�
 ### テスト不足
 
 - T10範囲で追加必須テストなし。
+
+## ドキュメント同期 + CLIテスト分離修正レビュー  (レビュー日: 2026-06-03)
+
+### 総合判定: PASS
+
+T1-T10完了 / T11観察中の実態に合わせたドキュメント同期と、`tests/test_cli_integration.py` の `.env` 由来 Webhook 再投入を防ぐ hermetic 修正を確認した。実 `.env` に `DISCORD_WEBHOOK_URL` がある条件でも、対象テストは空文字固定で「Webhook未設定」経路を正しく検証できる。Critical / High / Medium / Low 指摘なし。merge 前レビュー要件は満たした。
+
+### 確認した証跡 (必須)
+
+- 確認したファイル:
+  - `AGENTS.md`
+  - `README.md`
+  - `docs/commit-rules.md`
+  - `docs/PROJECT_STATE.md`
+  - `docs/TEST_LOG.md`
+  - `src/karyu_tech_news/main.py`
+  - `tests/test_cli_integration.py`
+- 根拠とした差分/行:
+  - `tests/test_cli_integration.py:176-181` — `DISCORD_WEBHOOK_URL` を削除ではなく空文字に固定し、`load_dotenv(override=False)` による実 `.env` 再投入を防ぐ。
+  - `src/karyu_tech_news/main.py:1-4` / `src/karyu_tech_news/main.py:145-148` — module docstring と `info` 表示を Sprint 1A T1-T10完了 / T11観察中へ更新。ロジック変更なし。
+  - `AGENTS.md` / `README.md` / `docs/commit-rules.md` — 現在のCLI・テスト数・T11進行状況へ同期。
+  - `docs/TEST_LOG.md` — T11 Day 1 / Day 2 観察結果と fresh gate 証跡を追記。
+  - `docs/PROJECT_STATE.md` — T11進行、ドキュメント同期、テスト分離修正を改訂履歴へ追記。
+- 実行/確認したテスト:
+  - `uv run pytest` → `104 passed in 1.49s`。
+  - `uv run ruff check .` → `All checks passed!`。
+  - `uv run mypy src tests` → `Success: no issues found in 23 source files`。
+  - `uv run python -m karyu_tech_news validate-sources` → `OK: 11 sources loaded (9 enabled, 2 disabled)`。
+  - `wc -l AGENTS.md` → `287 AGENTS.md`。
+  - `git check-ignore -v .env` → `.gitignore:2:.env .env`。
+  - `git ls-files -u` → unmerged file なし。
+  - `rg -n "^(<<<<<<<|=======|>>>>>>>)" .` → conflict marker なし。
+
+### 設計適合性
+
+- WORKFLOW §11 の「テストコード変更はCodex独立レビュー」の要求に適合。
+- `DISCORD_WEBHOOK_URL` の実値は `.env` に残しても gitignore 対象であり、テスト出力・CLI情報表示にも漏洩しない。
+- 現在状態のドキュメントは T1-T10完了、CLI 5コマンド、pytest 104、T11 Day 2/3完了に概ね同期している。
+- `docs/TEST_LOG.md` の過去履歴に残る `post-summary` 表記は当時の予定・未実装記録であり、現在状態のドリフトとは扱わない。
+- Architecture status: CLEAR。実装ロジック・運用手順・テスト分離に追加ブロッカーなし。
+
+### 指摘事項
+
+| 重大度 | 箇所 | 内容 | 要求対応 |
+|---|---|---|---|
+| Critical | なし | なし | なし |
+| High | なし | なし | なし |
+| Medium | なし | なし | なし |
+| Low | なし | なし | なし |
+
+### セキュリティ / 並行性
+
+- secret 漏洩: なし。`.env` は gitignore 対象で、テスト修正は空文字固定のみ。
+- テスト分離: `monkeypatch.setenv("DISCORD_WEBHOOK_URL", "")` により、実 `.env` の Webhook 値に依存しない。
+- 並行性: ドキュメント同期とテスト環境変数修正のみ。並行実行に関する新規リスクなし。
+
+### テスト不足
+
+- 今回範囲で追加必須テストなし。

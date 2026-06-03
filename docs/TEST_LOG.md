@@ -619,8 +619,55 @@ uv run python -m karyu_tech_news collect --post
 
 | 日付 (YYYY-MM-DD) | 実行時刻 (JST) | 取得ソース数 | 新規件数 | Discord 投稿 | エラー・特記事項 |
 |---|---|---|---|---|---|
-| Day 1: 2026-06-02 | | | | | |
-| Day 2: 2026-06-03 | | | | | |
+| Day 1: 2026-06-02 | 09:52 | 9/9 成功 | 4 | 未投稿※(webhook未設定。`format_summary` 出力はプレビュー確認済) | dedup正常(36Krのみ4新着、他8本0new)。zhipu-glm 301→`zai-org/GLM-4` 自動追従。fail-open発火なし(全成功) |
+| Day 2: 2026-06-03 | 22:03 | 9/9 成功 | 58 | ✅ 投稿成功 (HTTP 204) | 初の Discord 実配信。fail-open発火なし。13.5秒。Tier2:30/Tier3:28、AI:38/Tech:20 |
 | Day 3: 2026-06-04 | | | | | |
 
 ※ 3日間の安定稼働が確認できた時点で Sprint 1A は完全終了となり、Sprint 1B（LLM統合）へ進行可能となります。
+
+### Day 1 観察結果 (2026-06-02 09:52 JST)
+
+- **収集**: 9/9 ソース成功、4 新規アイテム (36Kr Newsflash の速報、Tier2/Tech)。実行 3.5 秒。
+- **dedup 実証**: 既存8ソースは 0 new (前回 collect と同一アイテムを `UNIQUE(source_id, item_key)` で重複排除)。
+- **耐障害性**: zhipu-glm は GitHub の 301 リダイレクト (`THUDM`→`zai-org/GLM-4`) を httpx が自動追従し成功。実 fail-open の発火は今回なし (全ソース成功)。
+- **Discord**: webhook 未設定のため未投稿。`format_summary` の出力 (要件 §14.1 形式) はプレビューで検証済。実投稿は `.env` に `DISCORD_WEBHOOK_URL` を設定し `collect --post` で実施する。
+- **品質ゲート (fresh)**: pytest 104 passed / ruff clean / mypy strict clean。
+
+投稿プレビュー (`--post` で送信される本文):
+
+```
+📰 華流テック通信 - 収集レポート
+日時: 2026-06-02 09:52 JST
+実行時間: 3.5秒
+✅ 成功: 9/9 ソース
+❌ 失敗: 0/9 ソース
+📥 新規アイテム: 4件
+Tier別:
+- Tier2 ニュース: 4件
+カテゴリ別:
+- Tech: 4
+```
+
+### Day 2 観察結果 (2026-06-03 22:03 JST)
+
+- **収集**: 9/9 ソース成功、**58 新規アイテム** (前回から約36時間で 36Kr 速報・掘金トレンドが蓄積)。実行 13.5 秒。
+- **Discord 実配信成功**: `collect --post` → HTTP **204 No Content**。要件 §14.1 形式のサマリーが Webhook に到達 (本プロジェクト初の実配信)。
+- **内訳**: Tier2 ニュース 30 / Tier3 コミュニティ 28、カテゴリ AI 38 / Tech 20。
+- **耐障害性**: fail-open 発火なし (全9成功)。2日連続で全ソース取得成功。
+
+投稿サマリー (Discord 到達):
+
+```
+📰 華流テック通信 - 収集レポート
+日時: 2026-06-03 22:03 JST
+実行時間: 13.5秒
+✅ 成功: 9/9 ソース
+❌ 失敗: 0/9 ソース
+📥 新規アイテム: 58件
+Tier別:
+- Tier2 ニュース: 30件
+- Tier3 コミュニティ: 28件
+カテゴリ別:
+- AI: 38
+- Tech: 20
+```

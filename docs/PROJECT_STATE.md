@@ -1,11 +1,11 @@
 # プロジェクト状態
 
-> 最終更新: 2026-06-02 / 更新者: Codex (独立レビュアー)
+> 最終更新: 2026-06-03 / 更新者: Codex (独立レビュアー)
 > 本ファイルは全エージェントが随時更新する。**Antigravity の内部記憶ではなくここを真の記憶とする** (WORKFLOW §13)。
 
 ## 現在のフェーズ
 
-**Sprint 1A 完了** — Ticket #9 (T10) Antigravity QA PASS → 次: Ticket #11 (T11) 3日連続稼働観察
+**Sprint 1A 完了** — Ticket #9 (T10) Antigravity QA PASS。**Ticket #11 (T11) 3日連続稼働観察 進行中 (Day 2/3 完了, 2026-06-03。Discord 実配信成功)**
 
 | ステップ | 状態 |
 |---|---|
@@ -34,7 +34,7 @@
 
 ## 作業中ブランチ
 
-`agent/T9-impl`
+`agent/T11-impl`
 
 ## 直近の設計判断
 
@@ -55,6 +55,8 @@
 | Hugging Face Daily Papers の公式 RSS 不在 | 初期スコープ外、1B以降 |
 
 ## Codex レビューの直近結果
+
+2026-06-03: ドキュメント同期 + CLIテスト分離修正レビュー PASS。Critical/High/Medium/Low 指摘なし。実 `.env` webhook 存在下でも pytest 104 pass、ruff/mypy strict clean、秘密保護を確認。証跡は `docs/REVIEW_REPORT.md` に追記済み。
 
 2026-06-02: T10 (Ticket #9 CLI統合: `collect` コマンド) 再々レビュー PASS。Critical/High/Medium/Low 指摘なし。`--source` 複数指定時の未知/disabled ID検証、DB更新統合テスト、Webhook fail-open を確認。証跡は `docs/REVIEW_REPORT.md` に追記済み。
 
@@ -77,8 +79,9 @@
 1. ~~Ticket #9 (T10) `collect` CLI 結合~~ ✅ 実装完了 (2026-06-02)。`main.py` および `cli.py` に `collect` コマンドを統合。
 2. ~~T10 Codex レビュー~~ ✅ PASS (2026-06-02)。High 指摘対応（`--source` 不正IDの厳密チェック）完了。
 3. ~~Antigravity QA~~ ✅ PASS (2026-06-02)。T10 `collect` CLI 結合の最終 QA完了。Sprint 1A 実装のすべての完了条件を満たす。
-4. **人間承認 & Merge**: T10 のマージ待ち。
-5. 次アクション: Ticket #11 (T11) 3日連続稼働観察（手動運用）へ進む。
+4. ~~人間承認 & Merge~~ ✅ T1〜T10 は main にマージ済 (PR #1〜#7、最新 `df4e931`)。
+5. ~~Ticket #11 (T11) 着手~~ ✅ 進行中: Day 1 (06-02) / Day 2 (06-03, Discord 実配信 HTTP 204) 完了。**残: Day 3 (06-04) の `collect --post` で 3日連続達成 → Sprint 1A 完全終了**。
+6. doc-sync + テスト分離修正 (現ブランチ `agent/T11-impl`) は Codex レビュー PASS 済 (2026-06-03) → **人間承認でマージ可** (テストコード変更を含むため PR 経由推奨)。
 
 ## 人間判断待ちの事項
 
@@ -141,3 +144,8 @@ meeting.md / meeting2.md / tik-choco コードdump の全読に基づき作成:
 | 2026-06-02 | OpenCode | T10 Codex 再レビュー指摘対応完了。複数 `--source` 指定時の未知/disabled ID検証を追加。pytest 104 pass / ruff・mypy(strict) clean |
 | 2026-06-02 | Codex | T10 CLI統合の再々レビュー PASS を `docs/REVIEW_REPORT.md` に記録。Critical/High/Medium/Low 指摘なし。次工程は Antigravity QA |
 | 2026-06-02 | Antigravity | Ticket #9 (T10) CLI統合の QA 完了。実CLIを用いた完走、重複排除、不正引数処理等の正常動作を確認し QA PASS |
+| 2026-06-02 | Claude Code | T11 Day 1 実走: collect 9/9成功・4新着、dedup実証(他8本0new)、zhipu-glm 301自動追従、Discordサマリー §14.1 プレビュー確認。fresh pytest 104/ruff/mypy strict 緑。TEST_LOG 稼働記録 Day1 記入。作業ブランチを agent/T11-impl に同期 |
+| 2026-06-03 | Claude Code | T11 Day 2 実走: `collect --post` で 9/9成功・58新着、**Discord 実配信成功 (HTTP 204)**。本プロジェクト初の Webhook 到達。fail-open発火なし。TEST_LOG 稼働記録 Day2 記入。残: Day 3 (06-04) |
+| 2026-06-03 | Claude Code | ドキュメント同期: AGENTS.md/README/commit-rules/main.py を実装実態(T1-T10完了・CLI 5コマンド・pytest 104)に更新。`post-summary` 表記を `collect --post` に是正、⏳マーカー除去、テスト数48→104 |
+| 2026-06-03 | Claude Code | テスト分離修正: `test_cli_integration.py::test_collect_with_post_no_webhook_url` を `delenv`→`setenv("")` に変更 (実 .env webhook を `load_dotenv` が再投入する非hermetic欠陥)。実.env下でも pytest 104/ruff/mypy strict 緑。**テストコード変更につき merge 前に Codex レビュー要 (WORKFLOW §11)** |
+| 2026-06-03 | Codex | ドキュメント同期 + CLIテスト分離修正の独立レビュー PASS を `docs/REVIEW_REPORT.md` に記録。Critical/High/Medium/Low 指摘なし |
