@@ -1,6 +1,6 @@
 """CLI 本体. typer ベース.
 
-Sprint 1A の Ticket #1 + Ticket #2 先行分。
+Sprint 1A 全コマンド: version / info / validate-sources / init-db / collect。
 """
 from __future__ import annotations
 
@@ -145,7 +145,7 @@ def info(ctx: typer.Context) -> None:
     """環境設定の確認 (秘密情報は set/not set のみ表示)."""
     settings = ctx.obj
     typer.echo(f"karyu-tech-news {__version__}")
-    typer.echo("Sprint phase: 1A (Ticket #4 SQLite)")
+    typer.echo("Sprint phase: 1A complete (T1-T10), T11 observation")
     typer.echo("")
     typer.echo("Settings:")
     typer.echo(f"  RSSHUB_BASE_URL:           {settings.rsshub_base_url}")

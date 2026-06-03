@@ -10,9 +10,9 @@
 
 ## ステータス
 
-- フェーズ: **Sprint 1A 実装中** — Ticket #8 まで完了 (DB永続化 / dedupe / fail-open収集 / Discord Webhook)
+- フェーズ: **Sprint 1A 実装完了** (T1〜T10 QA PASS) — **Ticket #11 (3日連続稼働観察) 進行中** (Day 2/3, Discord 実配信成功)
 - ソース検証: 完了 (2026-05-29)。有効9本 (ADOPT 5 + 監視 4) / 保留2本。詳細は [docs/source-selection-spike-v0.1.md](docs/source-selection-spike-v0.1.md) §7
-- 次アクション: Ticket #9 (CLI統合: collect コマンド)
+- 次アクション: T11 Day 3 (`collect --post` を 2026-06-04 に実行) → 完了で Sprint 1B (LLM統合) 解禁
 
 ## ドキュメント地図
 
@@ -30,7 +30,7 @@
 | 実装計画 | [docs/IMPLEMENTATION_PLAN.md](docs/IMPLEMENTATION_PLAN.md) | Sprint 1A タスク分解 |
 | ワークフロー | [docs/WORKFLOW.md](docs/WORKFLOW.md) | エージェント間契約 |
 | 状態 | [docs/PROJECT_STATE.md](docs/PROJECT_STATE.md) | 永続化された進捗 |
-| Spike | [docs/source-selection-spike-v0.1.md](docs/source-selection-spike-v0.1.md) | 初期10ソース選定 |
+| Spike | [docs/source-selection-spike-v0.1.md](docs/source-selection-spike-v0.1.md) | 初期ソース選定 (11本/有効9) |
 | ADR | [docs/adr/INDEX.md](docs/adr/INDEX.md) | 重要決定の記録ハブ (0001-0006) + TEMPLATE |
 | 番組仕様 | [docs/hal-persona.md](docs/hal-persona.md), [docs/show-format.md](docs/show-format.md), [docs/editorial-policy.md](docs/editorial-policy.md) | HAL人格 / 構成 / 編集方針 |
 | プロンプト | [prompts/](prompts/) | 各エージェント宛指示 |
@@ -59,17 +59,20 @@ cp .env.example .env                               # DISCORD_WEBHOOK_URL を埋�
 docker compose up -d rsshub                         # 掘金など RSSHub 経由ソース用
 uv run python -m karyu_tech_news --help
 uv run python -m karyu_tech_news validate-sources  # ソース定義をスキーマ検証
-uv run pytest                                      # テスト
+uv run python -m karyu_tech_news init-db           # SQLite 初期化
+uv run python -m karyu_tech_news collect --post    # 収集 → SQLite → Discord 投稿
+uv run pytest                                      # テスト (104 pass)
 ```
 
-### CLI 進捗
+### CLI 進捗 (Sprint 1A 全実装済み)
 
 | コマンド | 状態 |
 |---|---|
-| `validate-sources` / `version` / `info` | ✅ Ticket #1 + #2先行 |
-| `init-db` | ⏳ Ticket #4 (SQLite) |
-| `collect` | ⏳ Ticket #3〜#7 |
-| `post-summary` | ⏳ Ticket #9 (Discord) |
+| `version` / `info` / `validate-sources` | ✅ T1-T2 |
+| `init-db` | ✅ T4 (SQLite 初期化・冪等) |
+| `collect` (`--source` / `--post` / `--dry-run`) | ✅ T3-T10 (収集→保存→dedupe→source_health→Discord) |
+
+> Discord 投稿は独立コマンドではなく `collect --post` に統合。
 
 ## マルチエージェント運用
 

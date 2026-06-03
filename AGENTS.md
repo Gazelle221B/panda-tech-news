@@ -18,10 +18,10 @@
 
 ## 2. 現在のフェーズ (随時更新は `docs/PROJECT_STATE.md`)
 
-- **Sprint 1A 実装中** — 収集基盤の検証 (LLM/TTS/動画/YouTube は実装しない)
-- 完了: Ticket #8 まで (DB永続化 / dedupe / fail-open収集 / Discord Webhook)
-- 次: **Ticket #9** (CLI統合: collect コマンド)
-- 作業ブランチ: `agent/T4-impl`
+- **Sprint 1A 実装完了** — T1〜T10 全チケット QA PASS (収集→SQLite→dedupe→source_health→fail-open統合→Discord→CLI統合)
+- **Ticket #11 (3日連続稼働観察) 進行中** — Day 2/3 完了 (2026-06-03、Discord 実配信成功 HTTP 204)。完了で Sprint 1A 全終了 → 1B 解禁
+- LLM/TTS/動画/YouTube は未実装 (Sprint 1B 以降)
+- 作業ブランチ: `agent/T11-impl`
 
 ## 3. 絶対 NG (禁止事項) — 最優先
 
@@ -65,22 +65,23 @@ uv sync                                            # 依存解決 + Python 3.11+
 cp .env.example .env                               # DISCORD_WEBHOOK_URL を埋める
 docker compose up -d rsshub                         # RSSHub セルフホスト (Tier3 掘金用)
 
-# CLI (現時点で動くもの)
+# CLI (Sprint 1A 全コマンド実装済み)
 uv run python -m karyu_tech_news --help
 uv run python -m karyu_tech_news version
 uv run python -m karyu_tech_news info               # 環境設定確認 (秘密値は set/not set のみ)
 uv run python -m karyu_tech_news validate-sources   # config/sources.yaml をスキーマ検証
-# または: uv run karyu validate-sources
+uv run python -m karyu_tech_news init-db            # SQLite 初期化 (冪等)
+uv run python -m karyu_tech_news collect [--source <id>] [--post] [--dry-run]  # 収集→保存(→Discord)
+# または: uv run karyu collect --post
 
 # 品質ゲート (PR 前に必ず通す)
-uv run pytest                                       # ユニットテスト (現状 48 / pass)
+uv run pytest                                       # ユニットテスト (現状 104 / pass)
 uv run ruff check .                                 # Lint
 uv run mypy src tests                               # 型 (strict)
 
-# 将来 CLI (Sprint 1A 実装予定)
-uv run python -m karyu_tech_news init-db            # ⏳ Ticket #4
-uv run python -m karyu_tech_news collect [--dry-run] [--source <id>]  # ⏳ Ticket #3〜#10
-uv run python -m karyu_tech_news post-summary       # ⏳ Ticket #9
+# 日次運用 (T11 観察): RSSHub 起動 → Discord 投稿込みで収集
+docker compose up -d rsshub
+uv run python -m karyu_tech_news collect --post
 ```
 
 ## 5. アーキテクチャ方針 (Sprint 1A)
@@ -135,7 +136,7 @@ panda-tech-news/
 │   ├── collect/  (T3-T4 で追加: fetcher / normalize / runner)
 │   ├── store/    (T5-T7 で追加: schema / repo)
 │   └── deliver/  (T9 で追加: discord)
-├── tests/                   # pytest (現状 48 / pass)
+├── tests/                   # pytest (現状 104 / pass, 10 ファイル)
 ├── scripts/                 # spike_curl_check.sh など検証スクリプト
 ├── data/                    # state.db 等 (.gitkeep 以外 git 管理外)
 └── assets/                  # bgm / jingles / voice_reference (素材本体は git 管理外)

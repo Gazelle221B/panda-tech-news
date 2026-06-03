@@ -176,7 +176,9 @@ def test_collect_with_post_success(
 def test_collect_with_post_no_webhook_url(
     temp_sources_file: Path, temp_db: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.delenv("DISCORD_WEBHOOK_URL", raising=False)
+    # 空文字で固定する。delenv で削除すると main_callback の load_dotenv(.env) が
+    # 実 .env から webhook を再投入してしまう (override=False は既存キーのみ skip するため)。
+    monkeypatch.setenv("DISCORD_WEBHOOK_URL", "")
 
     mock_run_result = MagicMock(
         successful_sources=1,
