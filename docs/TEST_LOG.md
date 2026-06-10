@@ -727,3 +727,11 @@ uv run pytest -q          → 134 passed
 uv run ruff check .       → All checks passed!
 uv run mypy src tests     → Success: no issues found in 28 source files
 ```
+
+## Ticket T14 — 候補抽出 + ローカル事前スコア (2026-06-10)
+
+1. `tests/test_prescore.py` (15件) → verify: キーワード辞書 (緊急+30/規制+20/リリース+10、バケツ1回加点)・Tier ボーナス・lookback フィルタ・prescore 降順 + 新着優先・上限 40 件キャップ・NULL summary 耐性が緑
+2. 新規モジュール: `src/karyu_tech_news/edit/prescore.py` (`ScoredCandidate` / `prescore_text` / `extract_candidates`)
+3. キーワードは中華圏向けに再設計 (漏洞/监管/发布 系 + 日英少数) — design-inheritance §4.1/§14
+
+実行結果 (fresh): pytest **149 passed** / ruff clean / mypy strict clean (31 files)
