@@ -803,3 +803,7 @@ uv run mypy src tests     → Success: no issues found in 28 source files
 | deliver/ | discord.py (拡張) | 台本チャンク投稿 (T21) |
 
 **残**: T13 (実 API 接続 smoke — 人間の API 契約・課金判断待ち。解消後は .env にキー設定のみで `draft` 実行可能) → T22 (3日間品質観察)。
+
+### カバレッジ (2026-06-11, `uv run --with pytest-cov pytest --cov=karyu_tech_news`)
+
+TOTAL **96%** (1323 stmts / 58 miss)。DoD 80% を充足。1B 新規モジュールは 93〜100% (prescore/select/arc/abtest/fallback/generate/profile/repo/schema = 100%)。
