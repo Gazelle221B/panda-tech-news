@@ -133,10 +133,13 @@ class LLMClient:
         if not choices:
             raise LLMError(f"LLM response has no choices (profile={self.profile.label})")
         message = choices[0].get("message") or {}
-        content = str(message.get("content") or "")
-        if not content:
-            # reasoning モデルは content 空で reasoning_content に本文を吐くことがある
-            content = str(message.get("reasoning_content") or "")
+        # reasoning モデルは content 空で reasoning_content / reasoning に本文を吐くことがある
+        # (多数フィールドを順に試す頑健設計, design-inheritance §9。reasoning は Ollama 実測)
+        content = ""
+        for field in ("content", "reasoning_content", "reasoning"):
+            content = str(message.get(field) or "")
+            if content:
+                break
         if not content:
             raise LLMError(f"LLM response has empty content (profile={self.profile.label})")
         usage = data.get("usage") or {}

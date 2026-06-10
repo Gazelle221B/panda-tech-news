@@ -218,6 +218,24 @@ def test_chat_empty_content_falls_back_to_reasoning_content(
     assert res.prompt_tokens == 0
 
 
+def test_chat_empty_content_falls_back_to_reasoning(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Ollama (OpenAI互換) は思考を reasoning フィールドに吐く (E2E 2026-06-11 で実測)."""
+    monkeypatch.setenv("TEST_LLM_API_KEY", "sk-test-123")
+    client = LLMClient(_profile())
+    payload: dict[str, Any] = {
+        "choices": [{"message": {"role": "assistant", "content": "", "reasoning": "本文R"}}],
+    }
+
+    with patch(
+        "karyu_tech_news.llm.client.httpx.post", return_value=_mock_resp(payload)
+    ):
+        res = client.chat(system="s", user="u")
+
+    assert res.content == "本文R"
+
+
 def test_chat_no_choices_raises(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("TEST_LLM_API_KEY", "sk-test-123")
     client = LLMClient(_profile())

@@ -833,3 +833,9 @@ uv run karyu draft --profiles /tmp/karyu-e2e-profiles.yaml --variant L --db-path
 ```
 
 なお実 API (MiMo/DeepSeek) の正常系は T13 の本来のスコープであり、本検証はその先行リハーサルという位置づけ。
+
+## E2E 発見バグ修正 — reasoning フィールドのフォールバック (2026-06-11)
+
+ローカル E2E (Ollama 0.30.7 + qwen3:0.6b) の実測で、OpenAI 互換応答の思考出力が `reasoning_content` ではなく **`reasoning`** フィールドに入ることを確認 (設計継承 §9「多数フィールドを順に試す」の正当性を実証)。`llm/client.py` のフォールバック連鎖を `content → reasoning_content → reasoning` に拡張、回帰テスト追加。
+
+実行結果 (fresh): pytest **236 passed** / ruff clean / mypy strict clean
