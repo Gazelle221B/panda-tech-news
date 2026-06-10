@@ -156,6 +156,28 @@ def test_run_draft_full_pipeline(session: Session) -> None:
     assert int(by_role["writer"].prompt_tokens) == 20  # 2 トピック分
 
 
+def test_run_draft_partial_judgment_neutral_fills_missing(session: Session) -> None:
+    """editor が一部しか判定を返さない日も、未判定分を neutral 充填して番組を出す."""
+    _seed_items(session)
+    # index=1 のみ判定、index=2 は欠落
+    editor = _client('{"topics": [{"index": 1, "score": 90, "tone": "hard_negative"}]}')
+    writer = _client(VALID_BODY, VALID_BODY)
+
+    result = run_draft(
+        session,
+        editor=editor,
+        writer=writer,
+        roles=_roles(),
+        variant="A",
+        now=NOW,
+    )
+
+    assert result is not None
+    assert result.judged_count == 2  # 1 (LLM) + 1 (neutral 充填)
+    assert result.selected_count == 2
+    assert result.editor_json_stable is False  # 全候補をカバーできていない
+
+
 def test_run_draft_editor_garbage_falls_back_to_neutral(session: Session) -> None:
     _seed_items(session)
     editor = _client("JSONではない出力")

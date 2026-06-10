@@ -405,7 +405,8 @@ def draft(
         )
         if result is None:
             typer.secho(
-                "候補がありません (先に collect を実行するか --lookback-hours を伸ばしてください)",
+                "draft を生成できません: 候補がないか、全候補が編集ゲートで不採用 "
+                "(先に collect を実行するか --lookback-hours を伸ばす。詳細はログ参照)",
                 fg=typer.colors.YELLOW,
             )
             raise typer.Exit(code=0)

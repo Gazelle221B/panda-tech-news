@@ -88,29 +88,48 @@ class _RecordingClient:
         return response
 
 
+def _neutral_judgment(
+    candidate: ScoredCandidate, corroborations: dict[int, int]
+) -> JudgedTopic:
+    """LLM 判定が無い候補の neutral 判定 (prescore を score として流用)."""
+    return JudgedTopic(
+        candidate=candidate,
+        llm_score=min(100, candidate.prescore),
+        tone=Tone.NEUTRAL,
+        corroboration_count=corroborations.get(candidate.item_id, 1),
+    )
+
+
 def _judge_with_neutral_fallback(
     editor: ChatClient,
     candidates: list[ScoredCandidate],
     corroborations: dict[int, int],
 ) -> tuple[list[JudgedTopic], bool]:
-    """編集判定する. editor が崩れたら neutral 判定で続行 (番組を止めない).
+    """編集判定する. editor が崩れた/部分的にしか返さない日も番組を止めない.
 
-    返り値の bool は JSON 安定性 (一発で契約どおり返ったか)。
+    - 全体失敗 (JudgeError/LLMError): 全候補を neutral 判定で続行
+    - 部分欠落 (一部 index 未返却): 欠落分のみ neutral 充填 (E2E 2026-06-11 で実測した
+      「1/40 件しか判定しない」ケースの対策。T18 の fallback 思想と同じ失敗クラス)
+    返り値の bool は JSON 安定性 (一発で全候補をカバーしたか)。
     """
     try:
-        return judge_topics(editor, candidates, corroborations), True
+        judged = judge_topics(editor, candidates, corroborations)
     except (JudgeError, LLMError) as exc:
         logger.warning("editor judgment failed, neutral fallback: %s", exc)
-        judged = [
-            JudgedTopic(
-                candidate=c,
-                llm_score=min(100, c.prescore),
-                tone=Tone.NEUTRAL,
-                corroboration_count=corroborations.get(c.item_id, 1),
-            )
-            for c in candidates
-        ]
-        return judged, False
+        return [_neutral_judgment(c, corroborations) for c in candidates], False
+
+    judged_ids = {t.candidate.item_id for t in judged}
+    missing = [c for c in candidates if c.item_id not in judged_ids]
+    if not missing:
+        return judged, True
+    logger.warning(
+        "editor judged %d/%d candidates, neutral fill for %d",
+        len(judged),
+        len(candidates),
+        len(missing),
+    )
+    filled = judged + [_neutral_judgment(c, corroborations) for c in missing]
+    return filled, False
 
 
 def run_draft(
