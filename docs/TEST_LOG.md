@@ -758,3 +758,11 @@ uv run mypy src tests     → Success: no issues found in 28 source files
 3. LLM=プレーンテキスト台本のみ、検証と組み立て=決定的コード (IMPLEMENTATION_PLAN-1B §8)。出典 URL は本文に入れずソース一覧へ (design-inheritance §8)
 
 実行結果 (fresh): pytest **197 passed** / ruff clean / mypy strict clean (39 files)
+
+## Ticket T18 — fallback 二重防御 (2026-06-11)
+
+1. `tests/test_fallback.py` (10件) → verify: 全テンプレ 4 パターンが契約適合・パターン別文面・Tier4 噂明示込み・乱択・長文タイトル切り詰め・LLM 1回目成功 ("llm")・違反フィードバック付き再生成 ("llm_retry")・連続違反でテンプレ ("template")・LLMError 時もテンプレで継続・Tier4 噂明示の強制が緑
+2. 新規モジュール: `script/fallback.py` (`fallback_topic_script` / `generate_with_fallback` / `TopicScriptResult`)
+3. method/violations は T20 (A/B/C 修正回数ログ) の入力。fallback で「LLM が崩れた日も番組が出る」を担保 (design-inheritance §7)
+
+実行結果 (fresh): pytest **207 passed** / ruff clean / mypy strict clean (41 files)
