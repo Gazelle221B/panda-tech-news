@@ -807,3 +807,29 @@ uv run mypy src tests     → Success: no issues found in 28 source files
 ### カバレッジ (2026-06-11, `uv run --with pytest-cov pytest --cov=karyu_tech_news`)
 
 TOTAL **96%** (1323 stmts / 58 miss)。DoD 80% を充足。1B 新規モジュールは 93〜100% (prescore/select/arc/abtest/fallback/generate/profile/repo/schema = 100%)。
+
+## Sprint 1B E2E 検証 #1 — LLM 全断時の fail-open 実証 (2026-06-11)
+
+> ローカル Ollama (`local-ollama` 互換 profile, variant L) + 実 DB コピー (`/tmp/karyu-e2e.db`) で `draft` を実行。
+> Homebrew 版 Ollama 0.30.7 の パッケージング不全 (llama-server 欠落) により **全 LLM 呼び出しが HTTP 500** という、偶然ながら理想的な「LLM 全断の日」の実地試験になった。
+
+結果: **番組は完全な形で出力された** (設計どおり)。
+
+- editor 3 回リトライ→失敗 → **neutral 判定フォールバック** 発動 (`editor JSON 安定: no`)
+- writer 各トピック 2 試行→失敗 → **テンプレ fallback** 発動 (`template=5`、4 パターン乱択で文面が単調にならないことも確認)
+- 出力 Markdown: タイトル/生成日時/profile、オープニング、トピック5本 (Hook/Insight/Action 構造維持)、クロージング、ソース一覧5件 — 要件 §14.2 の全項目
+- `evaluate --db-path /tmp/karyu-e2e.db`: 採用率 12% (5/40)、修正回数 平均3.0 (template=5)、LLM 呼び出し2回/失敗2、JSON 安定性 0% — **失敗が観測データとして正しく記録される**ことを実証
+- 検証で気づいた改善候補 (Ticket 外、人間判断待ちへ): タイトルが短い GitHub リリース (例「v1.0.0」) は見出しにソース名を併記したい
+
+確認コマンド: `uv run karyu draft --profiles /tmp/karyu-e2e-profiles.yaml --variant L --db-path /tmp/karyu-e2e.db --lookback-hours 240`
+
+### E2E 検証 #2 (ハッピーパス) の状態 — 環境起因で保留
+
+ローカル LLM 正常系の E2E (qwen3:0.6b) も試行したが、Homebrew formula 版 Ollama 0.30.7 は llama-server 欠落 (MLX のみ同梱)、公式アプリ版 (`brew install --cask ollama-app` 導入済み) は **GUI 初回起動の対話承認が必要**でヘッドレスでは未完。人間が Ollama.app を一度起動すれば、以下で正常系 E2E を再開できる (コード変更不要):
+
+```bash
+ollama pull qwen3:0.6b   # 取得済み
+uv run karyu draft --profiles /tmp/karyu-e2e-profiles.yaml --variant L --db-path /tmp/karyu-e2e.db --lookback-hours 240
+```
+
+なお実 API (MiMo/DeepSeek) の正常系は T13 の本来のスコープであり、本検証はその先行リハーサルという位置づけ。

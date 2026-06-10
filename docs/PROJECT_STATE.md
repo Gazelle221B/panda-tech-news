@@ -106,6 +106,7 @@
 - **【Sprint 1B 着手前ブロッカー】実 LLM model ID / endpoint の確定** (要件 §16): `deepseek-chat` / `mimo-v2.5-pro` はプレースホルダ。MiMo 海外課金が困難なら OpenRouter フォールバック。API 契約・課金は人間判断 (WORKFLOW §4 区分 D)。詳細は [IMPLEMENTATION_PLAN-1B.md](./IMPLEMENTATION_PLAN-1B.md) §6。
 - HAL の声リファレンス確定タイミング (Sprint 2 までは保留可)。
 - 番組オープニング/エンディング挨拶フレーズの確定 (Sprint 1B 以降で可)。
+- (E2E 検証 2026-06-11 で発見) タイトルが短い GitHub リリース (例「v1.0.0」) は台本見出しにソース名を併記すべきか — T22 観察で要否判断。
 
 ## 本日 (2026-05-30) 追加した成果物
 
