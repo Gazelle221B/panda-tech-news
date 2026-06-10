@@ -743,3 +743,10 @@ uv run mypy src tests     → Success: no issues found in 28 source files
 3. 新規モジュール: `src/karyu_tech_news/edit/judge.py` (`Tone` / `JudgedTopic` / `judge_topics`)。採点=LLM、裏取り集計=決定的コードの分離を維持
 
 実行結果 (fresh): pytest **165 passed** / ruff clean / mypy strict clean (33 files)
+
+## Ticket T16 — 多様性キャップ選定 + アーク配置 (2026-06-10)
+
+1. `tests/test_select_arc.py` (16件) → verify: 編集ゲート (Tier3/4 は独立2ソース必須)・llm_score 順・ソース/カテゴリキャップ各2・4パス緩和充填 (単一ソースのみの日でも番組が出る)・最大5本・三幕構成 (hard_negative 先頭 / constructive 中盤 / bright 末尾、bright 不在時 constructive 締め)・入力非破壊が緑
+2. 新規モジュール: `edit/select.py` (`select_topics`) + `edit/arc.py` (`arrange_arc`)。**LLM 不使用・全て決定的コード** (design-inheritance §4.3/§5)
+
+実行結果 (fresh): pytest **181 passed** / ruff clean / mypy strict clean (36 files)
