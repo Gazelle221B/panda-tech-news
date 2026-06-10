@@ -766,3 +766,11 @@ uv run mypy src tests     → Success: no issues found in 28 source files
 3. method/violations は T20 (A/B/C 修正回数ログ) の入力。fallback で「LLM が崩れた日も番組が出る」を担保 (design-inheritance §7)
 
 実行結果 (fresh): pytest **207 passed** / ruff clean / mypy strict clean (41 files)
+
+## Ticket T19 — Sprint 1B 新テーブル + 永続化 (2026-06-11)
+
+1. `tests/test_store_1b.py` (7件) → verify: init_db で 4 新テーブル作成 (冪等)・episode_drafts 保存 (variant/markdown/notices)・topic_candidates の selected/position 記録・llm_runs の成功/失敗/json_stable 記録・script_versions の method/attempts 記録が緑
+2. `store/schema.py` に `EpisodeDraft` / `TopicCandidate` / `LLMRun` / `ScriptVersion` 追加 (要件 §12.5、FK は episode_drafts/items へ)
+3. `store/repo.py` に `create_episode_draft` / `insert_topic_candidates` / `record_llm_run` / `insert_script_versions` 追加。値オブジェクト import は collect.normalize の既存前例に倣う
+
+実行結果 (fresh): pytest **214 passed** / ruff clean / mypy strict clean (42 files)

@@ -11,11 +11,18 @@ from sqlalchemy.orm import Session
 
 from karyu_tech_news.collect.normalize import FetchResult, RawItem
 from karyu_tech_news.config import SourceConfig
+from karyu_tech_news.edit.judge import JudgedTopic
+from karyu_tech_news.script.fallback import TopicScriptResult
+from karyu_tech_news.script.generate import EpisodeScript
 from karyu_tech_news.store.schema import (
     CollectRun,
+    EpisodeDraft,
     Item,
+    LLMRun,
+    ScriptVersion,
     Source,
     SourceHealth,
+    TopicCandidate,
 )
 
 
@@ -158,3 +165,101 @@ def finish_collect_run(
     run.failed_sources = len(failed)  # type: ignore[assignment]
     run.total_items = sum(len(r.items) for r in results)  # type: ignore[assignment,misc]
     run.new_items = new_items  # type: ignore[assignment]
+
+
+# ---------- Sprint 1B (T19) ----------
+
+def create_episode_draft(session: Session, episode: EpisodeScript) -> EpisodeDraft:
+    """draft 実行 1 回分を episode_drafts に保存する."""
+    draft = EpisodeDraft(
+        created_at=episode.generated_at,
+        variant=episode.variant,
+        title=episode.title,
+        estimated_minutes=episode.estimated_minutes,
+        notices_json=json.dumps(episode.notices, ensure_ascii=False),
+        markdown=episode.markdown,
+    )
+    session.add(draft)
+    session.flush()
+    return draft
+
+
+def insert_topic_candidates(
+    session: Session,
+    draft_id: int,
+    judged: list[JudgedTopic],
+    selected_positions: dict[int, int],
+) -> None:
+    """判定済み候補を topic_candidates に保存する.
+
+    selected_positions: item_id → アーク配置順 (採用分のみ)。未採用は selected=False。
+    """
+    for topic in judged:
+        position = selected_positions.get(topic.candidate.item_id)
+        session.add(
+            TopicCandidate(
+                draft_id=draft_id,
+                item_id=topic.candidate.item_id,
+                prescore=topic.candidate.prescore,
+                llm_score=topic.llm_score,
+                tone=topic.tone.value,
+                source_tier=topic.candidate.tier,
+                corroboration_count=topic.corroboration_count,
+                selected=position is not None,
+                position=position,
+            )
+        )
+
+
+def record_llm_run(
+    session: Session,
+    *,
+    draft_id: int,
+    variant: str,
+    role: str,
+    profile_label: str,
+    model: str,
+    prompt_tokens: int,
+    completion_tokens: int,
+    ok: bool,
+    error: str | None = None,
+    json_stable: bool | None = None,
+    now: datetime,
+) -> None:
+    """LLM 呼び出し 1 回分を llm_runs に記録する (A/B/C 評価軸の元データ)."""
+    session.add(
+        LLMRun(
+            draft_id=draft_id,
+            created_at=now,
+            variant=variant,
+            role=role,
+            profile_label=profile_label,
+            model=model,
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+            ok=ok,
+            error=error,
+            json_stable=json_stable,
+        )
+    )
+
+
+def insert_script_versions(
+    session: Session,
+    draft_id: int,
+    results: list[tuple[int, TopicScriptResult]],
+    *,
+    now: datetime,
+) -> None:
+    """トピック台本 (item_id, 生成結果) を script_versions に保存する."""
+    for item_id, result in results:
+        session.add(
+            ScriptVersion(
+                draft_id=draft_id,
+                item_id=item_id,
+                created_at=now,
+                method=result.method,
+                attempts=result.attempts,
+                body=result.body,
+            )
+        )
