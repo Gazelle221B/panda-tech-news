@@ -774,3 +774,10 @@ uv run mypy src tests     → Success: no issues found in 28 source files
 3. `store/repo.py` に `create_episode_draft` / `insert_topic_candidates` / `record_llm_run` / `insert_script_versions` 追加。値オブジェクト import は collect.normalize の既存前例に倣う
 
 実行結果 (fresh): pytest **214 passed** / ruff clean / mypy strict clean (42 files)
+
+## Ticket T20 — A/B/C 比較ログ集計 (evaluate) (2026-06-11)
+
+1. `tests/test_abtest.py` (4件) → verify: variant 別集計 (採用率 2/4=50%・LLM 呼び出し/失敗・tokens 合算・json_stable 率・method 内訳・平均 attempts)・editor 実行なし variant の json_stable=None・空 DB・日本語サマリー整形が緑
+2. 新規モジュール: `edit/abtest.py` (`VariantStats` / `evaluate_variants` / `format_evaluation`)。読み上げ自然さ・AI 要約臭は人間評価と明記 (ADR-0005)
+
+実行結果 (fresh): pytest **218 passed** / ruff clean / mypy strict clean (44 files)
