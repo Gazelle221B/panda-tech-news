@@ -839,3 +839,17 @@ uv run karyu draft --profiles /tmp/karyu-e2e-profiles.yaml --variant L --db-path
 ローカル E2E (Ollama 0.30.7 + qwen3:0.6b) の実測で、OpenAI 互換応答の思考出力が `reasoning_content` ではなく **`reasoning`** フィールドに入ることを確認 (設計継承 §9「多数フィールドを順に試す」の正当性を実証)。`llm/client.py` のフォールバック連鎖を `content → reasoning_content → reasoning` に拡張、回帰テスト追加。
 
 実行結果 (fresh): pytest **236 passed** / ruff clean / mypy strict clean
+
+## Sprint 1B E2E 検証 #2 — ローカル実 LLM ハッピーパス成功 (2026-06-11)
+
+> Ollama (公式アプリ版) + qwen3:0.6b (コンテキスト16k、ポート11500の検証用サーバ) + 実 DB コピーで `draft` を再実行。
+
+結果: **Draft #2 生成完了: 候補 40 → 採用 5 本 (生成方法: llm=5, editor JSON 安定: no)**
+
+- **writer LLM が 5 本全てを生成** (テンプレ 0)。全本文が Hook/Insight/Action 構造・300字以内・URL 混入なし・禁止表現なしの検証を通過
+- editor は 1/40 件しか判定を返さず → **今回実装した neutral 充填が発動** (`judged 1/40` → `neutral fill for 39`) し番組成立。0.6b に 40 件一括判定は荷が重い (本番 MiMo/DeepSeek の評価ポイント)
+- `evaluate` 集計 (2 回分): 採用率 12% (10/80)、修正回数 平均 2.0 (llm=5/template=5)、コスト prompt 9,724 / completion 1,636 tokens、JSON 安定性 0% — **全断日と正常日が同じ評価軸で比較可能**なことを実証
+- E2E が今日発見・修正させた実改善 2 件: (1) `reasoning` フィールドフォールバック、(2) 部分的判定欠落の neutral 充填
+- 0.6b 品質所感 (人間評価の参考): 構造契約は満たすが固有名詞の誤りと日中混在あり。実運用モデル (DeepSeek/MiMo) では大幅改善見込み
+
+**結論: 収集 (実データ) → 候補抽出 → LLM 判定 → ゲート/アーク → LLM 台本生成 → 検証 → 組み立て → 永続化 → 集計 の全行程が実 LLM で完走。Sprint 1B パイプラインは本番 API キー投入を残すのみ。**
