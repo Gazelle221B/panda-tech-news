@@ -218,7 +218,8 @@ panda-tech-news/
 | ドメイン | [docs/domain/collection.md](docs/domain/collection.md) | 収集コンテキストのユビキタス言語・ビジネスルール・状態遷移 |
 | 規約 | [docs/styleguide.md](docs/styleguide.md) | コーディング規約・命名規則・スニペット例 |
 | コミット/完了ゲート | [docs/commit-rules.md](docs/commit-rules.md) | 完了宣言ゲート・コミット前チェック・DoD/境界の集約 |
-| 実装計画 | [docs/IMPLEMENTATION_PLAN.md](docs/IMPLEMENTATION_PLAN.md) | T1〜T11 タスク分解 |
+| 実装計画 | [docs/IMPLEMENTATION_PLAN.md](docs/IMPLEMENTATION_PLAN.md) | T1〜T11 タスク分解 (Sprint 1A) |
+| 実装計画 (1B) | [docs/IMPLEMENTATION_PLAN-1B.md](docs/IMPLEMENTATION_PLAN-1B.md) | Sprint 1B タスク分解 (T12〜) + 着手前ブロッカー |
 | ワークフロー | [docs/WORKFLOW.md](docs/WORKFLOW.md) | エージェント間契約 |
 | 状態 | [docs/PROJECT_STATE.md](docs/PROJECT_STATE.md) | 永続化された進捗 (★ ここを真の記憶とする) |
 | 長期ビジョン | [docs/architecture-podcast-station.md](docs/architecture-podcast-station.md) | 三番組構成 AI ポッドキャスト局 |

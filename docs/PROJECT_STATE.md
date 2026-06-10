@@ -92,6 +92,7 @@
 - ~~コミット/ブランチ運用: Ticket #1+#2先行 を `agent/<task>` ブランチに乗せるか直接コミットか。~~ → 初期実装として直接 `main` へコミット済。以降は `agent/<task>` 運用を厳格に適用。
 - 初期9本に Game/Subculture 系を1本予備で入れるか (Spike §3 B案、Sprint 1A 観察中に並行検討可)。
 - LLM 役割 A/B/C のどれを初期既定にするか (ADR-0005、実測後確定)。
+- **【Sprint 1B 着手前ブロッカー】実 LLM model ID / endpoint の確定** (要件 §16): `deepseek-chat` / `mimo-v2.5-pro` はプレースホルダ。MiMo 海外課金が困難なら OpenRouter フォールバック。API 契約・課金は人間判断 (WORKFLOW §4 区分 D)。詳細は [IMPLEMENTATION_PLAN-1B.md](./IMPLEMENTATION_PLAN-1B.md) §6。
 - HAL の声リファレンス確定タイミング (Sprint 2 までは保留可)。
 - 番組オープニング/エンディング挨拶フレーズの確定 (Sprint 1B 以降で可)。
 
@@ -152,3 +153,4 @@ meeting.md / meeting2.md / tik-choco コードdump の全読に基づき作成:
 | 2026-06-03 | Claude Code | テスト分離修正: `test_cli_integration.py::test_collect_with_post_no_webhook_url` を `delenv`→`setenv("")` に変更 (実 .env webhook を `load_dotenv` が再投入する非hermetic欠陥)。実.env下でも pytest 104/ruff/mypy strict 緑。**テストコード変更につき merge 前に Codex レビュー要 (WORKFLOW §11)** |
 | 2026-06-03 | Codex | ドキュメント同期 + CLIテスト分離修正の独立レビュー PASS を `docs/REVIEW_REPORT.md` に記録。Critical/High/Medium/Low 指摘なし |
 | 2026-06-04 | Claude Code | T11 Day 3 実走: `collect --post` で 9/9成功・1新着・**Discord HTTP 204**。**3日連続稼働 (06-02/03/04) 達成 → T11 完了 → Sprint 1A 完全終了**。全日 fail-open 健全。fresh pytest 104/ruff/mypy strict 緑。TEST_LOG Day3 + 総括記入。次: Sprint 1B |
+| 2026-06-04 | Claude Code | Sprint 1B 準備 (アーキテクト): roadmap 現在地を 1B へ移動 (1A DoD 全チェック)、`docs/IMPLEMENTATION_PLAN-1B.md` 作成 (タスク T12〜T22 + 設計集約インデックス + 着手前ブロッカー)。AGENTS/README 地図に追加。**実装着手は実 model ID/endpoint 確定後** |

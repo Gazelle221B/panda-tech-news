@@ -18,7 +18,7 @@
 | **3** | 配信 | 波形動画, YouTube限定公開, AI開示, 朝確認フロー, (必要ならBot化) | — | v0.5 |
 | **将来** | 局化 | 雑談番組, ボイスドラマ, 三番組統合, Spotify/Apple | — | — |
 
-## Sprint 1A — 収集基盤 (現在地)
+## Sprint 1A — 収集基盤 (✅ 完了 2026-06-04)
 
 ゴール: `python -m karyu_tech_news collect` が完走し、SQLite に蓄積、Discord にサマリー、3日連続稼働。
 
@@ -26,17 +26,17 @@
 
 **着手前の前提タスク (人間)**: 初期10ソースの URL を `scripts/spike_curl_check.sh` + `scripts/spike_feedparser_check.py` で実取得検証し、[source-selection-spike-v0.1.md](./source-selection-spike-v0.1.md) §7 に結果記入 → [config/sources.yaml](../config/sources.yaml) の enabled 確定。
 
-### Sprint 1A DoD (要件 §15.1)
-- [ ] `collect` が完走する
-- [ ] 10本前後を取得できる
-- [ ] 一部失敗しても止まらない (fail-open)
-- [ ] SQLite に items 蓄積
-- [ ] 2回 collect で重複登録されない
-- [ ] source_health 更新
-- [ ] Discord にサマリー到達
-- [ ] 3日連続稼働
+### Sprint 1A DoD (要件 §15.1) — ✅ 全達成 (T11, 2026-06-04)
+- [x] `collect` が完走する
+- [x] 10本前後を取得できる (有効9ソース)
+- [x] 一部失敗しても止まらない (fail-open)
+- [x] SQLite に items 蓄積 (134件)
+- [x] 2回 collect で重複登録されない
+- [x] source_health 更新
+- [x] Discord にサマリー到達 (HTTP 204)
+- [x] 3日連続稼働 (06-02 / 06-03 / 06-04)
 
-## Sprint 1B — 台本生成
+## Sprint 1B — 台本生成 (現在地)
 
 ゴール: SQLite の候補から LLM で3-5本選び、Markdown台本+ソース一覧+A/B判定ログを Discord 投稿。
 
