@@ -750,3 +750,11 @@ uv run mypy src tests     → Success: no issues found in 28 source files
 2. 新規モジュール: `edit/select.py` (`select_topics`) + `edit/arc.py` (`arrange_arc`)。**LLM 不使用・全て決定的コード** (design-inheritance §4.3/§5)
 
 実行結果 (fresh): pytest **181 passed** / ruff clean / mypy strict clean (36 files)
+
+## Ticket T17 — Markdown 台本生成 (2026-06-11)
+
+1. `tests/test_script_generate.py` (16件) → verify: 文字数カウント (空白除くコードポイント)・writer プロンプト契約 (Hook/Insight/Action・300字・カナ化・転載禁止・Tier4 噂指示)・プレーンテキスト生成 (json_mode 不使用)・検証 (セクション欠落/300字超過/URL混入/禁止表現/噂明示)・エピソード組み立て (Markdown・ソース一覧・注意事項・推定尺・暫定挨拶) が緑
+2. 新規モジュール: `script/generate.py` (`build_writer_prompts` / `generate_topic_script` / `validate_topic_script` / `assemble_episode` / `EpisodeScript`)
+3. LLM=プレーンテキスト台本のみ、検証と組み立て=決定的コード (IMPLEMENTATION_PLAN-1B §8)。出典 URL は本文に入れずソース一覧へ (design-inheritance §8)
+
+実行結果 (fresh): pytest **197 passed** / ruff clean / mypy strict clean (39 files)
