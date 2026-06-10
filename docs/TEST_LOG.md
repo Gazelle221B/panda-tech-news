@@ -735,3 +735,11 @@ uv run mypy src tests     → Success: no issues found in 28 source files
 3. キーワードは中華圏向けに再設計 (漏洞/监管/发布 系 + 日英少数) — design-inheritance §4.1/§14
 
 実行結果 (fresh): pytest **149 passed** / ruff clean / mypy strict clean (31 files)
+
+## Ticket T15 — LLM 編集判定 (2026-06-10)
+
+1. `tests/test_judge.py` (16件) → verify: JSON 頑健抽出 (素直な loads → fence 除去 → 最外 `{}`)・スキーマ検証 (score 0-100 / tone enum)・プロンプト切り詰め (title 180/summary 420 文字)・corroboration (canonical_url_hash クロスソース一致)・temp=0 + json_mode 呼び出し・未知 index スキップが緑
+2. `llm/client.py` に temperature 上書き引数追加 (+1 テスト)。`ScoredCandidate` に canonical_url_hash 追加 (corroboration 用)
+3. 新規モジュール: `src/karyu_tech_news/edit/judge.py` (`Tone` / `JudgedTopic` / `judge_topics`)。採点=LLM、裏取り集計=決定的コードの分離を維持
+
+実行結果 (fresh): pytest **165 passed** / ruff clean / mypy strict clean (33 files)

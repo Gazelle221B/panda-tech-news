@@ -125,6 +125,20 @@ def test_chat_json_mode_sets_response_format(monkeypatch: pytest.MonkeyPatch) ->
     assert body["response_format"] == {"type": "json_object"}
 
 
+def test_chat_temperature_override(monkeypatch: pytest.MonkeyPatch) -> None:
+    """編集判定 (T15) は profile 値を無視して temp=0 を指定できる."""
+    monkeypatch.setenv("TEST_LLM_API_KEY", "sk-test-123")
+    client = LLMClient(_profile())
+    mock_resp = _mock_resp(_chat_response_json())
+
+    with patch(
+        "karyu_tech_news.llm.client.httpx.post", return_value=mock_resp
+    ) as mock_post:
+        client.chat(system="s", user="u", temperature=0.0)
+
+    assert mock_post.call_args.kwargs["json"]["temperature"] == 0.0
+
+
 def test_chat_ollama_forces_think_false_and_no_auth_header() -> None:
     client = LLMClient(_ollama_profile())
     mock_resp = _mock_resp(_chat_response_json())

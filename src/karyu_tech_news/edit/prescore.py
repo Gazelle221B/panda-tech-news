@@ -61,6 +61,7 @@ class ScoredCandidate(BaseModel):
     fetched_at: datetime
     tier: int
     category: str
+    canonical_url_hash: str
     prescore: int
 
 
@@ -108,6 +109,7 @@ def extract_candidates(
                 fetched_at=item.fetched_at,
                 tier=tier,
                 category=str(source.category),
+                canonical_url_hash=str(item.canonical_url_hash or ""),
                 prescore=score,
             )
         )

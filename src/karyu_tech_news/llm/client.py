@@ -60,11 +60,20 @@ class LLMClient:
         self.profile = profile
         self._api_key = resolve_api_key(profile)
 
-    def chat(self, system: str, user: str, *, json_mode: bool = False) -> LLMResponse:
+    def chat(
+        self,
+        system: str,
+        user: str,
+        *,
+        json_mode: bool = False,
+        temperature: float | None = None,
+    ) -> LLMResponse:
         """system + user の 2 メッセージで chat completion を実行する.
 
         json_mode=True で response_format=json_object を要求する
         (編集判定 T15 用。台本生成はプレーンテキスト, IMPLEMENTATION_PLAN-1B §8)。
+        temperature は通常 profile 値を使い、編集判定 (temp=0 固定,
+        design-inheritance §4.2) のみ呼び出し側で上書きする。
         """
         body: dict[str, Any] = {
             "model": self.profile.model,
@@ -73,7 +82,7 @@ class LLMClient:
                 {"role": "user", "content": user},
             ],
             "max_tokens": self.profile.max_tokens,
-            "temperature": self.profile.temperature,
+            "temperature": self.profile.temperature if temperature is None else temperature,
             "stream": False,
         }
         if json_mode:
