@@ -706,3 +706,24 @@ Tier別:
 | Discord 配信 | ✅ Day2/Day3 で HTTP 204 実配信、Day1 はプレビュー検証 | 「Discord にサマリーが届く」 |
 
 **結論: Sprint 1A の全 DoD を満たし、Sprint 1A は完全終了。次は Sprint 1B (LLM編集・台本生成)。**
+
+---
+
+# Sprint 1B 実装ログ
+
+## Ticket T12 — LLM profile ローダ + provider 抽象 (2026-06-10)
+
+> ブランチ: `agent/T12-impl` (最新 main `965f37d` から分岐)。実装: Claude Code。
+> 実 API 呼び出しなし — T13 (接続確認 smoke) は人間ブロッカー解消後 (IMPLEMENTATION_PLAN-1B §6)。
+
+1. `tests/test_llm_profile.py` (17件) → verify: スキーマ検証 (label/base_url/temperature/max_tokens)・label 重複拒否・ab_test 参照整合・A/B/C 役割解決・実 `config/llm_profiles.yaml` 結合テストが緑
+2. `tests/test_llm_client.py` (13件) → verify: chat リクエスト契約 (body/headers/timeout)・json_mode・ollama think=false・リトライ (MAX_RETRIES=2)・API キー非漏洩・reasoning_content フォールバック・不正応答の LLMError 化が緑
+3. 新規モジュール: `src/karyu_tech_news/llm/profile.py` (ローダ + ResolvedRoles) / `llm/client.py` (OpenAI 互換クライアント)
+
+実行結果 (fresh):
+
+```
+uv run pytest -q          → 134 passed
+uv run ruff check .       → All checks passed!
+uv run mypy src tests     → Success: no issues found in 28 source files
+```

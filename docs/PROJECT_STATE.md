@@ -1,11 +1,11 @@
 # プロジェクト状態
 
-> 最終更新: 2026-06-04 / 更新者: Claude Code (T11 完了 / Sprint 1A 完全終了)
+> 最終更新: 2026-06-10 / 更新者: Claude Code (Sprint 1B 実装開始: T12 完了)
 > 本ファイルは全エージェントが随時更新する。**Antigravity の内部記憶ではなくここを真の記憶とする** (WORKFLOW §13)。
 
 ## 現在のフェーズ
 
-**Sprint 1A 完全終了** 🎉 — T1〜T11 全完了。**Ticket #11 (T11) 3日連続稼働観察 完了** (Day1 06-02 / Day2 06-03 / Day3 06-04、全日 9/9 成功。Day2/Day3 にて Discord 実配信 HTTP 204 を確認)。**次フェーズ: Sprint 1B (LLM編集・台本生成) 解禁**
+**Sprint 1B 実装中** — Sprint 1A は T1〜T11 全完了 (3日連続稼働 06-02〜04、Discord HTTP 204)。T11 は PR #9 で main マージ済み。Sprint 1B は T12 から着手 (実 API を呼ばないタスクはモック駆動で先行実装、T13 接続確認のみ人間ブロッカー解消待ち — IMPLEMENTATION_PLAN-1B §5/§6)。
 
 | ステップ | 状態 |
 |---|---|
@@ -32,10 +32,11 @@
 | Ticket #8 (Discord Webhook サマリー投稿) | ✅ Antigravity QA PASS (2026-06-01)。run 境界内の集計整合性、Webhook 送信時の fail-open 担保を確認。pytest 88 pass / ruff・mypy(strict) clean |
 | Ticket #9 (CLI統合: `collect` コマンド) | ✅ Antigravity QA PASS (2026-06-02)。dry-run、実実行、重複排除、不正引数処理を実CLIで確認。pytest 104 pass / ruff・mypy(strict) clean |
 | Ticket #11 (T11) 3日連続稼働観察 | ✅ 完了 (2026-06-04)。Day1-3 全 9/9 成功、Discord 実配信 (HTTP 204)、fail-open 健全、dedup 実DB実証。**Sprint 1A 完全終了** |
+| Ticket T12 (LLM profile ローダ + provider 抽象) | ✅ 実装完了 (2026-06-10)。`llm/profile.py` + `llm/client.py`。A/B/C 切替を設定だけで解決、API キーは env 名参照のみ。pytest 134 pass / ruff・mypy(strict) clean。Codex レビュー待ち |
 
 ## 作業中ブランチ
 
-`agent/T11-impl`
+`agent/T12-impl` (最新 main `965f37d` から分岐)
 
 ## 直近の設計判断
 
@@ -154,3 +155,5 @@ meeting.md / meeting2.md / tik-choco コードdump の全読に基づき作成:
 | 2026-06-03 | Codex | ドキュメント同期 + CLIテスト分離修正の独立レビュー PASS を `docs/REVIEW_REPORT.md` に記録。Critical/High/Medium/Low 指摘なし |
 | 2026-06-04 | Claude Code | T11 Day 3 実走: `collect --post` で 9/9成功・1新着・**Discord HTTP 204**。**3日連続稼働 (06-02/03/04) 達成 → T11 完了 → Sprint 1A 完全終了**。全日 fail-open 健全。fresh pytest 104/ruff/mypy strict 緑。TEST_LOG Day3 + 総括記入。次: Sprint 1B |
 | 2026-06-04 | Claude Code | Sprint 1B 準備 (アーキテクト): roadmap 現在地を 1B へ移動 (1A DoD 全チェック)、`docs/IMPLEMENTATION_PLAN-1B.md` 作成 (タスク T12〜T22 + 設計集約インデックス + 着手前ブロッカー)。AGENTS/README 地図に追加。**実装着手は実 model ID/endpoint 確定後** |
+| 2026-06-10 | Claude Code | T11 マージ (PR #9) 確認 → 最新 main から `agent/T12-impl` 分岐。Sprint 1B 計画 docs コミット。**着手方針の明確化**: ブロッカー (API契約/課金) が直接塞ぐのは T13 接続確認のみ。計画 §5 のとおり他タスクはモック駆動で先行実装し、実 model ID は config 差し替えのみで反映可能な構造を維持する |
+| 2026-06-10 | Claude Code | Ticket T12 実装完了: `llm/profile.py` (YAML ローダ + 重複/参照検証 + A/B/C 役割解決) + `llm/client.py` (OpenAI 互換 chat、リトライ2回、ollama think=false、reasoning_content フォールバック、キー値非漏洩)。テスト30件追加。fresh pytest 134 / ruff / mypy strict 緑。TEST_LOG に証跡追記 |
