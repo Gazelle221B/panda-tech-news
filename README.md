@@ -48,9 +48,9 @@
 | [.env.example](.env.example) | 環境変数サンプル (`cp .env.example .env`) |
 | [scripts/](scripts/) | Spike 検証スクリプト (curl / feedparser) |
 
-## Sprint 1A スコープ要旨
+## 現在のスコープ要旨 (Sprint 1B 実装済み)
 
-LLM・TTS・動画・YouTubeは未実装。**「ソース定義YAMLを読み、RSS/RSSHubから収集してSQLiteに保存し、Discordへ収集サマリーを投稿する」** ところまで。
+TTS・動画・YouTube は未実装 (Sprint 2 以降)。**「収集 (1A) → LLM 編集判定 → 3-5 本選定 → Markdown 台本生成 → Discord 投稿 (1B)」** までコード実装済み。実 LLM API への接続 (T13) は API 契約の人間判断待ちで、解消後は `.env` にキーを設定するだけで動く。
 
 ### Quick start (現時点で動くもの)
 
@@ -62,18 +62,23 @@ uv run python -m karyu_tech_news --help
 uv run python -m karyu_tech_news validate-sources  # ソース定義をスキーマ検証
 uv run python -m karyu_tech_news init-db           # SQLite 初期化
 uv run python -m karyu_tech_news collect --post    # 収集 → SQLite → Discord 投稿
-uv run pytest                                      # テスト (104 pass)
+uv run python -m karyu_tech_news draft --dry-run   # 台本候補の確認 (LLM 不使用)
+uv run python -m karyu_tech_news draft --post      # LLM 台本生成 → Discord (要 API キー)
+uv run python -m karyu_tech_news evaluate          # A/B/C 検証の定量サマリー
+uv run pytest                                      # テスト (235 pass)
 ```
 
-### CLI 進捗 (Sprint 1A 全実装済み)
+### CLI 進捗
 
 | コマンド | 状態 |
 |---|---|
 | `version` / `info` / `validate-sources` | ✅ T1-T2 |
 | `init-db` | ✅ T4 (SQLite 初期化・冪等) |
 | `collect` (`--source` / `--post` / `--dry-run`) | ✅ T3-T10 (収集→保存→dedupe→source_health→Discord) |
+| `draft` (`--variant` / `--post` / `--dry-run`) | ✅ T12-T19, T21 (候補→判定→選定→台本→投稿)。実 API は T13 後 |
+| `evaluate` | ✅ T20 (採用率/修正回数/コスト/JSON安定性) |
 
-> Discord 投稿は独立コマンドではなく `collect --post` に統合。
+> Discord 投稿は独立コマンドではなく `collect --post` / `draft --post` に統合。
 
 ## マルチエージェント運用
 
