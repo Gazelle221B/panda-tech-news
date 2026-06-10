@@ -1,11 +1,11 @@
 # プロジェクト状態
 
-> 最終更新: 2026-06-10 / 更新者: Claude Code (Sprint 1B 実装開始: T12 完了)
+> 最終更新: 2026-06-11 / 更新者: Claude Code (Sprint 1B 実装: T12〜T21 完了)
 > 本ファイルは全エージェントが随時更新する。**Antigravity の内部記憶ではなくここを真の記憶とする** (WORKFLOW §13)。
 
 ## 現在のフェーズ
 
-**Sprint 1B 実装中** — Sprint 1A は T1〜T11 全完了 (3日連続稼働 06-02〜04、Discord HTTP 204)。T11 は PR #9 で main マージ済み。Sprint 1B は T12 から着手 (実 API を呼ばないタスクはモック駆動で先行実装、T13 接続確認のみ人間ブロッカー解消待ち — IMPLEMENTATION_PLAN-1B §5/§6)。
+**Sprint 1B 実装完了 (コード側)** — T12〜T21 をモック駆動 TDD で実装済み (pytest 235 / ruff / mypy strict 緑)。実 DB での `draft --dry-run` スモーク確認済み (候補 40 件抽出)。**残タスク**: T13 (実 API 接続 smoke — 人間ブロッカー: API 契約・課金) と T22 (3日間の台本品質観察 — T13 後)。merge には Codex レビュー + Antigravity QA + 人間承認が必要 (WORKFLOW §10)。
 
 | ステップ | 状態 |
 |---|---|
@@ -33,6 +33,16 @@
 | Ticket #9 (CLI統合: `collect` コマンド) | ✅ Antigravity QA PASS (2026-06-02)。dry-run、実実行、重複排除、不正引数処理を実CLIで確認。pytest 104 pass / ruff・mypy(strict) clean |
 | Ticket #11 (T11) 3日連続稼働観察 | ✅ 完了 (2026-06-04)。Day1-3 全 9/9 成功、Discord 実配信 (HTTP 204)、fail-open 健全、dedup 実DB実証。**Sprint 1A 完全終了** |
 | Ticket T12 (LLM profile ローダ + provider 抽象) | ✅ 実装完了 (2026-06-10)。`llm/profile.py` + `llm/client.py`。A/B/C 切替を設定だけで解決、API キーは env 名参照のみ。pytest 134 pass / ruff・mypy(strict) clean。Codex レビュー待ち |
+| Ticket T14 (候補抽出 + ローカル事前スコア) | ✅ 実装完了 (2026-06-10)。`edit/prescore.py`。中華圏キーワード辞書 + Tier ボーナス、上限40件。実DBスモークで候補40件抽出を確認 |
+| Ticket T15 (LLM 編集判定) | ✅ 実装完了 (2026-06-10)。`edit/judge.py`。temp=0 + JSON モード、頑健 JSON 抽出、corroboration は canonical_url_hash で決定的に集計 |
+| Ticket T16 (多様性キャップ選定 + アーク配置) | ✅ 実装完了 (2026-06-10)。`edit/select.py` + `edit/arc.py`。Tier3/4 独立2ソースゲート + 4パス充填 + 三幕構成。全て決定的コード |
+| Ticket T17 (Markdown 台本生成) | ✅ 実装完了 (2026-06-11)。`script/generate.py`。Hook/Insight/Action 契約 + 検証 (300字/URL/禁止表現/噂明示) + エピソード組み立て |
+| Ticket T18 (fallback 二重防御) | ✅ 実装完了 (2026-06-11)。`script/fallback.py`。違反フィードバック付き再生成 → テンプレ乱択4パターン |
+| Ticket T19 (1B 新テーブル + 永続化) | ✅ 実装完了 (2026-06-11)。topic_candidates / episode_drafts / llm_runs / script_versions + repo 4関数 |
+| Ticket T20 (A/B/C 比較ログ集計) | ✅ 実装完了 (2026-06-11)。`edit/abtest.py`。採用率/修正回数/コスト/JSON安定性の variant 別集計 |
+| Ticket T21 (CLI draft/evaluate + Discord 台本投稿) | ✅ 実装完了 (2026-06-11)。`script/runner.py` (統合, editor 崩壊時 neutral fallback) + `deliver/discord.py` post_markdown (2000字チャンク) + CLI 2コマンド。実DB `draft --dry-run` スモーク済み |
+| Ticket T13 (MiMo/DeepSeek 実接続 smoke) | ⏸ **人間ブロッカー待ち** (API 契約・課金、IMPLEMENTATION_PLAN-1B §6)。解消後は `.env` にキー設定 → `draft` 実行のみ (コード変更不要) |
+| Ticket T22 (3日間の台本品質観察) | ⏸ T13 解消後に実施 |
 
 ## 作業中ブランチ
 
@@ -157,3 +167,6 @@ meeting.md / meeting2.md / tik-choco コードdump の全読に基づき作成:
 | 2026-06-04 | Claude Code | Sprint 1B 準備 (アーキテクト): roadmap 現在地を 1B へ移動 (1A DoD 全チェック)、`docs/IMPLEMENTATION_PLAN-1B.md` 作成 (タスク T12〜T22 + 設計集約インデックス + 着手前ブロッカー)。AGENTS/README 地図に追加。**実装着手は実 model ID/endpoint 確定後** |
 | 2026-06-10 | Claude Code | T11 マージ (PR #9) 確認 → 最新 main から `agent/T12-impl` 分岐。Sprint 1B 計画 docs コミット。**着手方針の明確化**: ブロッカー (API契約/課金) が直接塞ぐのは T13 接続確認のみ。計画 §5 のとおり他タスクはモック駆動で先行実装し、実 model ID は config 差し替えのみで反映可能な構造を維持する |
 | 2026-06-10 | Claude Code | Ticket T12 実装完了: `llm/profile.py` (YAML ローダ + 重複/参照検証 + A/B/C 役割解決) + `llm/client.py` (OpenAI 互換 chat、リトライ2回、ollama think=false、reasoning_content フォールバック、キー値非漏洩)。テスト30件追加。fresh pytest 134 / ruff / mypy strict 緑。TEST_LOG に証跡追記 |
+| 2026-06-10 | Claude Code | T14 (prescore: 中華圏キーワード辞書 + Tier ボーナス) / T15 (judge: temp=0 JSON 判定 + corroboration 決定的集計) / T16 (select/arc: 編集ゲート + 多様性キャップ + 三幕構成) 実装完了。各チケット TDD・全ゲート緑 |
+| 2026-06-11 | Claude Code | T17 (台本生成: Hook/Insight/Action 契約 + 検証) / T18 (fallback: 再生成 → テンプレ乱択) / T19 (1B 4テーブル + repo) / T20 (A/B/C evaluate 集計) 実装完了。各チケット TDD・全ゲート緑 |
+| 2026-06-11 | Claude Code | T21 実装完了: `script/runner.py` (draft 統合, editor 崩壊時 neutral fallback + 使用量記録) + `deliver/discord.py` post_markdown (2000字チャンク) + CLI `draft`/`evaluate`。実 DB で `draft --dry-run` スモーク (候補40件)。fresh pytest **235** / ruff / mypy strict 緑。**Sprint 1B コード側完了 — 残: T13 (人間: API契約) → T22 (観察)。merge は Codex レビュー + QA + 人間承認後** |

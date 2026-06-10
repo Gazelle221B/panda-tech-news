@@ -14,6 +14,7 @@ from karyu_tech_news.store.schema import CollectRun, Item, Source, SourceHealth
 logger = logging.getLogger(__name__)
 
 JST = timezone(timedelta(hours=9))
+DISCORD_CONTENT_LIMIT = 2000  # Discord message content の上限 (コードポイント単位)
 
 
 def format_summary(session: Session, run: CollectRun) -> str:
@@ -93,3 +94,48 @@ def post_summary(webhook_url: str, content: str) -> bool:
     except Exception as exc:  # noqa: BLE001
         logger.exception("Discord Webhook post failed: %s", exc)
         return False
+
+
+def _split_for_discord(content: str, limit: int = DISCORD_CONTENT_LIMIT) -> list[str]:
+    """content を Discord の上限以下のチャンクに分割する (行境界優先).
+
+    1 行が上限を超える場合のみ行内で強制分割 (コードポイント単位、バイト切り禁止)。
+    """
+    chunks: list[str] = []
+    current = ""
+    for line in content.splitlines():
+        while len(line) > limit:
+            if current:
+                chunks.append(current)
+                current = ""
+            chunks.append(line[:limit])
+            line = line[limit:]
+        candidate = f"{current}\n{line}" if current else line
+        if len(candidate) > limit:
+            chunks.append(current)
+            current = line
+        else:
+            current = candidate
+    if current:
+        chunks.append(current)
+    return chunks
+
+
+def post_markdown(webhook_url: str, content: str) -> bool:
+    """Markdown 台本を Discord Webhook に投稿する (Sprint 1B T21, 要件 §14.2).
+
+    2000 文字を超える台本は行境界でチャンク分割して順に投稿する。
+    失敗時はログのみで False を返す (FR-071 と同じ fail-open)。
+    """
+    if not webhook_url:
+        logger.warning("Discord Webhook URL is not set")
+        return False
+    if not content.strip():
+        logger.warning("Discord post skipped: empty content")
+        return False
+
+    ok = True
+    for chunk in _split_for_discord(content):
+        if not post_summary(webhook_url, chunk):
+            ok = False
+    return ok

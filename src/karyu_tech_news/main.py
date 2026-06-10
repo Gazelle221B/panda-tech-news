@@ -1,6 +1,7 @@
 """CLI 本体. typer ベース.
 
-Sprint 1A 全コマンド: version / info / validate-sources / init-db / collect。
+Sprint 1A コマンド: version / info / validate-sources / init-db / collect。
+Sprint 1B コマンド: draft / evaluate (T21)。
 """
 from __future__ import annotations
 
@@ -145,7 +146,7 @@ def info(ctx: typer.Context) -> None:
     """環境設定の確認 (秘密情報は set/not set のみ表示)."""
     settings = ctx.obj
     typer.echo(f"karyu-tech-news {__version__}")
-    typer.echo("Sprint phase: 1A complete (T1-T10), T11 observation")
+    typer.echo("Sprint phase: 1B implementation (T12-T21 implemented)")
     typer.echo("")
     typer.echo("Settings:")
     typer.echo(f"  RSSHUB_BASE_URL:           {settings.rsshub_base_url}")
@@ -299,6 +300,162 @@ def collect(
                         "WARNING: Discord post failed (continuing due to fail-open)",
                         fg=typer.colors.YELLOW,
                     )
+
+
+@app.command()
+def draft(
+    ctx: typer.Context,
+    db_path: Path = typer.Option(
+        Path("data/state.db"),
+        "--db-path",
+        "-d",
+        help="SQLite データベースのパス",
+        show_default=True,
+    ),
+    profiles_file: Path = typer.Option(
+        None,
+        "--profiles",
+        help="llm_profiles.yaml のパス (未指定時は config/llm_profiles.yaml)",
+    ),
+    variant: str = typer.Option(
+        "A",
+        "--variant",
+        help="A/B/C 検証の構成 (ADR-0005。初期既定は A)",
+        show_default=True,
+    ),
+    lookback_hours: int = typer.Option(
+        48,
+        "--lookback-hours",
+        help="候補に含める収集時刻の遡り時間",
+        show_default=True,
+    ),
+    post: bool = typer.Option(
+        False,
+        "--post",
+        "-p",
+        help="生成後に Discord へ台本を投稿",
+    ),
+    dry_run: bool = typer.Option(
+        False,
+        "--dry-run",
+        help="LLM を呼ばず候補一覧のみ表示",
+    ),
+) -> None:
+    """SQLite の候補から LLM で 3-5 本を選び Markdown 台本を生成 (Sprint 1B T21).
+
+    fail-open: editor が崩れた日も neutral 判定で番組を出し、
+    writer の違反はテンプレ fallback が吸収する。
+    """
+    from datetime import UTC, datetime
+
+    from sqlalchemy.orm import Session
+
+    from karyu_tech_news.deliver.discord import post_markdown
+    from karyu_tech_news.edit.prescore import extract_candidates
+    from karyu_tech_news.llm.client import LLMClient, LLMError
+    from karyu_tech_news.llm.profile import DEFAULT_LLM_PROFILES_PATH, load_llm_profiles
+    from karyu_tech_news.script.runner import run_draft
+    from karyu_tech_news.store.repo import create_db_engine
+    from karyu_tech_news.store.repo import init_db as init_database
+
+    settings = ctx.obj
+
+    try:
+        profiles = load_llm_profiles(profiles_file or DEFAULT_LLM_PROFILES_PATH)
+        roles = profiles.resolve_roles(variant)
+    except Exception as exc:
+        typer.secho(f"ERROR: Failed to load LLM profiles: {exc}", fg=typer.colors.RED, err=True)
+        raise typer.Exit(code=1) from exc
+
+    engine = create_db_engine(db_path)
+    init_database(engine)
+    now = datetime.now(UTC)
+
+    with Session(engine) as session:
+        if dry_run:
+            candidates = extract_candidates(session, now=now, lookback_hours=lookback_hours)
+            typer.echo(
+                f"[DRY RUN] 候補 {len(candidates)} 件 / variant {variant} "
+                f"(editor={roles.editor.label}, writer={roles.writer.label})"
+            )
+            for c in candidates[:10]:
+                typer.echo(f"  [prescore={c.prescore:>3} T{c.tier} {c.category}] {c.title}")
+            raise typer.Exit(code=0)
+
+        try:
+            editor = LLMClient(roles.editor)
+            writer = LLMClient(roles.writer)
+        except LLMError as exc:
+            typer.secho(f"ERROR: {exc}", fg=typer.colors.RED, err=True)
+            typer.secho(
+                "API キーを .env に設定するか、--dry-run で候補のみ確認してください",
+                fg=typer.colors.YELLOW,
+                err=True,
+            )
+            raise typer.Exit(code=1) from exc
+
+        result = run_draft(
+            session,
+            editor=editor,
+            writer=writer,
+            roles=roles,
+            variant=variant,
+            now=now,
+            lookback_hours=lookback_hours,
+        )
+        if result is None:
+            typer.secho(
+                "候補がありません (先に collect を実行するか --lookback-hours を伸ばしてください)",
+                fg=typer.colors.YELLOW,
+            )
+            raise typer.Exit(code=0)
+
+        typer.echo(result.episode.markdown)
+        typer.echo("")
+        methods = ", ".join(f"{k}={v}" for k, v in sorted(result.method_counts.items()))
+        typer.secho(
+            f"Draft #{result.draft_id} 生成完了: 候補 {result.candidate_count} → "
+            f"採用 {result.selected_count} 本 (生成方法: {methods}, "
+            f"editor JSON 安定: {'yes' if result.editor_json_stable else 'no'})",
+            fg=typer.colors.GREEN,
+        )
+
+        if post:
+            if not settings.discord_webhook_url:
+                typer.secho(
+                    "WARNING: DISCORD_WEBHOOK_URL not set, skipping Discord post",
+                    fg=typer.colors.YELLOW,
+                )
+            elif post_markdown(settings.discord_webhook_url, result.episode.markdown):
+                typer.secho("Discord post sent successfully", fg=typer.colors.GREEN)
+            else:
+                typer.secho(
+                    "WARNING: Discord post failed (continuing due to fail-open)",
+                    fg=typer.colors.YELLOW,
+                )
+
+
+@app.command()
+def evaluate(
+    db_path: Path = typer.Option(
+        Path("data/state.db"),
+        "--db-path",
+        "-d",
+        help="SQLite データベースのパス",
+        show_default=True,
+    ),
+) -> None:
+    """A/B/C 検証の定量サマリーを表示 (Sprint 1B T21, ADR-0005)."""
+    from sqlalchemy.orm import Session
+
+    from karyu_tech_news.edit.abtest import evaluate_variants, format_evaluation
+    from karyu_tech_news.store.repo import create_db_engine
+    from karyu_tech_news.store.repo import init_db as init_database
+
+    engine = create_db_engine(db_path)
+    init_database(engine)
+    with Session(engine) as session:
+        typer.echo(format_evaluation(evaluate_variants(session)))
 
 
 if __name__ == "__main__":

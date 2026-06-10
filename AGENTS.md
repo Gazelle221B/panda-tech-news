@@ -18,10 +18,10 @@
 
 ## 2. 現在のフェーズ (随時更新は `docs/PROJECT_STATE.md`)
 
-- **Sprint 1A 実装完了** — T1〜T10 全チケット QA PASS (収集→SQLite→dedupe→source_health→fail-open統合→Discord→CLI統合)
-- **Ticket #11 (3日連続稼働観察) 進行中** — Day 2/3 完了 (2026-06-03、Discord 実配信成功 HTTP 204)。完了で Sprint 1A 全終了 → 1B 解禁
-- LLM/TTS/動画/YouTube は未実装 (Sprint 1B 以降)
-- 作業ブランチ: `agent/T11-impl`
+- **Sprint 1A 完全終了** — T1〜T11 全チケット完了 (3日連続稼働 06-02〜04、Discord HTTP 204、main マージ済み)
+- **Sprint 1B 実装中** — T12〜T21 実装済み (LLM profile→編集判定→選定/アーク→台本→fallback→永続化→CLI `draft`/`evaluate`)。LLM はモック駆動で実装済み、**T13 (実 API 接続 smoke) は人間ブロッカー (API 契約・課金) 解消待ち**、T22 (3日品質観察) は T13 後
+- TTS/動画/YouTube は未実装 (Sprint 2 以降)
+- 作業ブランチ: `agent/T12-impl`
 
 ## 3. 絶対 NG (禁止事項) — 最優先
 
@@ -44,8 +44,9 @@
 - **Discord Webhook 失敗で collect を fail させてはならない** (FR-071)。ログに記録のみ。
 - **タイムアウト未指定の HTTP 呼び出し禁止**。各取得 30 秒 (FR-012)、リトライ最大 2 回 (FR-013)。
 
-### 3.4 スコープ膨張 NG (Sprint 1A 中)
-**Sprint 1A で以下を導入してはならない**: LLM 呼び出し / TTS / 音声処理 / 動画生成 / YouTube 投稿 / Playwright / 中国 IP プロキシ / Cookie 必須ルート。
+### 3.4 スコープ膨張 NG (フェーズ境界)
+**Sprint 1B で以下を導入してはならない**: TTS / 音声処理 / 動画生成 / YouTube 投稿 / Playwright / 中国 IP プロキシ / Cookie 必須ルート。
+LLM 呼び出しは Sprint 1B で解禁済みだが、**実 API への接続 (T13 smoke・日次運用) は人間の API 契約・課金判断後のみ** (実装はモック駆動でテスト)。
 「ついでに〜したい」と思ったら即停止し、`docs/PROJECT_STATE.md` の「人間判断待ち」へエスカレーション (WORKFLOW §4 区分 E)。
 
 ### 3.5 コンテンツ NG
@@ -65,21 +66,23 @@ uv sync                                            # 依存解決 + Python 3.11+
 cp .env.example .env                               # DISCORD_WEBHOOK_URL を埋める
 docker compose up -d rsshub                         # RSSHub セルフホスト (Tier3 掘金用)
 
-# CLI (Sprint 1A 全コマンド実装済み)
+# CLI (Sprint 1A + 1B コマンド実装済み)
 uv run python -m karyu_tech_news --help
 uv run python -m karyu_tech_news version
 uv run python -m karyu_tech_news info               # 環境設定確認 (秘密値は set/not set のみ)
 uv run python -m karyu_tech_news validate-sources   # config/sources.yaml をスキーマ検証
 uv run python -m karyu_tech_news init-db            # SQLite 初期化 (冪等)
 uv run python -m karyu_tech_news collect [--source <id>] [--post] [--dry-run]  # 収集→保存(→Discord)
+uv run python -m karyu_tech_news draft [--variant A] [--post] [--dry-run]      # 候補→LLM台本→(Discord)。実APIはT13後
+uv run python -m karyu_tech_news evaluate           # A/B/C 検証の定量サマリー (ADR-0005)
 # または: uv run karyu collect --post
 
 # 品質ゲート (PR 前に必ず通す)
-uv run pytest                                       # ユニットテスト (現状 104 / pass)
+uv run pytest                                       # ユニットテスト (現状 235 / pass)
 uv run ruff check .                                 # Lint
 uv run mypy src tests                               # 型 (strict)
 
-# 日次運用 (T11 観察): RSSHub 起動 → Discord 投稿込みで収集
+# 日次運用: RSSHub 起動 → Discord 投稿込みで収集 (1B: T13 解禁後に draft --post を追加)
 docker compose up -d rsshub
 uv run python -m karyu_tech_news collect --post
 ```
@@ -134,9 +137,12 @@ panda-tech-news/
 ├── src/karyu_tech_news/     # 実装本体 (src-layout)
 │   ├── __init__.py / __main__.py / main.py / config.py
 │   ├── collect/  (T3-T4 で追加: fetcher / normalize / runner)
-│   ├── store/    (T5-T7 で追加: schema / repo)
-│   └── deliver/  (T9 で追加: discord)
-├── tests/                   # pytest (現状 104 / pass, 10 ファイル)
+│   ├── store/    (T5-T7 で追加: schema / repo。T19 で 1B テーブル追加)
+│   ├── deliver/  (T9 で追加: discord。T21 で台本投稿追加)
+│   ├── llm/      (T12 で追加: profile / client)
+│   ├── edit/     (T14-T16, T20 で追加: prescore / judge / select / arc / abtest)
+│   └── script/   (T17-T18, T21 で追加: generate / fallback / runner)
+├── tests/                   # pytest (現状 235 / pass, 22 ファイル)
 ├── scripts/                 # spike_curl_check.sh など検証スクリプト
 ├── data/                    # state.db 等 (.gitkeep 以外 git 管理外)
 └── assets/                  # bgm / jingles / voice_reference (素材本体は git 管理外)

@@ -781,3 +781,25 @@ uv run mypy src tests     → Success: no issues found in 28 source files
 2. 新規モジュール: `edit/abtest.py` (`VariantStats` / `evaluate_variants` / `format_evaluation`)。読み上げ自然さ・AI 要約臭は人間評価と明記 (ADR-0005)
 
 実行結果 (fresh): pytest **218 passed** / ruff clean / mypy strict clean (44 files)
+
+## Ticket T21 — CLI draft / evaluate + Discord 台本投稿 (2026-06-11)
+
+1. `tests/test_discord_script.py` (8件) → verify: 2000字チャンク分割 (行境界優先・超過行はコードポイント強制分割・内容無欠損)・post_markdown の複数投稿・失敗時 False (fail-open)・空 URL/空文の拒否が緑
+2. `tests/test_draft_runner.py` (4件) → verify: 候補ゼロで None・フルパイプライン (DB に episode_drafts/topic_candidates(selected+position)/script_versions/llm_runs(editor+writer, tokens, json_stable) が揃う)・editor JSON 崩壊時の neutral fallback (json_stable=False 記録で番組続行)・writer 全違反時の全テンプレ化が緑
+3. `tests/test_cli_1b.py` (5件) → verify: draft --help・--dry-run (LLM 不使用)・API キー未設定 exit 1 (案内付き)・未知 variant exit 1・evaluate 空 DB が緑
+4. **実 DB スモーク**: `draft --dry-run --lookback-hours 240` → 候補 40 件 (上限キャップ動作)、prescore 序列 (70/50...)、variant A 解決 (editor=mimo, writer=deepseek) を実データで確認。`evaluate` → 「draft なし」表示
+5. `main.py` に `draft` / `evaluate` コマンド追加、info の Sprint 表示を 1B に更新。AGENTS.md の §2/§3.4/§4/§6 を実態同期
+
+実行結果 (fresh): pytest **235 passed** / ruff clean / mypy strict clean (48 files)
+
+### Sprint 1B 実装まとめ (T12〜T21)
+
+| 層 | モジュール | 役割 |
+|---|---|---|
+| llm/ | profile.py / client.py | A/B/C 設定切替・OpenAI 互換クライアント (T12) |
+| edit/ | prescore.py / judge.py / select.py / arc.py / abtest.py | 事前スコア→LLM判定→ゲート+多様性選定→三幕配置→評価集計 (T14-T16, T20) |
+| script/ | generate.py / fallback.py / runner.py | 台本契約+検証→二重防御→draft 統合 (T17, T18, T21) |
+| store/ | schema.py / repo.py (拡張) | 1B 4テーブル永続化 (T19) |
+| deliver/ | discord.py (拡張) | 台本チャンク投稿 (T21) |
+
+**残**: T13 (実 API 接続 smoke — 人間の API 契約・課金判断待ち。解消後は .env にキー設定のみで `draft` 実行可能) → T22 (3日間品質観察)。
