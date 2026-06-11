@@ -5,7 +5,7 @@
 
 ## 現在のフェーズ
 
-**Sprint 1B 実装完了 — Codex レビュー PASS + Antigravity QA PASS、残るは人間承認のみ** — T12〜T21 実装済み (pytest 242 / ruff / mypy strict / カバレッジ 96%)。E2E 検証 2 系統 (LLM 全断 fail-open / 正常系 llm=5) + §13.2 日次フロー実走 (2026-06-11: collect 9/9・70新着 → draft 採用5本全 LLM 生成 → Discord 台本初配信)。**マージ 3 条件: ① Codex 独立レビュー PASS (2026-06-12, FAIL→修正→再レビューの正規サイクル) ② Antigravity QA PASS (2026-06-12, DoD 全6項目) ③ 人間承認 ← PR #10 はこれのみ待ち**。その後: T13 (実 API 接続 — 人間: API 契約・課金。解消後は .env にキー設定のみ) → T22 (3日品質観察)。
+**Sprint 1B 本番稼働開始 — T13 完了・T22 Day 1/3** — T12〜T21 実装済み (pytest 242 / カバレッジ 96%)、Codex レビュー PASS + Antigravity QA PASS。**2026-06-12 に人間が API 契約・キー設定 → T13 接続 smoke 完了 → variant A (editor=MiMo, writer=DeepSeek) で本番初配信成功** (候補40→採用5、editor JSON 安定 100%、Discord 着弾、16.5k tokens/エピソード)。**残: ① PR #10 の人間承認マージ (Codex/QA は PASS 済) ② T22 Day 2/3 (翌日以降 `collect --post` → `draft --variant A --post`)**。T22 完了で Sprint 1B 全 DoD 達成 → Sprint 2 (TTS) 解禁。
 
 | ステップ | 状態 |
 |---|---|
@@ -41,8 +41,8 @@
 | Ticket T19 (1B 新テーブル + 永続化) | ✅ 実装完了 (2026-06-11)。topic_candidates / episode_drafts / llm_runs / script_versions + repo 4関数 |
 | Ticket T20 (A/B/C 比較ログ集計) | ✅ 実装完了 (2026-06-11)。`edit/abtest.py`。採用率/修正回数/コスト/JSON安定性の variant 別集計 |
 | Ticket T21 (CLI draft/evaluate + Discord 台本投稿) | ✅ 実装完了 (2026-06-11)。`script/runner.py` (統合, editor 崩壊時 neutral fallback) + `deliver/discord.py` post_markdown (2000字チャンク) + CLI 2コマンド。実DB `draft --dry-run` スモーク済み |
-| Ticket T13 (MiMo/DeepSeek 実接続 smoke) | ⏸ **人間ブロッカー待ち** (API 契約・課金、IMPLEMENTATION_PLAN-1B §6)。解消後は `.env` にキー設定 → `draft` 実行のみ (コード変更不要) |
-| Ticket T22 (3日間の台本品質観察) | ⏸ T13 解消後に実施 |
+| Ticket T13 (MiMo/DeepSeek 実接続 smoke) | ✅ **完了 (2026-06-12)**。人間が API 契約・キー設定 → 両系統疎通。mimo 実 endpoint `https://api.xiaomimimo.com/v1` / model `mimo-v2.5-pro` 確定 (config 修正)。deepseek-chat は実体 deepseek-v4-flash |
+| Ticket T22 (3日間の台本品質観察) | 🔄 **Day 1/3 完了 (2026-06-12)**。variant A 本番初配信: 候補40→採用5 (llm_retry=5)、editor JSON 安定 100%、Discord 配信成功、コスト 16.5k tokens/エピソード。残: Day 2/3 |
 
 ## 作業中ブランチ
 
