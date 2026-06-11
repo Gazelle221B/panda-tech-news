@@ -5,7 +5,7 @@
 
 ## 現在のフェーズ
 
-**Sprint 1B 実装完了 (コード側)** — T12〜T21 をモック駆動 TDD で実装済み (pytest 235 / ruff / mypy strict 緑)。実 DB での `draft --dry-run` スモーク確認済み (候補 40 件抽出)。**残タスク**: T13 (実 API 接続 smoke — 人間ブロッカー: API 契約・課金) と T22 (3日間の台本品質観察 — T13 後)。merge には Codex レビュー + Antigravity QA + 人間承認が必要 (WORKFLOW §10)。
+**Sprint 1B 実装完了 + 運用リハーサル稼働中** — T12〜T21 実装済み (pytest 238 / ruff / mypy strict / カバレッジ 96%)。E2E 検証 2 系統 (LLM 全断 fail-open / 正常系 llm=5) 完了。**2026-06-11 に §13.2 日次フローを実データで初完走**: collect 9/9 (70新着) → draft (候補40→採用5, 全 LLM 生成) → **Discord 台本初配信成功** (ローカル LLM variant L)。**残タスク**: T13 (実 API 接続 — 人間ブロッカー: API 契約・課金。解消後は .env にキー設定のみ) と T22 (3日品質観察 — variant L でのリハーサルは開始済み)。PR #10 の merge には Codex レビュー + Antigravity QA + 人間承認が必要 (WORKFLOW §10)。
 
 | ステップ | 状態 |
 |---|---|
@@ -171,3 +171,5 @@ meeting.md / meeting2.md / tik-choco コードdump の全読に基づき作成:
 | 2026-06-10 | Claude Code | T14 (prescore: 中華圏キーワード辞書 + Tier ボーナス) / T15 (judge: temp=0 JSON 判定 + corroboration 決定的集計) / T16 (select/arc: 編集ゲート + 多様性キャップ + 三幕構成) 実装完了。各チケット TDD・全ゲート緑 |
 | 2026-06-11 | Claude Code | T17 (台本生成: Hook/Insight/Action 契約 + 検証) / T18 (fallback: 再生成 → テンプレ乱択) / T19 (1B 4テーブル + repo) / T20 (A/B/C evaluate 集計) 実装完了。各チケット TDD・全ゲート緑 |
 | 2026-06-11 | Claude Code | T21 実装完了: `script/runner.py` (draft 統合, editor 崩壊時 neutral fallback + 使用量記録) + `deliver/discord.py` post_markdown (2000字チャンク) + CLI `draft`/`evaluate`。実 DB で `draft --dry-run` スモーク (候補40件)。fresh pytest **235** / ruff / mypy strict 緑。**Sprint 1B コード側完了 — 残: T13 (人間: API契約) → T22 (観察)。merge は Codex レビュー + QA + 人間承認後** |
+| 2026-06-11 | Claude Code | ローカル LLM E2E 2系統完了 (全断 fail-open=テンプレ配信 / 正常系 llm=5)。E2E 発見バグ 2 件修正: `reasoning` フォールバック + editor 部分判定欠落の neutral 充填。PR #10 にレビュアー向け結果コメント |
+| 2026-06-11 | Claude Code | **運用リハーサル Day 0**: §13.2 日次フローを実データで初完走 (collect 9/9・70新着・HTTP204 → draft 候補40→採用5 llm=5 → **Discord 台本初配信**)。セキュリティ修正: httpx INFO ログの Webhook トークン露出を抑制 (要件 §9.5、リポジトリ混入なし・必要なら Webhook 再発行を推奨)。pytest 238 緑 |
