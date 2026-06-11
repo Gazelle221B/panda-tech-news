@@ -1,11 +1,11 @@
 # プロジェクト状態
 
-> 最終更新: 2026-06-11 / 更新者: Claude Code (Sprint 1B 実装: T12〜T21 完了)
+> 最終更新: 2026-06-12 / 更新者: Claude Code (PR #10 マージ確認 + T22 Day 2/3 自動実行設定)
 > 本ファイルは全エージェントが随時更新する。**Antigravity の内部記憶ではなくここを真の記憶とする** (WORKFLOW §13)。
 
 ## 現在のフェーズ
 
-**Sprint 1B 本番稼働開始 — T13 完了・T22 Day 1/3** — T12〜T21 実装済み (pytest 242 / カバレッジ 96%)、Codex レビュー PASS + Antigravity QA PASS。**2026-06-12 に人間が API 契約・キー設定 → T13 接続 smoke 完了 → variant A (editor=MiMo, writer=DeepSeek) で本番初配信成功** (候補40→採用5、editor JSON 安定 100%、Discord 着弾、16.5k tokens/エピソード)。**残: ① PR #10 の人間承認マージ (Codex/QA は PASS 済) ② T22 Day 2/3 (翌日以降 `collect --post` → `draft --variant A --post`)**。T22 完了で Sprint 1B 全 DoD 達成 → Sprint 2 (TTS) 解禁。
+**Sprint 1B 仕上げ — PR #10 マージ済み・T22 Day 1/3 完了** — T12〜T21 実装済み (pytest 242 / カバレッジ 96%)、Codex レビュー PASS + Antigravity QA PASS。**PR #10 は 2026-06-12 01:41 JST に人間承認で squash マージ済み (main `b76f6c4`。ブランチ先端とツリー一致 = T13 完了・T22 Day 1 証跡も取り込み済み)**。2026-06-12 に T13 接続 smoke 完了 → variant A (editor=MiMo, writer=DeepSeek) で本番初配信成功 (候補40→採用5、editor JSON 安定 100%、Discord 着弾、16.5k tokens/エピソード)。**残: T22 Day 2 (06-13)・Day 3 (06-14) — ローカルスケジュールタスク (各日 07:47 JST、`~/.claude/scheduled-tasks/t22-day{2,3}-observation`) で自動実行を設定済み。Day 3 完了時に Sprint 1B 完了 PR を自動作成 (merge は人間)**。T22 完了で Sprint 1B 全 DoD 達成 → Sprint 2 (TTS) 解禁。
 
 | ステップ | 状態 |
 |---|---|
@@ -46,7 +46,7 @@
 
 ## 作業中ブランチ
 
-`agent/T12-impl` (最新 main `965f37d` から分岐)
+`agent/T22-impl` (最新 main `b76f6c4` から分岐。`agent/T12-impl` は PR #10 squash マージ済みのため規約 §8.2 に従い切り直し)
 
 ## 直近の設計判断
 
@@ -178,3 +178,4 @@ meeting.md / meeting2.md / tik-choco コードdump の全読に基づき作成:
 | 2026-06-12 | Claude Code | Codex Critical 対応 (818f88e): 例外ログを status code / 例外型名のみにサニタイズ、caplog 回帰テスト 3 件追加 (post_summary HTTP/接続 + post_markdown のトークン非露出を固定)。fresh pytest 242 緑 |
 | 2026-06-12 | Codex | 再レビュー **PASS** を REVIEW_REPORT に記録。Critical/High 指摘なし。修正経路と回帰テストを確認、fresh pytest 242 / ruff / mypy strict 緑 |
 | 2026-06-12 | Antigravity | Sprint 1B QA **PASS** を QA_REPORT に記録。IMPLEMENTATION_PLAN-1B §1 DoD 全 6 項目合格 (Discord 台本投稿はローカル LLM 実証を証跡とする)。UI/UX・回帰・整合性 OK。未解決リスク: T13 実 API (人間判断待ち)・T22 観察。**マージ残条件は人間承認のみ** |
+| 2026-06-12 | Claude Code | **PR #10 の人間承認 squash マージを確認** (main `b76f6c4`、2026-06-12 01:41 JST。`agent/T12-impl` 先端とツリー一致 = T13/T22 Day 1 含む全コミット取り込み済み)。マージ後 main で品質ゲート fresh 緑 (pytest 242 / ruff / mypy strict)。規約 §8.2 に従い `agent/T22-impl` を分岐。**T22 Day 2 (06-13)・Day 3 (06-14) 07:47 JST のローカルスケジュール自動実行を設定** (Day 3 は 3日総括 + DoD 更新 + Sprint 1B 完了 PR 作成まで。merge は人間承認のみ) |
