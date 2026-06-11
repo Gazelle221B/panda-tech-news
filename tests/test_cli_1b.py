@@ -52,3 +52,13 @@ def test_evaluate_empty_db(tmp_path: Path) -> None:
     result = runner.invoke(app, ["evaluate", "--db-path", str(db)])
     assert result.exit_code == 0
     assert "なし" in result.output
+
+
+def test_setup_logging_suppresses_httpx_url_logs() -> None:
+    """httpx INFO ログは Webhook トークン入り URL を出すため WARNING に抑制 (要件 §9.5)."""
+    import logging
+
+    from karyu_tech_news.main import setup_logging
+
+    setup_logging("INFO")
+    assert logging.getLogger("httpx").level == logging.WARNING

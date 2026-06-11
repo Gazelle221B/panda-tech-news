@@ -853,3 +853,20 @@ uv run karyu draft --profiles /tmp/karyu-e2e-profiles.yaml --variant L --db-path
 - 0.6b 品質所感 (人間評価の参考): 構造契約は満たすが固有名詞の誤りと日中混在あり。実運用モデル (DeepSeek/MiMo) では大幅改善見込み
 
 **結論: 収集 (実データ) → 候補抽出 → LLM 判定 → ゲート/アーク → LLM 台本生成 → 検証 → 組み立て → 永続化 → 集計 の全行程が実 LLM で完走。Sprint 1B パイプラインは本番 API キー投入を残すのみ。**
+
+## Sprint 1B 運用リハーサル Day 0 — §13.2 日次フローを本日の実データで完走 (2026-06-11)
+
+> 要件 §13.2 (collect → draft → Discord 台本投稿 → 翌朝人間確認) を、ローカル LLM (variant L) で初めて通しで実運用。
+
+1. `docker compose up -d rsshub` → RSSHub 起動
+2. `collect --post` → **9/9 ソース成功・70 新着**・Discord 収集サマリー **HTTP 204**
+3. `draft --variant L --lookback-hours 30 --post` → **候補 40 → 採用 5 本 (llm=5)**・**Discord に台本初配信成功**
+   - editor カバレッジ 38/40 (neutral 充填 2 件のみ)。当日ニュース (GPT-5.6 / Claude Mythos 5 等) が選定された
+   - 採用 5 本の検証 (Hook/Insight/Action・300字・URL なし・禁止表現なし) 全通過
+4. **人間確認待ち**: Discord に届いた台本 (variant L = ローカル検証版) を読み、「音声化する価値」評価の練習台として利用可
+
+### 発見・修正したセキュリティ問題
+
+`collect --post` 実行ログで **httpx INFO ログが Discord Webhook URL (トークン込み) をコンソールへ出力**していることを発見 (T11 期間から存在した既存問題、要件 §9.5 違反)。`setup_logging` で httpx ロガーを WARNING に抑制 + 回帰テスト追加。**トークンはローカルコンソールにのみ出ており、リポジトリへの混入はない** (grep 確認済み)。露出が気になる場合は Webhook の再発行 (Discord 側でワンクリック) を推奨。
+
+実行結果 (fresh): pytest **238 passed** / ruff clean / mypy strict clean

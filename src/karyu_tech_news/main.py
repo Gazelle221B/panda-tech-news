@@ -35,6 +35,9 @@ def setup_logging(level: str = "INFO") -> None:
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S",
     )
+    # httpx の INFO ログはリクエスト URL 全体 (Discord Webhook トークン含む) を
+    # 出力するため抑制する (要件 §9.5 / styleguide §7: ログに秘密を出さない)
+    logging.getLogger("httpx").setLevel(logging.WARNING)
 
 
 @app.callback()
