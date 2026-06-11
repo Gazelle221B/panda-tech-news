@@ -5,7 +5,7 @@
 
 ## 現在のフェーズ
 
-**Sprint 1B 実装完了 + 運用リハーサル稼働中** — T12〜T21 実装済み (pytest 238 / ruff / mypy strict / カバレッジ 96%)。E2E 検証 2 系統 (LLM 全断 fail-open / 正常系 llm=5) 完了。**2026-06-11 に §13.2 日次フローを実データで初完走**: collect 9/9 (70新着) → draft (候補40→採用5, 全 LLM 生成) → **Discord 台本初配信成功** (ローカル LLM variant L)。**残タスク**: T13 (実 API 接続 — 人間ブロッカー: API 契約・課金。解消後は .env にキー設定のみ) と T22 (3日品質観察 — variant L でのリハーサルは開始済み)。PR #10 の merge には Codex レビュー + Antigravity QA + 人間承認が必要 (WORKFLOW §10)。
+**Sprint 1B 実装完了 — Codex レビュー PASS + Antigravity QA PASS、残るは人間承認のみ** — T12〜T21 実装済み (pytest 242 / ruff / mypy strict / カバレッジ 96%)。E2E 検証 2 系統 (LLM 全断 fail-open / 正常系 llm=5) + §13.2 日次フロー実走 (2026-06-11: collect 9/9・70新着 → draft 採用5本全 LLM 生成 → Discord 台本初配信)。**マージ 3 条件: ① Codex 独立レビュー PASS (2026-06-12, FAIL→修正→再レビューの正規サイクル) ② Antigravity QA PASS (2026-06-12, DoD 全6項目) ③ 人間承認 ← PR #10 はこれのみ待ち**。その後: T13 (実 API 接続 — 人間: API 契約・課金。解消後は .env にキー設定のみ) → T22 (3日品質観察)。
 
 | ステップ | 状態 |
 |---|---|
@@ -174,3 +174,7 @@ meeting.md / meeting2.md / tik-choco コードdump の全読に基づき作成:
 | 2026-06-11 | Claude Code | ローカル LLM E2E 2系統完了 (全断 fail-open=テンプレ配信 / 正常系 llm=5)。E2E 発見バグ 2 件修正: `reasoning` フォールバック + editor 部分判定欠落の neutral 充填。PR #10 にレビュアー向け結果コメント |
 | 2026-06-11 | Claude Code | **運用リハーサル Day 0**: §13.2 日次フローを実データで初完走 (collect 9/9・70新着・HTTP204 → draft 候補40→採用5 llm=5 → **Discord 台本初配信**)。セキュリティ修正: httpx INFO ログの Webhook トークン露出を抑制 (要件 §9.5、リポジトリ混入なし・必要なら Webhook 再発行を推奨)。pytest 238 緑 |
 | 2026-06-12 | Claude Code | PR #10 Copilot レビュー指摘 3 件対応 (4431b03): 台本文字数上限の厳密化 (ラベル込み300字 + 境界回帰テスト) / `profiles_file` 型注釈 `Path \| None` / IMPLEMENTATION_PLAN-1B ステータス行の実態同期。全スレッド返信・resolve 済み。fresh pytest 239 / ruff / mypy strict 緑 |
+| 2026-06-12 | Codex | Sprint 1B (T12〜T21) 独立レビュー **FAIL** を REVIEW_REPORT に記録。Critical 1件: Webhook 4xx/5xx 時に `post_summary()` の `logger.exception` が HTTPStatusError の URL 文字列 (トークン込み) をログ出力する経路が残存 |
+| 2026-06-12 | Claude Code | Codex Critical 対応 (818f88e): 例外ログを status code / 例外型名のみにサニタイズ、caplog 回帰テスト 3 件追加 (post_summary HTTP/接続 + post_markdown のトークン非露出を固定)。fresh pytest 242 緑 |
+| 2026-06-12 | Codex | 再レビュー **PASS** を REVIEW_REPORT に記録。Critical/High 指摘なし。修正経路と回帰テストを確認、fresh pytest 242 / ruff / mypy strict 緑 |
+| 2026-06-12 | Antigravity | Sprint 1B QA **PASS** を QA_REPORT に記録。IMPLEMENTATION_PLAN-1B §1 DoD 全 6 項目合格 (Discord 台本投稿はローカル LLM 実証を証跡とする)。UI/UX・回帰・整合性 OK。未解決リスク: T13 実 API (人間判断待ち)・T22 観察。**マージ残条件は人間承認のみ** |
