@@ -1034,3 +1034,170 @@ T1-T10完了 / T11観察中の実態に合わせたドキュメント同期と�
 ### テスト不足
 
 - 今回範囲で追加必須テストなし。
+
+## Sprint 1B T12-T21 PR #10 独立レビュー  (レビュー日: 2026-06-12 / レビュアー: Codex)
+
+### 総合判定: FAIL
+
+Sprint 1B の LLM profile、編集判定、選定/アーク、台本生成、fallback、永続化、CLI `draft`/`evaluate` の主要パスは設計と概ね整合し、指定の fresh 品質ゲート (`pytest` / `ruff` / `mypy`) は通過した。ただし Discord Webhook の HTTP ステータスエラー時に、失敗ログへ Webhook URL のトークン部分が出る経路が残っている。要件 §9.5 / DESIGN.md §6 の Webhook URL 漏洩リスクに抵触するため、Critical 1 件として PR #10 は merge 不可。
+
+### 確認した証跡 (必須)
+
+- 確認したファイル:
+  - `AGENTS.md`
+  - `README.md`
+  - `docs/DESIGN.md`
+  - `docs/IMPLEMENTATION_PLAN.md`
+  - `docs/IMPLEMENTATION_PLAN-1B.md`
+  - `docs/PROJECT_STATE.md`
+  - `docs/TEST_LOG.md`
+  - `docs/design-inheritance-tc-newsflow.md`
+  - `docs/editorial-policy.md`
+  - `docs/hal-persona.md`
+  - `docs/show-format.md`
+  - `docs/adr/ADR-0005-llm-roles-ab-test.md`
+  - `config/llm_profiles.yaml`
+  - `config/show_format.yaml`
+  - `.gitignore`
+  - `pyproject.toml`
+  - `src/karyu_tech_news/collect/normalize.py`
+  - `src/karyu_tech_news/collect/runner.py`
+  - `src/karyu_tech_news/deliver/discord.py`
+  - `src/karyu_tech_news/edit/abtest.py`
+  - `src/karyu_tech_news/edit/arc.py`
+  - `src/karyu_tech_news/edit/judge.py`
+  - `src/karyu_tech_news/edit/prescore.py`
+  - `src/karyu_tech_news/edit/select.py`
+  - `src/karyu_tech_news/llm/client.py`
+  - `src/karyu_tech_news/llm/profile.py`
+  - `src/karyu_tech_news/main.py`
+  - `src/karyu_tech_news/script/fallback.py`
+  - `src/karyu_tech_news/script/generate.py`
+  - `src/karyu_tech_news/script/runner.py`
+  - `src/karyu_tech_news/store/repo.py`
+  - `src/karyu_tech_news/store/schema.py`
+  - `tests/test_abtest.py`
+  - `tests/test_cli_1b.py`
+  - `tests/test_discord.py`
+  - `tests/test_discord_script.py`
+  - `tests/test_draft_runner.py`
+  - `tests/test_fallback.py`
+  - `tests/test_judge.py`
+  - `tests/test_llm_client.py`
+  - `tests/test_llm_profile.py`
+  - `tests/test_prescore.py`
+  - `tests/test_script_generate.py`
+  - `tests/test_select_arc.py`
+  - `tests/test_store_1b.py`
+- レビュー対象差分:
+  - `git diff --name-status origin/main...HEAD` → 35 ファイル (Sprint 1B T12-T21 + レビュー対応)。
+  - `git rev-parse --abbrev-ref HEAD` → `agent/T12-impl`。
+  - `git merge-base origin/main HEAD` / `git rev-parse origin/main` → `965f37d548f92ff87c3bb5f077fba746f033ec0f`。
+  - `git rev-parse HEAD` → `ab4239ee291dcd43dfd42e597bd559287ffe31aa`。
+- 根拠とした差分/行:
+  - `AGENTS.md:21-24` — Sprint 1B T12-T21 実装済み、T13/T22 は人間ブロッカー後という現在地。
+  - `AGENTS.md:34-49` — `.env` commit 禁止、`item_key`/UNIQUE、fail-open、Sprint 1B の禁止スコープ。
+  - `AGENTS.md:80-83` — PR 前品質ゲート (`uv run pytest` / `ruff` / `mypy`)。
+  - `docs/DESIGN.md:17-19` / `docs/DESIGN.md:88-147` — SQLite 永続化、`UNIQUE(source_id,item_key)`、FR-021 `item_key` 生成順、空 `item_key` 禁止。
+  - `docs/DESIGN.md:171-181` / `docs/DESIGN.md:196-197` — Webhook URL 漏洩防止、Webhook fail-open、法務・秘密管理。
+  - `docs/DESIGN.md:204-207` — Sprint 1B は LLM 編集・Markdown 台本まで、TTS/配信系は後続。
+  - `docs/IMPLEMENTATION_PLAN.md:49-54` / `docs/IMPLEMENTATION_PLAN.md:79-84` — 1A 回帰対象の dedupe/source_health/fail-open/Webhook テスト条件。
+  - `docs/IMPLEMENTATION_PLAN-1B.md:10-20` — Sprint 1B DoD (3-5本、Markdown台本、ソース一覧、A/B/C 記録、Discord 投稿)。
+  - `docs/IMPLEMENTATION_PLAN-1B.md:52-75` — T12-T21 タスク分解と LLM モック方針。
+  - `docs/IMPLEMENTATION_PLAN-1B.md:86-92` — LLM に JSON と台本を同時生成させない、決定的配置、fallback、TTS/音声/動画/YouTube 禁止。
+  - `docs/design-inheritance-tc-newsflow.md:19-25` — LLMProfile 抽象と環境変数名のみ保持。
+  - `docs/design-inheritance-tc-newsflow.md:39-60` / `docs/design-inheritance-tc-newsflow.md:65-85` — 事前スコア、LLM判定、決定的アーク、多様性キャップ、fallback。
+  - `docs/design-inheritance-tc-newsflow.md:73-79` / `docs/design-inheritance-tc-newsflow.md:89-100` — str/rune 単位切り詰め、Hook/Insight/Action、URLは最終出力本文に入れない。
+  - `docs/editorial-policy.md:6-10` / `docs/editorial-policy.md:31-40` / `docs/editorial-policy.md:79-91` — ナショナリズム表現禁止、Tier3/4 の扱い、本文転載禁止。
+  - `docs/hal-persona.md:25-49` — HAL の表現ガイド、暫定オープニング/クロージング、噂明示。
+  - `docs/show-format.md:14-18` / `docs/show-format.md:60-69` / `docs/show-format.md:107-116` — 3-5本、Hook/Insight/Action、Discord 台本投稿項目。
+  - `config/llm_profiles.yaml:9-55` — 実キーではなく `api_key_env` と A/B/C mapping を保持。
+  - `src/karyu_tech_news/collect/normalize.py:62-76` / `src/karyu_tech_news/collect/normalize.py:119-129` — `external_id` → `link` → `sha256(title|published_at|source_id)` の順で `item_key` を生成し空値を拒否。
+  - `src/karyu_tech_news/store/schema.py:51-56` — `items` は `UniqueConstraint("source_id","item_key")` のみ。`hash` 単体 UNIQUE なし。
+  - `src/karyu_tech_news/store/repo.py:76-105` — insert 直前の空 `item_key` 拒否と同一 `(source_id,item_key)` dedupe。
+  - `src/karyu_tech_news/store/repo.py:108-130` — source_health は成功で `consecutive_failures=0` / `last_error=None`、失敗で +1 / `last_error` 保存。
+  - `src/karyu_tech_news/collect/runner.py:42-79` — 1ソース fetch/DB 失敗時も後続ソースへ進み、run を完了する fail-open。
+  - `src/karyu_tech_news/llm/profile.py:31-117` / `src/karyu_tech_news/llm/client.py:40-53` — profile 検証、A/B/C 役割解決、API key は環境変数から解決し未設定時は環境変数名のみ表示。
+  - `src/karyu_tech_news/llm/client.py:78-100` / `src/karyu_tech_news/llm/client.py:102-151` — OpenAI 互換 chat、JSON mode、Ollama `think=false`、timeout/retry、`reasoning_content`/`reasoning` fallback。
+  - `src/karyu_tech_news/edit/prescore.py:22-49` / `src/karyu_tech_news/edit/prescore.py:78-120` — 候補上限40、Tierボーナス、lookback 抽出、コードポイント単位データ。
+  - `src/karyu_tech_news/edit/judge.py:124-154` / `src/karyu_tech_news/edit/judge.py:157-214` — editor は JSON 判定のみ、temp=0、corroboration は決定的コード。
+  - `src/karyu_tech_news/edit/select.py:30-69` — Tier3/4 の独立2ソースゲート、最大5本、多様性キャップ4パス。
+  - `src/karyu_tech_news/edit/arc.py:23-51` — 三幕アーク配置は決定的コード。
+  - `src/karyu_tech_news/script/generate.py:59-125` / `src/karyu_tech_news/script/generate.py:128-182` — writer はプレーンテキスト、Hook/Insight/Action・300字・URL/禁止表現・噂明示の検証、ソース一覧つき Markdown 組み立て。
+  - `src/karyu_tech_news/script/fallback.py:86-137` — writer 違反/LLMError 時の再生成→テンプレ fallback。
+  - `src/karyu_tech_news/script/runner.py:103-132` / `src/karyu_tech_news/script/runner.py:135-224` — editor JSON 崩壊/部分欠落時の neutral fallback、永続化、A/B/C ログ保存。
+  - `src/karyu_tech_news/deliver/discord.py:79-96` — `post_summary()` は fail-open で `False` を返すが、HTTPStatusError の文字列をログに出す。
+  - `src/karyu_tech_news/deliver/discord.py:124-141` — `post_markdown()` は台本をチャンク投稿し、同じ `post_summary()` 失敗ログ経路を使う。
+  - `src/karyu_tech_news/main.py:31-40` — `httpx` INFO ログは抑止済みだが、アプリ側 `logger.exception(... %s, exc)` の URL 混入は別経路。
+  - `tests/test_discord.py:166-173` — Webhook 失敗時の戻り値はあるが、HTTPStatusError ログに URL が出ないことは未検証。
+  - `tests/test_cli_1b.py:57-64` — `httpx` INFO 抑止の回帰テストのみ。
+  - `tests/test_script_generate.py:123-131` — ラベル込み300字境界の回帰テスト。
+  - `tests/test_draft_runner.py:159-200` — editor 部分欠落/JSON崩壊時の neutral fallback。
+  - `tests/test_fallback.py:124-149` — writer 違反/LLMError/Tier4 噂明示の fallback。
+- 実行/確認したテスト:
+  - `uv run pytest` → サンドボックスの `~/.cache/uv` 書き込み不可で起動前失敗 (`Operation not permitted`)。コード失敗ではない。
+  - `UV_CACHE_DIR=/private/tmp/panda-tech-news-uv-cache uv run pytest` → `239 passed in 1.06s`。
+  - `UV_CACHE_DIR=/private/tmp/panda-tech-news-uv-cache uv run ruff check .` → `All checks passed!`。
+  - `UV_CACHE_DIR=/private/tmp/panda-tech-news-uv-cache uv run mypy src tests` → `Success: no issues found in 48 source files`。
+  - `UV_CACHE_DIR=/private/tmp/panda-tech-news-uv-cache uv run --with pytest-cov pytest --cov=karyu_tech_news` → ネットワーク制限で `pytest-cov` 取得不可 (`Failed to fetch: https://pypi.org/simple/pytest-cov/`)。
+  - `UV_CACHE_DIR=/private/tmp/panda-tech-news-uv-cache uv run python -c 'import pytest_cov'` → `ModuleNotFoundError`。現在環境に `pytest-cov` なし。
+  - coverage は fresh 再測定できなかったため、直近証跡 `docs/TEST_LOG.md:807-809` の `TOTAL 96%` を参照。DoD 80% は既存証跡上充足。
+  - `git diff --check origin/main...HEAD` → 出力なし (whitespace error なし)。
+  - `git ls-files -u` → 出力なし (unmerged file なし)。
+  - `rg -n '^(<<<<<<<|=======|>>>>>>>)' --glob '!docs/REVIEW_REPORT.md' .` → 出力なし (実コンフリクトマーカーなし)。
+  - `git ls-files .env data/state.db artifacts | sort` → 出力なし。ローカル `.env` / `data/state.db` は存在するが未追跡。
+  - `git check-ignore -v .env data/state.db` → `.gitignore:2:.env` / `.gitignore:7:data/`。
+  - secret scan (長さつき `sk-`、GitHub token、Discord webhook URL、実 API env 代入を `docs/REVIEW_REPORT.md` と `uv.lock` 除外で検索) → 出力なし。
+  - スコープ外 import 検索 (`playwright` / `moviepy` / `pydub` / `youtube` / `googleapiclient` / `TTSEngine` 等) → コード import なし。`config/show_format.yaml` の既存 audio/video 仕様は今回差分なし。
+  - HTTP timeout 検索 → collect `httpx.get(... timeout=TIMEOUT_SECONDS)`、Discord `httpx.post(... timeout=10.0)`、LLM `httpx.post(... timeout=TIMEOUT_SECONDS)` を確認。
+  - Webhook status error 再現: `httpx.Response(401, request=Request("POST", "https://discord.com/api/webhooks/123/SECRET_TOKEN")).raise_for_status()` → 例外文字列に `https://discord.com/api/webhooks/123/SECRET_TOKEN` が含まれることを確認。
+
+### DESIGN.md / 1B 計画との対応
+
+- 収集系リグレッション:
+  - FR-021 `item_key` 生成順は `src/karyu_tech_news/collect/normalize.py:62-76` で維持。
+  - FR-031 `UNIQUE(source_id,item_key)` は `src/karyu_tech_news/store/schema.py:51-56` で維持。`hash` 単体 UNIQUE はなし。
+  - source_health 成功/失敗更新は `src/karyu_tech_news/store/repo.py:108-130` と `tests/test_health.py:54-196` で確認。
+  - 1ソース失敗/DB失敗時の fail-open は `src/karyu_tech_news/collect/runner.py:42-79` と `tests/test_runner_fail_open.py:122-160` / `tests/test_runner_fail_open.py:244-391` で確認。
+  - Webhook 失敗で run 自体を fail させない挙動は `src/karyu_tech_news/main.py:291-305` / `src/karyu_tech_news/main.py:427-439`、`tests/test_discord.py:166-173`、`tests/test_discord_script.py:57-64` で確認。
+- Sprint 1B 実装:
+  - T12: LLM profile / OpenAI 互換 client は `src/karyu_tech_news/llm/profile.py:31-117` / `src/karyu_tech_news/llm/client.py:56-151`、テストは `tests/test_llm_profile.py:145-163` / `tests/test_llm_client.py:83-274`。
+  - T14-T16: 事前スコア、編集判定、多様性キャップ、アーク配置は `src/karyu_tech_news/edit/*.py` と `tests/test_prescore.py:125-181` / `tests/test_judge.py:192-232` / `tests/test_select_arc.py:47-189`。
+  - T17-T18: Hook/Insight/Action 台本、検証、fallback は `src/karyu_tech_news/script/generate.py:59-182` / `src/karyu_tech_news/script/fallback.py:86-137` と `tests/test_script_generate.py:71-206` / `tests/test_fallback.py:57-149`。
+  - T19-T20: 1B 4テーブルと evaluate は `src/karyu_tech_news/store/schema.py:102-176` / `src/karyu_tech_news/store/repo.py:172-265` / `src/karyu_tech_news/edit/abtest.py:41-130` と `tests/test_store_1b.py:112-238` / `tests/test_abtest.py`。
+  - T21: CLI `draft` / `evaluate` と Discord 台本投稿は `src/karyu_tech_news/main.py:308-462` / `src/karyu_tech_news/deliver/discord.py:99-141` と `tests/test_cli_1b.py:14-64` / `tests/test_discord_script.py` / `tests/test_draft_runner.py`。
+- コンテンツ/番組整合:
+  - `docs/editorial-policy.md:79-91` の禁止表現、本文転載禁止、噂明示は `src/karyu_tech_news/script/generate.py:64-125` と `tests/test_script_generate.py:140-157` で最低限の決定的チェックあり。
+  - `docs/hal-persona.md:42-49` の暫定挨拶は `src/karyu_tech_news/script/generate.py:25-28` / `tests/test_script_generate.py:182-184` と整合。
+  - `docs/show-format.md:107-116` の Discord 台本投稿項目は `src/karyu_tech_news/script/generate.py:146-168` で概ね組み立て済み。
+- スコープ外混入:
+  - Sprint 1B では LLM は解禁済み。TTS / 音声処理 / 動画 / YouTube / Playwright / Cookie 必須ルートのコード import / CLI 実装は見当たらない。
+  - `config/show_format.yaml:49-59` の audio/video 定義は将来仕様として既存管理されており、今回差分ではない。
+
+### 指摘事項
+
+| 重大度 | 箇所 | 内容 | 要求対応 |
+|---|---|---|---|
+| Critical | `src/karyu_tech_news/deliver/discord.py:91-95` / `src/karyu_tech_news/deliver/discord.py:124-141` / `src/karyu_tech_news/main.py:38-40` / `tests/test_discord.py:166-173` / `tests/test_cli_1b.py:57-64` | Discord が 4xx/5xx を返すと `resp.raise_for_status()` が生成する `HTTPStatusError` の文字列に Webhook URL 全体が含まれる。`post_summary()` は `logger.exception("Discord Webhook post failed: %s", exc)` でその文字列をログ出力するため、`DISCORD_WEBHOOK_URL` のトークンが再びローカルログへ漏れる。今回 `httpx` INFO ログ抑止は入ったが、アプリ側の例外ログ経路は別で残っている。`post_markdown()` も `post_summary()` を呼ぶため、Sprint 1B の台本投稿失敗時にも同じ漏洩が起きる。要件 §9.5 / DESIGN.md §6 の Webhook URL 漏洩リスク、および AGENTS.md §3.1 の秘密管理に抵触。 | Webhook 投稿失敗ログでは `exc` の文字列をそのまま出さず、HTTP status code / exception class / sanitized host 程度に限定する。`httpx.HTTPStatusError` は `exc.response.status_code` を記録し、URL は出さない。回帰テストとして `raise_for_status()` 由来の `HTTPStatusError` を発生させ、`caplog.text` に Webhook token / URL が含まれないことを `post_summary()` と `post_markdown()` の両方で追加する。必要なら既に露出した Discord Webhook は再発行する。 |
+| High | なし | なし | なし |
+| Medium | なし | なし | なし |
+| Low | なし | なし | なし |
+
+### セキュリティ / 並行性
+
+- secret commit: `git ls-files .env data/state.db artifacts` は空。`.env` と `data/state.db` はローカルに存在するが `.gitignore` 対象 (`.gitignore:2`, `.gitignore:7`)。
+- secret 直書き: 長さつき token パターン検索では実キーらしき値なし。`tests/test_llm_client.py` の `sk-test-123` / `sk-secret-value` は短いテスト用ダミー。
+- secret ログ: Critical 指摘のとおり、HTTPStatusError 経路で Discord Webhook URL がログへ出る。
+- SQL injection: 本番コードの raw SQL は SQLite `PRAGMA foreign_keys=ON` の固定文字列のみ。DB 読み書きは SQLAlchemy の `select()` / ORM を使用し、ユーザー入力を SQL 文字列へ連結していない。
+- HTTP timeout: collect / Discord / LLM の httpx 呼び出しはいずれも timeout 指定あり。
+- 並行性: DESIGN.md §6 は Sprint 1A 単一プロセス前提。今回差分は複数プロセス同時 draft の排他を導入していないが、Sprint 1B の明示要件ではなく、今回の merge blocker ではない。
+- スコープ外: TTS / 音声処理 / 動画 / YouTube 投稿 / Playwright / Cookie 必須ルートの import や実行経路はなし。
+
+### テスト不足
+
+- `post_summary()` / `post_markdown()` の HTTPStatusError 失敗ログに Webhook URL や token が含まれないことを検証する `caplog` 回帰テストが不足。
+- fresh coverage はサンドボックスのネットワーク制限により再測定不可。`docs/TEST_LOG.md:807-809` の 96% 証跡は確認したが、今回レビュー時点の coverage 再計測は未実施。
+
+### PR コメント案
+
+PR #10 は FAIL です。主機能・品質ゲートは通っていますが、Discord Webhook が 4xx/5xx を返した場合に `post_summary()` の `logger.exception(... %s, exc)` が `HTTPStatusError` の URL 文字列を出し、Webhook token をログへ漏らします。`httpx` INFO ログ抑止だけではこの経路は塞げていません。失敗ログは status code / exception class のみにサニタイズし、`caplog` で token 非露出を `post_summary()` と `post_markdown()` の両方に追加してください。

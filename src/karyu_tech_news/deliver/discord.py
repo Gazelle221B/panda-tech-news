@@ -91,8 +91,14 @@ def post_summary(webhook_url: str, content: str) -> bool:
         resp.raise_for_status()
         logger.info("Discord Webhook posted successfully")
         return True
+    except httpx.HTTPStatusError as exc:
+        # 例外文字列には Webhook URL (トークン込み) が含まれるため、status code のみ記録
+        # (要件 §9.5: ログに秘密を出さない。Codex レビュー 2026-06-12 Critical 指摘)
+        logger.error("Discord Webhook post failed: HTTP %d", exc.response.status_code)
+        return False
     except Exception as exc:  # noqa: BLE001
-        logger.exception("Discord Webhook post failed: %s", exc)
+        # 接続系例外のメッセージにも URL が混ざり得るため、例外型名のみ記録
+        logger.error("Discord Webhook post failed: %s", type(exc).__name__)
         return False
 
 
