@@ -113,7 +113,7 @@ def validate_topic_script(text: str, *, require_rumor_marker: bool = False) -> l
         if label not in text:
             violations.append(f"必須セクション欠落: {label.strip('*:')}")
     count = script_char_count(text)
-    if count > TOPIC_CHAR_LIMIT + len("".join(_SECTION_LABELS)):
+    if count > TOPIC_CHAR_LIMIT:
         violations.append(f"300 文字超過 (空白除く {count} 文字)")
     if "http://" in text or "https://" in text:
         violations.append("本文に URL を含めない (ソース一覧で別掲)")

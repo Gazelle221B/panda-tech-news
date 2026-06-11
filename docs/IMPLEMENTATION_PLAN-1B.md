@@ -1,7 +1,7 @@
 # 実装計画: Sprint 1B — LLM 編集・台本生成
 
 > 役割: Sprint 1B の **タスク分解と着手前ブロッカー**を定義する。Sprint 1A の [IMPLEMENTATION_PLAN.md](./IMPLEMENTATION_PLAN.md) (T1〜T11) の続き (T12〜)。
-> ステータス: 計画 (2026-06-04 アーキテクト作成)。**実装着手は §6 の人間判断待ちブロッカー解消後**。
+> ステータス: T12〜T21 実装済み (2026-06-10〜11、モック駆動 + ローカル LLM E2E 検証済み)。**§6 のブロッカーが直接塞ぐのは T13 (実 API 接続 smoke) のみ** — 他タスクは §5 の方針 (LLM 呼び出しはモックで JSON 契約を固定) で先行実装した。T13 解消後に T22 (3日観察) を実施。
 > 体制: アーキテクト Claude Code(Opus) / 実装 OpenCode / レビュー Codex / QA Antigravity ([WORKFLOW.md](./WORKFLOW.md) §1)。
 
 ## 1. ゴールと DoD

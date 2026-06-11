@@ -120,6 +120,17 @@ def test_validate_flags_over_char_limit() -> None:
     assert any("300" in v for v in violations)
 
 
+def test_validate_char_limit_is_strict_at_300() -> None:
+    """ラベル込みの全体で 300 文字 (空白除く) を厳密適用 (PR #10 Copilot 指摘)."""
+    # ラベル 3 つで空白除き 32 文字 → 残り 268 文字で合計ちょうど 300
+    base = "**Hook:** {pad}\n**Insight:** い\n**Action:** う"
+    exactly_300 = base.format(pad="あ" * 266)
+    over_by_one = base.format(pad="あ" * 267)
+    assert script_char_count(exactly_300) == TOPIC_CHAR_LIMIT
+    assert validate_topic_script(exactly_300) == []
+    assert any("300" in v for v in validate_topic_script(over_by_one))
+
+
 def test_validate_flags_url_in_body() -> None:
     body = VALID_BODY + "\n出典: https://example.com/article"
     violations = validate_topic_script(body)

@@ -315,7 +315,7 @@ def draft(
         help="SQLite データベースのパス",
         show_default=True,
     ),
-    profiles_file: Path = typer.Option(
+    profiles_file: Path | None = typer.Option(
         None,
         "--profiles",
         help="llm_profiles.yaml のパス (未指定時は config/llm_profiles.yaml)",
