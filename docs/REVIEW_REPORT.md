@@ -1201,3 +1201,76 @@ Sprint 1B の LLM profile、編集判定、選定/アーク、台本生成、fal
 ### PR コメント案
 
 PR #10 は FAIL です。主機能・品質ゲートは通っていますが、Discord Webhook が 4xx/5xx を返した場合に `post_summary()` の `logger.exception(... %s, exc)` が `HTTPStatusError` の URL 文字列を出し、Webhook token をログへ漏らします。`httpx` INFO ログ抑止だけではこの経路は塞げていません。失敗ログは status code / exception class のみにサニタイズし、`caplog` で token 非露出を `post_summary()` と `post_markdown()` の両方に追加してください。
+
+## Discord Webhook 例外ログ漏洩修正 再レビュー (レビュー日: 2026-06-12 / レビュアー: Codex)
+
+### 総合判定: PASS
+
+前回 Critical 指摘「Discord Webhook 4xx/5xx 時に `post_summary()` の `logger.exception` が `HTTPStatusError` の URL 文字列、つまり Webhook token をログ出力する」は、コミット `818f88e` で解消されている。`post_summary()` は HTTP status error を status code のみ、その他例外を例外型名のみで記録し、`post_markdown()` は投稿ごとに同じ `post_summary()` 経路へ集約されるため、台本投稿側にも同じサニタイズが適用される。Critical/High 指摘はない。
+
+### 確認した証跡 (必須)
+
+- 確認したファイル:
+  - `prompts/review.md`
+  - `docs/DESIGN.md`
+  - `docs/PROJECT_STATE.md`
+  - `docs/TEST_LOG.md`
+  - `docs/REVIEW_REPORT.md`
+  - `src/karyu_tech_news/deliver/discord.py`
+  - `src/karyu_tech_news/main.py`
+  - `tests/test_discord.py`
+  - `tests/test_discord_script.py`
+- レビュー対象差分:
+  - `git show --stat --oneline --decorate 818f88e` → `818f88e (HEAD -> agent/T12-impl, origin/agent/T12-impl) fix: Webhook 例外ログのトークン露出を遮断 (Codex レビュー Critical 対応)`。対象は `src/karyu_tech_news/deliver/discord.py` / `tests/test_discord_script.py` / 前回 FAIL の `docs/REVIEW_REPORT.md`。
+  - `git show 818f88e -- src/karyu_tech_news/deliver/discord.py tests/test_discord_script.py` → `logger.exception("... %s", exc)` を削除し、`httpx.HTTPStatusError` 専用の status code ログと汎用例外の型名ログへ変更。回帰テスト 3 件を追加。
+  - `git status --short --branch` → `## agent/T12-impl...origin/agent/T12-impl`。
+- 根拠とした差分/行:
+  - `src/karyu_tech_news/deliver/discord.py:79-102` — `post_summary()` は空 URL では固定文言のみ、HTTPStatusError では `exc.response.status_code` のみ、その他例外では `type(exc).__name__` のみをログ出力する。`logger.exception` / `exc_info=True` は使っていない。
+  - `src/karyu_tech_news/deliver/discord.py:130-147` — `post_markdown()` は空 URL/空本文では固定文言だけを警告し、実投稿の失敗は全て `post_summary()` に委譲する。ここにも URL や例外文字列を直接ログ出力する経路はない。
+  - `src/karyu_tech_news/main.py:291-305` / `src/karyu_tech_news/main.py:427-439` — `collect --post` / `draft --post` は Discord 失敗時に fail-open の CLI 警告のみを出し、Webhook URL を表示しない。
+  - `tests/test_discord_script.py:81-92` — Webhook token を含む `HTTPStatusError` テストデータを作る helper。
+  - `tests/test_discord_script.py:95-107` — `post_summary()` の HTTP 500 経路で token / Webhook URL が `caplog.text` に出ず、status code のみ残ることを固定。
+  - `tests/test_discord_script.py:109-119` — `post_summary()` の接続系例外で token が `caplog.text` に出ず、例外型名のみ残ることを固定。
+  - `tests/test_discord_script.py:122-132` — `post_markdown()` の HTTP 429 経路で token / Webhook URL が `caplog.text` に出ないことを固定。
+  - `tests/test_discord.py:166-173` — 既存の Webhook 失敗時 `False` 返却 (FR-071 fail-open) 回帰。
+  - `docs/DESIGN.md:171-181` / `docs/DESIGN.md:194-196` — Webhook URL 漏洩リスク、Webhook fail-open、秘密管理の設計基準。
+  - `docs/DESIGN.md:204-207` — Sprint 1B は LLM 編集・Markdown 台本までで、TTS/配信系の越境なし。
+  - `docs/TEST_LOG.md:785-793` — T21 の台本投稿実装と既存テスト証跡。
+  - `docs/TEST_LOG.md:807-809` — 直近 coverage 96% 証跡。
+- 実行/確認したテスト:
+  - `UV_CACHE_DIR=/private/tmp/panda-tech-news-uv-cache uv run pytest tests/test_discord_script.py -q` → exit 0、`........... [100%]` (11 tests)。
+  - `UV_CACHE_DIR=/private/tmp/panda-tech-news-uv-cache uv run pytest` → `242 passed in 0.99s`。
+  - `UV_CACHE_DIR=/private/tmp/panda-tech-news-uv-cache uv run ruff check .` → `All checks passed!`。
+  - `UV_CACHE_DIR=/private/tmp/panda-tech-news-uv-cache uv run mypy src tests` → `Success: no issues found in 48 source files`。
+  - `rg -n "logger\\.exception|exc_info=True|HTTPStatusError|post_summary\\(|post_markdown\\(|httpx\\.post\\(" src tests` → Discord 投稿経路に `logger.exception` / `exc_info=True` なし。`post_markdown()` は `post_summary()` への委譲のみ。
+  - `git diff --check` → 出力なし。
+  - `git ls-files -u` → 出力なし。
+  - `rg -n "^(<<<<<<<|=======|>>>>>>>)" . --glob '!docs/REVIEW_REPORT.md'` → 出力なし。
+  - `git ls-files .env data/state.db artifacts && rg -n "discord\\.com/api/webhooks/[0-9]+/[A-Za-z0-9_-]{20,}|DISCORD_WEBHOOK_URL=.*https://|sk-[A-Za-z0-9]{20,}" . --glob '!uv.lock' --glob '!docs/REVIEW_REPORT.md' --glob '!tests/test_discord_script.py'` → 出力なし。
+
+### DESIGN.md / 指摘対応との対応
+
+- DESIGN.md §6 / §8 の秘密管理に対し、Webhook URL の値そのものや `HTTPStatusError` の例外文字列をログへ渡さない実装になっている。
+- DESIGN.md §7 の FR-071 fail-open に対し、`post_summary()` は失敗時も例外を外へ投げず `False` を返し、`main.py` 側も処理継続の警告に留める。
+- traceback 出力をやめた点は妥当。今回の秘密漏洩は例外文字列と traceback 経由の URL 露出が原因であり、運用上必要な診断情報は HTTP status code または exception class で足りる。詳細調査が必要な場合も token 入り URL をログに出すべきではない。
+- Sprint 1B のスコープ越境はなし。修正範囲は Discord 例外ログとその回帰テストに限定されている。
+
+### 指摘事項
+
+| 重大度 | 箇所 | 内容 | 要求対応 |
+|---|---|---|---|
+| Critical | なし | なし | なし |
+| High | なし | なし | なし |
+| Medium | なし | なし | なし |
+| Low | なし | なし | なし |
+
+### セキュリティ / 副作用
+
+- secret ログ: `post_summary()` の HTTPStatusError / 汎用例外、`post_markdown()` の委譲経路、CLI 側の失敗表示を確認し、token / Webhook URL がログへ出る経路は見当たらない。
+- secret commit: `.env` / `data/state.db` / `artifacts` は追跡されておらず、今回検索した token パターンも検出なし。
+- 新たな漏洩経路: `logger.exception` と `exc_info=True` は Discord 投稿経路に存在しない。`httpx` の URL 文字列を含む例外をそのまま `%s` に渡す経路も見当たらない。
+- 副作用: `post_summary()` の戻り値契約は維持され、既存の `post_markdown()` fail-open テストも含めて `tests/test_discord_script.py` が全件 green。診断粒度は下がるが、秘密保護を優先する判断として適切。
+
+### テスト不足
+
+- 今回範囲で追加必須テストなし。`post_markdown()` の汎用接続例外は直接の専用テストではなく `post_summary()` の接続系例外テストと `post_markdown()` の委譲構造で担保されているが、同じコード経路であり merge blocker ではない。
