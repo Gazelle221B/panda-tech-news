@@ -97,3 +97,80 @@ class CollectRun(Base):
     failed_sources = Column(Integer, nullable=False)
     total_items = Column(Integer, nullable=False)
     new_items = Column(Integer, nullable=False)
+
+
+class EpisodeDraft(Base):
+    """episode_drafts テーブル (Sprint 1B T19, 要件 §12.5).
+
+    1 回の draft 実行 = 1 行。組み立て済み Markdown とメタを保持する。
+    """
+
+    __tablename__ = "episode_drafts"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    created_at = Column(DateTime, nullable=False)
+    variant = Column(String, nullable=False)  # A/B/C (ADR-0005)
+    title = Column(String, nullable=False)
+    estimated_minutes = Column(Integer, nullable=False)
+    notices_json = Column(Text, nullable=False)  # JSON list[str]
+    markdown = Column(Text, nullable=False)
+
+
+class TopicCandidate(Base):
+    """topic_candidates テーブル (Sprint 1B T19).
+
+    draft 実行ごとの判定済み候補。selected/position で採用と配置順を記録し、
+    採用率の振り返り (T20 evaluate) に使う。
+    """
+
+    __tablename__ = "topic_candidates"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    draft_id = Column(Integer, ForeignKey("episode_drafts.id"), nullable=False)
+    item_id = Column(Integer, ForeignKey("items.id"), nullable=False)
+    prescore = Column(Integer, nullable=False)
+    llm_score = Column(Integer, nullable=True)
+    tone = Column(String, nullable=True)
+    source_tier = Column(Integer, nullable=False)
+    corroboration_count = Column(Integer, nullable=False)
+    selected = Column(Boolean, nullable=False, default=False)
+    position = Column(Integer, nullable=True)  # アーク配置順 (selected のみ)
+
+
+class LLMRun(Base):
+    """llm_runs テーブル (Sprint 1B T19).
+
+    A/B/C 検証の評価軸 (コスト=tokens / JSON 安定性 / 失敗率) を 1 呼び出し 1 行で記録。
+    """
+
+    __tablename__ = "llm_runs"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    draft_id = Column(Integer, ForeignKey("episode_drafts.id"), nullable=False)
+    created_at = Column(DateTime, nullable=False)
+    variant = Column(String, nullable=False)
+    role = Column(String, nullable=False)  # editor | writer
+    profile_label = Column(String, nullable=False)
+    model = Column(String, nullable=False)
+    prompt_tokens = Column(Integer, nullable=False, default=0)
+    completion_tokens = Column(Integer, nullable=False, default=0)
+    ok = Column(Boolean, nullable=False)
+    error = Column(Text, nullable=True)
+    json_stable = Column(Boolean, nullable=True)  # editor のみ (writer は NULL)
+
+
+class ScriptVersion(Base):
+    """script_versions テーブル (Sprint 1B T19).
+
+    トピック単位の台本本文と生成方法 (llm / llm_retry / template = 修正回数の評価軸)。
+    """
+
+    __tablename__ = "script_versions"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    draft_id = Column(Integer, ForeignKey("episode_drafts.id"), nullable=False)
+    item_id = Column(Integer, ForeignKey("items.id"), nullable=False)
+    created_at = Column(DateTime, nullable=False)
+    method = Column(String, nullable=False)  # llm | llm_retry | template
+    attempts = Column(Integer, nullable=False)
+    body = Column(Text, nullable=False)

@@ -21,8 +21,8 @@ profiles:
   - label: mimo
     provider: openai_compatible
     api_key_env: MIMO_API_KEY
-    base_url: "https://api-inference.xiaomi.com/v1"  # 実 endpoint は接続確認時に確定
-    model: "mimo-v2.5-pro"          # 実 model ID は接続確認時に確定 (要件 §16)
+    base_url: "https://api.xiaomimimo.com/v1"  # T13 確定 (2026-06-12, platform.xiaomimimo.com 公式)
+    model: "mimo-v2.5-pro"          # T13 確定: 公式ドキュメント記載の ID
     max_tokens: 1800
     temperature: 0.2
     notes: "Token Plan サブスク前提。editor (スコアリング/編集判定) 候補。"

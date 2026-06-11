@@ -1,11 +1,11 @@
 # プロジェクト状態
 
-> 最終更新: 2026-06-04 / 更新者: Claude Code (T11 完了 / Sprint 1A 完全終了)
+> 最終更新: 2026-06-11 / 更新者: Claude Code (Sprint 1B 実装: T12〜T21 完了)
 > 本ファイルは全エージェントが随時更新する。**Antigravity の内部記憶ではなくここを真の記憶とする** (WORKFLOW §13)。
 
 ## 現在のフェーズ
 
-**Sprint 1A 完全終了** 🎉 — T1〜T11 全完了。**Ticket #11 (T11) 3日連続稼働観察 完了** (Day1 06-02 / Day2 06-03 / Day3 06-04、全日 9/9 成功。Day2/Day3 にて Discord 実配信 HTTP 204 を確認)。**次フェーズ: Sprint 1B (LLM編集・台本生成) 解禁**
+**Sprint 1B 本番稼働開始 — T13 完了・T22 Day 1/3** — T12〜T21 実装済み (pytest 242 / カバレッジ 96%)、Codex レビュー PASS + Antigravity QA PASS。**2026-06-12 に人間が API 契約・キー設定 → T13 接続 smoke 完了 → variant A (editor=MiMo, writer=DeepSeek) で本番初配信成功** (候補40→採用5、editor JSON 安定 100%、Discord 着弾、16.5k tokens/エピソード)。**残: ① PR #10 の人間承認マージ (Codex/QA は PASS 済) ② T22 Day 2/3 (翌日以降 `collect --post` → `draft --variant A --post`)**。T22 完了で Sprint 1B 全 DoD 達成 → Sprint 2 (TTS) 解禁。
 
 | ステップ | 状態 |
 |---|---|
@@ -32,10 +32,21 @@
 | Ticket #8 (Discord Webhook サマリー投稿) | ✅ Antigravity QA PASS (2026-06-01)。run 境界内の集計整合性、Webhook 送信時の fail-open 担保を確認。pytest 88 pass / ruff・mypy(strict) clean |
 | Ticket #9 (CLI統合: `collect` コマンド) | ✅ Antigravity QA PASS (2026-06-02)。dry-run、実実行、重複排除、不正引数処理を実CLIで確認。pytest 104 pass / ruff・mypy(strict) clean |
 | Ticket #11 (T11) 3日連続稼働観察 | ✅ 完了 (2026-06-04)。Day1-3 全 9/9 成功、Discord 実配信 (HTTP 204)、fail-open 健全、dedup 実DB実証。**Sprint 1A 完全終了** |
+| Ticket T12 (LLM profile ローダ + provider 抽象) | ✅ 実装完了 (2026-06-10)。`llm/profile.py` + `llm/client.py`。A/B/C 切替を設定だけで解決、API キーは env 名参照のみ。pytest 134 pass / ruff・mypy(strict) clean。Codex レビュー待ち |
+| Ticket T14 (候補抽出 + ローカル事前スコア) | ✅ 実装完了 (2026-06-10)。`edit/prescore.py`。中華圏キーワード辞書 + Tier ボーナス、上限40件。実DBスモークで候補40件抽出を確認 |
+| Ticket T15 (LLM 編集判定) | ✅ 実装完了 (2026-06-10)。`edit/judge.py`。temp=0 + JSON モード、頑健 JSON 抽出、corroboration は canonical_url_hash で決定的に集計 |
+| Ticket T16 (多様性キャップ選定 + アーク配置) | ✅ 実装完了 (2026-06-10)。`edit/select.py` + `edit/arc.py`。Tier3/4 独立2ソースゲート + 4パス充填 + 三幕構成。全て決定的コード |
+| Ticket T17 (Markdown 台本生成) | ✅ 実装完了 (2026-06-11)。`script/generate.py`。Hook/Insight/Action 契約 + 検証 (300字/URL/禁止表現/噂明示) + エピソード組み立て |
+| Ticket T18 (fallback 二重防御) | ✅ 実装完了 (2026-06-11)。`script/fallback.py`。違反フィードバック付き再生成 → テンプレ乱択4パターン |
+| Ticket T19 (1B 新テーブル + 永続化) | ✅ 実装完了 (2026-06-11)。topic_candidates / episode_drafts / llm_runs / script_versions + repo 4関数 |
+| Ticket T20 (A/B/C 比較ログ集計) | ✅ 実装完了 (2026-06-11)。`edit/abtest.py`。採用率/修正回数/コスト/JSON安定性の variant 別集計 |
+| Ticket T21 (CLI draft/evaluate + Discord 台本投稿) | ✅ 実装完了 (2026-06-11)。`script/runner.py` (統合, editor 崩壊時 neutral fallback) + `deliver/discord.py` post_markdown (2000字チャンク) + CLI 2コマンド。実DB `draft --dry-run` スモーク済み |
+| Ticket T13 (MiMo/DeepSeek 実接続 smoke) | ✅ **完了 (2026-06-12)**。人間が API 契約・キー設定 → 両系統疎通。mimo 実 endpoint `https://api.xiaomimimo.com/v1` / model `mimo-v2.5-pro` 確定 (config 修正)。deepseek-chat は実体 deepseek-v4-flash |
+| Ticket T22 (3日間の台本品質観察) | 🔄 **Day 1/3 完了 (2026-06-12)**。variant A 本番初配信: 候補40→採用5 (llm_retry=5)、editor JSON 安定 100%、Discord 配信成功、コスト 16.5k tokens/エピソード。残: Day 2/3 |
 
 ## 作業中ブランチ
 
-`agent/T11-impl`
+`agent/T12-impl` (最新 main `965f37d` から分岐)
 
 ## 直近の設計判断
 
@@ -92,8 +103,10 @@
 - ~~コミット/ブランチ運用: Ticket #1+#2先行 を `agent/<task>` ブランチに乗せるか直接コミットか。~~ → 初期実装として直接 `main` へコミット済。以降は `agent/<task>` 運用を厳格に適用。
 - 初期9本に Game/Subculture 系を1本予備で入れるか (Spike §3 B案、Sprint 1A 観察中に並行検討可)。
 - LLM 役割 A/B/C のどれを初期既定にするか (ADR-0005、実測後確定)。
+- **【Sprint 1B 着手前ブロッカー】実 LLM model ID / endpoint の確定** (要件 §16): `deepseek-chat` / `mimo-v2.5-pro` はプレースホルダ。MiMo 海外課金が困難なら OpenRouter フォールバック。API 契約・課金は人間判断 (WORKFLOW §4 区分 D)。詳細は [IMPLEMENTATION_PLAN-1B.md](./IMPLEMENTATION_PLAN-1B.md) §6。
 - HAL の声リファレンス確定タイミング (Sprint 2 までは保留可)。
 - 番組オープニング/エンディング挨拶フレーズの確定 (Sprint 1B 以降で可)。
+- (E2E 検証 2026-06-11 で発見) タイトルが短い GitHub リリース (例「v1.0.0」) は台本見出しにソース名を併記すべきか — T22 観察で要否判断。
 
 ## 本日 (2026-05-30) 追加した成果物
 
@@ -152,3 +165,16 @@ meeting.md / meeting2.md / tik-choco コードdump の全読に基づき作成:
 | 2026-06-03 | Claude Code | テスト分離修正: `test_cli_integration.py::test_collect_with_post_no_webhook_url` を `delenv`→`setenv("")` に変更 (実 .env webhook を `load_dotenv` が再投入する非hermetic欠陥)。実.env下でも pytest 104/ruff/mypy strict 緑。**テストコード変更につき merge 前に Codex レビュー要 (WORKFLOW §11)** |
 | 2026-06-03 | Codex | ドキュメント同期 + CLIテスト分離修正の独立レビュー PASS を `docs/REVIEW_REPORT.md` に記録。Critical/High/Medium/Low 指摘なし |
 | 2026-06-04 | Claude Code | T11 Day 3 実走: `collect --post` で 9/9成功・1新着・**Discord HTTP 204**。**3日連続稼働 (06-02/03/04) 達成 → T11 完了 → Sprint 1A 完全終了**。全日 fail-open 健全。fresh pytest 104/ruff/mypy strict 緑。TEST_LOG Day3 + 総括記入。次: Sprint 1B |
+| 2026-06-04 | Claude Code | Sprint 1B 準備 (アーキテクト): roadmap 現在地を 1B へ移動 (1A DoD 全チェック)、`docs/IMPLEMENTATION_PLAN-1B.md` 作成 (タスク T12〜T22 + 設計集約インデックス + 着手前ブロッカー)。AGENTS/README 地図に追加。**実装着手は実 model ID/endpoint 確定後** |
+| 2026-06-10 | Claude Code | T11 マージ (PR #9) 確認 → 最新 main から `agent/T12-impl` 分岐。Sprint 1B 計画 docs コミット。**着手方針の明確化**: ブロッカー (API契約/課金) が直接塞ぐのは T13 接続確認のみ。計画 §5 のとおり他タスクはモック駆動で先行実装し、実 model ID は config 差し替えのみで反映可能な構造を維持する |
+| 2026-06-10 | Claude Code | Ticket T12 実装完了: `llm/profile.py` (YAML ローダ + 重複/参照検証 + A/B/C 役割解決) + `llm/client.py` (OpenAI 互換 chat、リトライ2回、ollama think=false、reasoning_content フォールバック、キー値非漏洩)。テスト30件追加。fresh pytest 134 / ruff / mypy strict 緑。TEST_LOG に証跡追記 |
+| 2026-06-10 | Claude Code | T14 (prescore: 中華圏キーワード辞書 + Tier ボーナス) / T15 (judge: temp=0 JSON 判定 + corroboration 決定的集計) / T16 (select/arc: 編集ゲート + 多様性キャップ + 三幕構成) 実装完了。各チケット TDD・全ゲート緑 |
+| 2026-06-11 | Claude Code | T17 (台本生成: Hook/Insight/Action 契約 + 検証) / T18 (fallback: 再生成 → テンプレ乱択) / T19 (1B 4テーブル + repo) / T20 (A/B/C evaluate 集計) 実装完了。各チケット TDD・全ゲート緑 |
+| 2026-06-11 | Claude Code | T21 実装完了: `script/runner.py` (draft 統合, editor 崩壊時 neutral fallback + 使用量記録) + `deliver/discord.py` post_markdown (2000字チャンク) + CLI `draft`/`evaluate`。実 DB で `draft --dry-run` スモーク (候補40件)。fresh pytest **235** / ruff / mypy strict 緑。**Sprint 1B コード側完了 — 残: T13 (人間: API契約) → T22 (観察)。merge は Codex レビュー + QA + 人間承認後** |
+| 2026-06-11 | Claude Code | ローカル LLM E2E 2系統完了 (全断 fail-open=テンプレ配信 / 正常系 llm=5)。E2E 発見バグ 2 件修正: `reasoning` フォールバック + editor 部分判定欠落の neutral 充填。PR #10 にレビュアー向け結果コメント |
+| 2026-06-11 | Claude Code | **運用リハーサル Day 0**: §13.2 日次フローを実データで初完走 (collect 9/9・70新着・HTTP204 → draft 候補40→採用5 llm=5 → **Discord 台本初配信**)。セキュリティ修正: httpx INFO ログの Webhook トークン露出を抑制 (要件 §9.5、リポジトリ混入なし・必要なら Webhook 再発行を推奨)。pytest 238 緑 |
+| 2026-06-12 | Claude Code | PR #10 Copilot レビュー指摘 3 件対応 (4431b03): 台本文字数上限の厳密化 (ラベル込み300字 + 境界回帰テスト) / `profiles_file` 型注釈 `Path \| None` / IMPLEMENTATION_PLAN-1B ステータス行の実態同期。全スレッド返信・resolve 済み。fresh pytest 239 / ruff / mypy strict 緑 |
+| 2026-06-12 | Codex | Sprint 1B (T12〜T21) 独立レビュー **FAIL** を REVIEW_REPORT に記録。Critical 1件: Webhook 4xx/5xx 時に `post_summary()` の `logger.exception` が HTTPStatusError の URL 文字列 (トークン込み) をログ出力する経路が残存 |
+| 2026-06-12 | Claude Code | Codex Critical 対応 (818f88e): 例外ログを status code / 例外型名のみにサニタイズ、caplog 回帰テスト 3 件追加 (post_summary HTTP/接続 + post_markdown のトークン非露出を固定)。fresh pytest 242 緑 |
+| 2026-06-12 | Codex | 再レビュー **PASS** を REVIEW_REPORT に記録。Critical/High 指摘なし。修正経路と回帰テストを確認、fresh pytest 242 / ruff / mypy strict 緑 |
+| 2026-06-12 | Antigravity | Sprint 1B QA **PASS** を QA_REPORT に記録。IMPLEMENTATION_PLAN-1B §1 DoD 全 6 項目合格 (Discord 台本投稿はローカル LLM 実証を証跡とする)。UI/UX・回帰・整合性 OK。未解決リスク: T13 実 API (人間判断待ち)・T22 観察。**マージ残条件は人間承認のみ** |

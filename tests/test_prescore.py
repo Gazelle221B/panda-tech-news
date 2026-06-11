@@ -1,0 +1,182 @@
+"""edit.prescore のユニットテスト (Sprint 1B Ticket T14)."""
+from __future__ import annotations
+
+from collections.abc import Generator
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
+
+import pytest
+from sqlalchemy import Engine
+from sqlalchemy.orm import Session
+
+from karyu_tech_news.config import SourceCategory, SourceConfig, SourceTier
+from karyu_tech_news.edit.prescore import (
+    CANDIDATE_LIMIT,
+    TIER_BONUS,
+    ScoredCandidate,
+    extract_candidates,
+    prescore_text,
+)
+from karyu_tech_news.store.repo import create_db_engine, init_db, upsert_source
+from karyu_tech_news.store.schema import Item
+
+NOW = datetime(2026, 6, 10, 0, 0, tzinfo=UTC)
+
+
+@pytest.fixture
+def engine(tmp_path: Path) -> Engine:
+    return create_db_engine(tmp_path / "test.db")
+
+
+@pytest.fixture
+def session(engine: Engine) -> Generator[Session, None, None]:
+    init_db(engine)
+    with Session(engine) as s:
+        yield s
+        s.rollback()
+
+
+def _add_source(
+    session: Session,
+    id_: str,
+    tier: SourceTier = SourceTier.OFFICIAL,
+    category: SourceCategory = SourceCategory.AI,
+) -> None:
+    upsert_source(
+        session,
+        SourceConfig(
+            id=id_, name=id_, url="https://example.com/feed", tier=tier, category=category
+        ),
+    )
+
+
+def _add_item(
+    session: Session,
+    source_id: str,
+    title: str,
+    *,
+    summary: str | None = "",
+    fetched_at: datetime = NOW,
+    published_at: datetime | None = None,
+    key_suffix: str = "",
+) -> None:
+    session.add(
+        Item(
+            source_id=source_id,
+            item_key=f"{title}{key_suffix}",
+            external_id=None,
+            title=title,
+            link=f"https://example.com/{title}",
+            summary=summary,
+            published_at=published_at,
+            fetched_at=fetched_at,
+            raw_json="{}",
+            canonical_url_hash="",
+        )
+    )
+    session.flush()
+
+
+# ---------- prescore_text ----------
+
+def test_prescore_text_no_keywords_is_zero() -> None:
+    assert prescore_text("天气不错", "今天很好") == 0
+
+
+def test_prescore_text_security_keyword_scores_30() -> None:
+    assert prescore_text("某产品发现严重漏洞", "") == 30
+
+
+def test_prescore_text_regulation_keyword_scores_20() -> None:
+    assert prescore_text("新的AI监管政策出台", "") >= 20
+
+
+def test_prescore_text_release_keyword_scores_10() -> None:
+    assert prescore_text("DeepSeek 发布新模型", "") == 10
+
+
+def test_prescore_text_bucket_counted_once() -> None:
+    # 同一バケツのキーワードが何回出ても加点は1回 (発布 + 开源 + 上线 = +10 のみ)
+    assert prescore_text("发布发布发布", "开源 上线") == 10
+
+
+def test_prescore_text_buckets_are_additive() -> None:
+    # 緊急 (+30) + 監管 (+20) + 発布 (+10) = 60
+    assert prescore_text("紧急: 监管新规下发布漏洞修复", "") == 60
+
+
+def test_prescore_text_matches_in_summary() -> None:
+    assert prescore_text("无关标题", "本文涉及数据泄露事件") == 30
+
+
+def test_prescore_text_japanese_keywords() -> None:
+    # 日本語ソース/将来の混在に備え、日本語キーワードも辞書に含める
+    assert prescore_text("大規模な脆弱性が発見", "") == 30
+
+
+# ---------- TIER_BONUS ----------
+
+def test_tier_bonus_descends_with_tier() -> None:
+    assert TIER_BONUS[1] > TIER_BONUS[2] > TIER_BONUS[3] >= TIER_BONUS[4]
+
+
+# ---------- extract_candidates ----------
+
+def test_extract_candidates_scores_and_sorts(session: Session) -> None:
+    _add_source(session, "official-src", tier=SourceTier.OFFICIAL)
+    _add_source(session, "community-src", tier=SourceTier.COMMUNITY)
+    _add_item(session, "community-src", "普通话题")  # tier3 bonus のみ
+    _add_item(session, "official-src", "发现严重漏洞")  # +30 + tier1 bonus
+
+    candidates = extract_candidates(session, now=NOW)
+
+    assert [c.title for c in candidates] == ["发现严重漏洞", "普通话题"]
+    assert candidates[0].prescore == 30 + TIER_BONUS[1]
+    assert candidates[1].prescore == TIER_BONUS[3]
+    assert isinstance(candidates[0], ScoredCandidate)
+    assert candidates[0].tier == 1
+    assert candidates[0].category == "AI"
+
+
+def test_extract_candidates_excludes_items_outside_lookback(session: Session) -> None:
+    _add_source(session, "src-a")
+    _add_item(session, "src-a", "古い話題", fetched_at=NOW - timedelta(hours=72))
+    _add_item(session, "src-a", "新しい話題", fetched_at=NOW - timedelta(hours=1))
+
+    candidates = extract_candidates(session, now=NOW, lookback_hours=48)
+
+    assert [c.title for c in candidates] == ["新しい話題"]
+
+
+def test_extract_candidates_caps_at_limit(session: Session) -> None:
+    _add_source(session, "src-a")
+    for i in range(CANDIDATE_LIMIT + 5):
+        _add_item(session, "src-a", f"话题{i}", key_suffix=str(i))
+
+    candidates = extract_candidates(session, now=NOW)
+
+    assert len(candidates) == CANDIDATE_LIMIT
+
+
+def test_extract_candidates_recency_breaks_ties(session: Session) -> None:
+    _add_source(session, "src-a")
+    _add_item(session, "src-a", "旧条目", fetched_at=NOW - timedelta(hours=10))
+    _add_item(session, "src-a", "新条目", fetched_at=NOW - timedelta(hours=1))
+
+    candidates = extract_candidates(session, now=NOW)
+
+    # 同スコアなら新しい方が先
+    assert [c.title for c in candidates] == ["新条目", "旧条目"]
+
+
+def test_extract_candidates_handles_null_summary(session: Session) -> None:
+    _add_source(session, "src-a")
+    _add_item(session, "src-a", "无摘要条目", summary=None)
+
+    candidates = extract_candidates(session, now=NOW)
+
+    assert candidates[0].summary == ""
+
+
+def test_extract_candidates_empty_db(session: Session) -> None:
+    assert extract_candidates(session, now=NOW) == []

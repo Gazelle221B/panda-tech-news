@@ -49,3 +49,4 @@ htmlcov/
 .vscode/*
 !.vscode/extensions.json
 .idea/
+.antigravitycli/

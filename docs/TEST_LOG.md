@@ -706,3 +706,194 @@ Tier別:
 | Discord 配信 | ✅ Day2/Day3 で HTTP 204 実配信、Day1 はプレビュー検証 | 「Discord にサマリーが届く」 |
 
 **結論: Sprint 1A の全 DoD を満たし、Sprint 1A は完全終了。次は Sprint 1B (LLM編集・台本生成)。**
+
+---
+
+# Sprint 1B 実装ログ
+
+## Ticket T12 — LLM profile ローダ + provider 抽象 (2026-06-10)
+
+> ブランチ: `agent/T12-impl` (最新 main `965f37d` から分岐)。実装: Claude Code。
+> 実 API 呼び出しなし — T13 (接続確認 smoke) は人間ブロッカー解消後 (IMPLEMENTATION_PLAN-1B §6)。
+
+1. `tests/test_llm_profile.py` (17件) → verify: スキーマ検証 (label/base_url/temperature/max_tokens)・label 重複拒否・ab_test 参照整合・A/B/C 役割解決・実 `config/llm_profiles.yaml` 結合テストが緑
+2. `tests/test_llm_client.py` (13件) → verify: chat リクエスト契約 (body/headers/timeout)・json_mode・ollama think=false・リトライ (MAX_RETRIES=2)・API キー非漏洩・reasoning_content フォールバック・不正応答の LLMError 化が緑
+3. 新規モジュール: `src/karyu_tech_news/llm/profile.py` (ローダ + ResolvedRoles) / `llm/client.py` (OpenAI 互換クライアント)
+
+実行結果 (fresh):
+
+```
+uv run pytest -q          → 134 passed
+uv run ruff check .       → All checks passed!
+uv run mypy src tests     → Success: no issues found in 28 source files
+```
+
+## Ticket T14 — 候補抽出 + ローカル事前スコア (2026-06-10)
+
+1. `tests/test_prescore.py` (15件) → verify: キーワード辞書 (緊急+30/規制+20/リリース+10、バケツ1回加点)・Tier ボーナス・lookback フィルタ・prescore 降順 + 新着優先・上限 40 件キャップ・NULL summary 耐性が緑
+2. 新規モジュール: `src/karyu_tech_news/edit/prescore.py` (`ScoredCandidate` / `prescore_text` / `extract_candidates`)
+3. キーワードは中華圏向けに再設計 (漏洞/监管/发布 系 + 日英少数) — design-inheritance §4.1/§14
+
+実行結果 (fresh): pytest **149 passed** / ruff clean / mypy strict clean (31 files)
+
+## Ticket T15 — LLM 編集判定 (2026-06-10)
+
+1. `tests/test_judge.py` (16件) → verify: JSON 頑健抽出 (素直な loads → fence 除去 → 最外 `{}`)・スキーマ検証 (score 0-100 / tone enum)・プロンプト切り詰め (title 180/summary 420 文字)・corroboration (canonical_url_hash クロスソース一致)・temp=0 + json_mode 呼び出し・未知 index スキップが緑
+2. `llm/client.py` に temperature 上書き引数追加 (+1 テスト)。`ScoredCandidate` に canonical_url_hash 追加 (corroboration 用)
+3. 新規モジュール: `src/karyu_tech_news/edit/judge.py` (`Tone` / `JudgedTopic` / `judge_topics`)。採点=LLM、裏取り集計=決定的コードの分離を維持
+
+実行結果 (fresh): pytest **165 passed** / ruff clean / mypy strict clean (33 files)
+
+## Ticket T16 — 多様性キャップ選定 + アーク配置 (2026-06-10)
+
+1. `tests/test_select_arc.py` (16件) → verify: 編集ゲート (Tier3/4 は独立2ソース必須)・llm_score 順・ソース/カテゴリキャップ各2・4パス緩和充填 (単一ソースのみの日でも番組が出る)・最大5本・三幕構成 (hard_negative 先頭 / constructive 中盤 / bright 末尾、bright 不在時 constructive 締め)・入力非破壊が緑
+2. 新規モジュール: `edit/select.py` (`select_topics`) + `edit/arc.py` (`arrange_arc`)。**LLM 不使用・全て決定的コード** (design-inheritance §4.3/§5)
+
+実行結果 (fresh): pytest **181 passed** / ruff clean / mypy strict clean (36 files)
+
+## Ticket T17 — Markdown 台本生成 (2026-06-11)
+
+1. `tests/test_script_generate.py` (16件) → verify: 文字数カウント (空白除くコードポイント)・writer プロンプト契約 (Hook/Insight/Action・300字・カナ化・転載禁止・Tier4 噂指示)・プレーンテキスト生成 (json_mode 不使用)・検証 (セクション欠落/300字超過/URL混入/禁止表現/噂明示)・エピソード組み立て (Markdown・ソース一覧・注意事項・推定尺・暫定挨拶) が緑
+2. 新規モジュール: `script/generate.py` (`build_writer_prompts` / `generate_topic_script` / `validate_topic_script` / `assemble_episode` / `EpisodeScript`)
+3. LLM=プレーンテキスト台本のみ、検証と組み立て=決定的コード (IMPLEMENTATION_PLAN-1B §8)。出典 URL は本文に入れずソース一覧へ (design-inheritance §8)
+
+実行結果 (fresh): pytest **197 passed** / ruff clean / mypy strict clean (39 files)
+
+## Ticket T18 — fallback 二重防御 (2026-06-11)
+
+1. `tests/test_fallback.py` (10件) → verify: 全テンプレ 4 パターンが契約適合・パターン別文面・Tier4 噂明示込み・乱択・長文タイトル切り詰め・LLM 1回目成功 ("llm")・違反フィードバック付き再生成 ("llm_retry")・連続違反でテンプレ ("template")・LLMError 時もテンプレで継続・Tier4 噂明示の強制が緑
+2. 新規モジュール: `script/fallback.py` (`fallback_topic_script` / `generate_with_fallback` / `TopicScriptResult`)
+3. method/violations は T20 (A/B/C 修正回数ログ) の入力。fallback で「LLM が崩れた日も番組が出る」を担保 (design-inheritance §7)
+
+実行結果 (fresh): pytest **207 passed** / ruff clean / mypy strict clean (41 files)
+
+## Ticket T19 — Sprint 1B 新テーブル + 永続化 (2026-06-11)
+
+1. `tests/test_store_1b.py` (7件) → verify: init_db で 4 新テーブル作成 (冪等)・episode_drafts 保存 (variant/markdown/notices)・topic_candidates の selected/position 記録・llm_runs の成功/失敗/json_stable 記録・script_versions の method/attempts 記録が緑
+2. `store/schema.py` に `EpisodeDraft` / `TopicCandidate` / `LLMRun` / `ScriptVersion` 追加 (要件 §12.5、FK は episode_drafts/items へ)
+3. `store/repo.py` に `create_episode_draft` / `insert_topic_candidates` / `record_llm_run` / `insert_script_versions` 追加。値オブジェクト import は collect.normalize の既存前例に倣う
+
+実行結果 (fresh): pytest **214 passed** / ruff clean / mypy strict clean (42 files)
+
+## Ticket T20 — A/B/C 比較ログ集計 (evaluate) (2026-06-11)
+
+1. `tests/test_abtest.py` (4件) → verify: variant 別集計 (採用率 2/4=50%・LLM 呼び出し/失敗・tokens 合算・json_stable 率・method 内訳・平均 attempts)・editor 実行なし variant の json_stable=None・空 DB・日本語サマリー整形が緑
+2. 新規モジュール: `edit/abtest.py` (`VariantStats` / `evaluate_variants` / `format_evaluation`)。読み上げ自然さ・AI 要約臭は人間評価と明記 (ADR-0005)
+
+実行結果 (fresh): pytest **218 passed** / ruff clean / mypy strict clean (44 files)
+
+## Ticket T21 — CLI draft / evaluate + Discord 台本投稿 (2026-06-11)
+
+1. `tests/test_discord_script.py` (8件) → verify: 2000字チャンク分割 (行境界優先・超過行はコードポイント強制分割・内容無欠損)・post_markdown の複数投稿・失敗時 False (fail-open)・空 URL/空文の拒否が緑
+2. `tests/test_draft_runner.py` (4件) → verify: 候補ゼロで None・フルパイプライン (DB に episode_drafts/topic_candidates(selected+position)/script_versions/llm_runs(editor+writer, tokens, json_stable) が揃う)・editor JSON 崩壊時の neutral fallback (json_stable=False 記録で番組続行)・writer 全違反時の全テンプレ化が緑
+3. `tests/test_cli_1b.py` (5件) → verify: draft --help・--dry-run (LLM 不使用)・API キー未設定 exit 1 (案内付き)・未知 variant exit 1・evaluate 空 DB が緑
+4. **実 DB スモーク**: `draft --dry-run --lookback-hours 240` → 候補 40 件 (上限キャップ動作)、prescore 序列 (70/50...)、variant A 解決 (editor=mimo, writer=deepseek) を実データで確認。`evaluate` → 「draft なし」表示
+5. `main.py` に `draft` / `evaluate` コマンド追加、info の Sprint 表示を 1B に更新。AGENTS.md の §2/§3.4/§4/§6 を実態同期
+
+実行結果 (fresh): pytest **235 passed** / ruff clean / mypy strict clean (48 files)
+
+### Sprint 1B 実装まとめ (T12〜T21)
+
+| 層 | モジュール | 役割 |
+|---|---|---|
+| llm/ | profile.py / client.py | A/B/C 設定切替・OpenAI 互換クライアント (T12) |
+| edit/ | prescore.py / judge.py / select.py / arc.py / abtest.py | 事前スコア→LLM判定→ゲート+多様性選定→三幕配置→評価集計 (T14-T16, T20) |
+| script/ | generate.py / fallback.py / runner.py | 台本契約+検証→二重防御→draft 統合 (T17, T18, T21) |
+| store/ | schema.py / repo.py (拡張) | 1B 4テーブル永続化 (T19) |
+| deliver/ | discord.py (拡張) | 台本チャンク投稿 (T21) |
+
+**残**: T13 (実 API 接続 smoke — 人間の API 契約・課金判断待ち。解消後は .env にキー設定のみで `draft` 実行可能) → T22 (3日間品質観察)。
+
+### カバレッジ (2026-06-11, `uv run --with pytest-cov pytest --cov=karyu_tech_news`)
+
+TOTAL **96%** (1323 stmts / 58 miss)。DoD 80% を充足。1B 新規モジュールは 93〜100% (prescore/select/arc/abtest/fallback/generate/profile/repo/schema = 100%)。
+
+## Sprint 1B E2E 検証 #1 — LLM 全断時の fail-open 実証 (2026-06-11)
+
+> ローカル Ollama (`local-ollama` 互換 profile, variant L) + 実 DB コピー (`/tmp/karyu-e2e.db`) で `draft` を実行。
+> Homebrew 版 Ollama 0.30.7 の パッケージング不全 (llama-server 欠落) により **全 LLM 呼び出しが HTTP 500** という、偶然ながら理想的な「LLM 全断の日」の実地試験になった。
+
+結果: **番組は完全な形で出力された** (設計どおり)。
+
+- editor 3 回リトライ→失敗 → **neutral 判定フォールバック** 発動 (`editor JSON 安定: no`)
+- writer 各トピック 2 試行→失敗 → **テンプレ fallback** 発動 (`template=5`、4 パターン乱択で文面が単調にならないことも確認)
+- 出力 Markdown: タイトル/生成日時/profile、オープニング、トピック5本 (Hook/Insight/Action 構造維持)、クロージング、ソース一覧5件 — 要件 §14.2 の全項目
+- `evaluate --db-path /tmp/karyu-e2e.db`: 採用率 12% (5/40)、修正回数 平均3.0 (template=5)、LLM 呼び出し2回/失敗2、JSON 安定性 0% — **失敗が観測データとして正しく記録される**ことを実証
+- 検証で気づいた改善候補 (Ticket 外、人間判断待ちへ): タイトルが短い GitHub リリース (例「v1.0.0」) は見出しにソース名を併記したい
+
+確認コマンド: `uv run karyu draft --profiles /tmp/karyu-e2e-profiles.yaml --variant L --db-path /tmp/karyu-e2e.db --lookback-hours 240`
+
+### E2E 検証 #2 (ハッピーパス) の状態 — 環境起因で保留
+
+ローカル LLM 正常系の E2E (qwen3:0.6b) も試行したが、Homebrew formula 版 Ollama 0.30.7 は llama-server 欠落 (MLX のみ同梱)、公式アプリ版 (`brew install --cask ollama-app` 導入済み) は **GUI 初回起動の対話承認が必要**でヘッドレスでは未完。人間が Ollama.app を一度起動すれば、以下で正常系 E2E を再開できる (コード変更不要):
+
+```bash
+ollama pull qwen3:0.6b   # 取得済み
+uv run karyu draft --profiles /tmp/karyu-e2e-profiles.yaml --variant L --db-path /tmp/karyu-e2e.db --lookback-hours 240
+```
+
+なお実 API (MiMo/DeepSeek) の正常系は T13 の本来のスコープであり、本検証はその先行リハーサルという位置づけ。
+
+## E2E 発見バグ修正 — reasoning フィールドのフォールバック (2026-06-11)
+
+ローカル E2E (Ollama 0.30.7 + qwen3:0.6b) の実測で、OpenAI 互換応答の思考出力が `reasoning_content` ではなく **`reasoning`** フィールドに入ることを確認 (設計継承 §9「多数フィールドを順に試す」の正当性を実証)。`llm/client.py` のフォールバック連鎖を `content → reasoning_content → reasoning` に拡張、回帰テスト追加。
+
+実行結果 (fresh): pytest **236 passed** / ruff clean / mypy strict clean
+
+## Sprint 1B E2E 検証 #2 — ローカル実 LLM ハッピーパス成功 (2026-06-11)
+
+> Ollama (公式アプリ版) + qwen3:0.6b (コンテキスト16k、ポート11500の検証用サーバ) + 実 DB コピーで `draft` を再実行。
+
+結果: **Draft #2 生成完了: 候補 40 → 採用 5 本 (生成方法: llm=5, editor JSON 安定: no)**
+
+- **writer LLM が 5 本全てを生成** (テンプレ 0)。全本文が Hook/Insight/Action 構造・300字以内・URL 混入なし・禁止表現なしの検証を通過
+- editor は 1/40 件しか判定を返さず → **今回実装した neutral 充填が発動** (`judged 1/40` → `neutral fill for 39`) し番組成立。0.6b に 40 件一括判定は荷が重い (本番 MiMo/DeepSeek の評価ポイント)
+- `evaluate` 集計 (2 回分): 採用率 12% (10/80)、修正回数 平均 2.0 (llm=5/template=5)、コスト prompt 9,724 / completion 1,636 tokens、JSON 安定性 0% — **全断日と正常日が同じ評価軸で比較可能**なことを実証
+- E2E が今日発見・修正させた実改善 2 件: (1) `reasoning` フィールドフォールバック、(2) 部分的判定欠落の neutral 充填
+- 0.6b 品質所感 (人間評価の参考): 構造契約は満たすが固有名詞の誤りと日中混在あり。実運用モデル (DeepSeek/MiMo) では大幅改善見込み
+
+**結論: 収集 (実データ) → 候補抽出 → LLM 判定 → ゲート/アーク → LLM 台本生成 → 検証 → 組み立て → 永続化 → 集計 の全行程が実 LLM で完走。Sprint 1B パイプラインは本番 API キー投入を残すのみ。**
+
+## Sprint 1B 運用リハーサル Day 0 — §13.2 日次フローを本日の実データで完走 (2026-06-11)
+
+> 要件 §13.2 (collect → draft → Discord 台本投稿 → 翌朝人間確認) を、ローカル LLM (variant L) で初めて通しで実運用。
+
+1. `docker compose up -d rsshub` → RSSHub 起動
+2. `collect --post` → **9/9 ソース成功・70 新着**・Discord 収集サマリー **HTTP 204**
+3. `draft --variant L --lookback-hours 30 --post` → **候補 40 → 採用 5 本 (llm=5)**・**Discord に台本初配信成功**
+   - editor カバレッジ 38/40 (neutral 充填 2 件のみ)。当日ニュース (GPT-5.6 / Claude Mythos 5 等) が選定された
+   - 採用 5 本の検証 (Hook/Insight/Action・300字・URL なし・禁止表現なし) 全通過
+4. **人間確認待ち**: Discord に届いた台本 (variant L = ローカル検証版) を読み、「音声化する価値」評価の練習台として利用可
+
+### 発見・修正したセキュリティ問題
+
+`collect --post` 実行ログで **httpx INFO ログが Discord Webhook URL (トークン込み) をコンソールへ出力**していることを発見 (T11 期間から存在した既存問題、要件 §9.5 違反)。`setup_logging` で httpx ロガーを WARNING に抑制 + 回帰テスト追加。**トークンはローカルコンソールにのみ出ており、リポジトリへの混入はない** (grep 確認済み)。露出が気になる場合は Webhook の再発行 (Discord 側でワンクリック) を推奨。
+
+実行結果 (fresh): pytest **238 passed** / ruff clean / mypy strict clean
+
+---
+
+## Ticket T13 — MiMo/DeepSeek 実 API 接続 smoke 完了 (2026-06-12)
+
+> 人間ブロッカー (API 契約・課金) 解消 — ユーザーが `.env` に DEEPSEEK_API_KEY / MIMO_API_KEY を設定。
+
+| profile | 確定 endpoint | 確定 model | 結果 |
+|---|---|---|---|
+| deepseek | `https://api.deepseek.com/v1` (変更なし) | エイリアス `deepseek-chat` → 実体 **deepseek-v4-flash** | ✅ 疎通 (20+1 tokens) |
+| mimo | **`https://api.xiaomimimo.com/v1`** (プレースホルダ `api-inference.xiaomi.com` は DNS 不在 → 公式 platform.xiaomimimo.com ドキュメントで確定し config 修正) | `mimo-v2.5-pro` (公式記載どおり) | ✅ 疎通 (27+36 tokens、Bearer 認証で通過) |
+
+- smoke は自前 `LLMClient` をそのまま使用 (クライアント実装の本番互換も同時に実証)。キー値は出力・記録していない
+- OpenRouter フォールバックは未契約のまま保留 (主系 2 つが疎通したため不要)
+
+## Ticket T22 — 台本品質観察 Day 1 (2026-06-12, variant A 本番初配信)
+
+`draft --variant A --post` (editor=MiMo, writer=DeepSeek) を実行:
+
+- **Draft #2: 候補 40 → 採用 5 本 (生成方法: llm_retry=5, editor JSON 安定: yes)** → **Discord 配信成功**
+- **editor (MiMo)**: 40/40 候補を一発 JSON 判定 (neutral 充填ゼロ)。**JSON 安定性 100%**
+- **writer (DeepSeek)**: 全 5 本が初回違反 → フィードバック再生成 1 回で契約適合 (`llm_retry=5`)。初回違反の主因は要観察 (300字超過の可能性大 — T22 で傾向を見てプロンプト調整判断)
+- **品質所見 (Day 1)**: カナ化+初出原語併記が仕様どおり (例: アントロピック (Anthropic))、Insight が日本リスナー視点、三幕構成成立。「音声化する価値」評価は人間の Discord 確認待ち
+- **コスト実測**: 1 エピソード = prompt 13,966 + completion 2,572 tokens (約16.5k)。月22営業日でも要件 §9.7 予算 (1,500-3,000円) に対し大幅な余裕
+- evaluate による A vs L 比較が初めて成立 (JSON 安定性 100% vs 0% — ADR-0005 の評価軸が実データで機能)
+
+残: T22 Day 2 / Day 3 (翌日以降の `collect --post` → `draft --variant A --post`)
