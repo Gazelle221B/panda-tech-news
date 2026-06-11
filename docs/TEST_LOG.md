@@ -870,3 +870,30 @@ uv run karyu draft --profiles /tmp/karyu-e2e-profiles.yaml --variant L --db-path
 `collect --post` 実行ログで **httpx INFO ログが Discord Webhook URL (トークン込み) をコンソールへ出力**していることを発見 (T11 期間から存在した既存問題、要件 §9.5 違反)。`setup_logging` で httpx ロガーを WARNING に抑制 + 回帰テスト追加。**トークンはローカルコンソールにのみ出ており、リポジトリへの混入はない** (grep 確認済み)。露出が気になる場合は Webhook の再発行 (Discord 側でワンクリック) を推奨。
 
 実行結果 (fresh): pytest **238 passed** / ruff clean / mypy strict clean
+
+---
+
+## Ticket T13 — MiMo/DeepSeek 実 API 接続 smoke 完了 (2026-06-12)
+
+> 人間ブロッカー (API 契約・課金) 解消 — ユーザーが `.env` に DEEPSEEK_API_KEY / MIMO_API_KEY を設定。
+
+| profile | 確定 endpoint | 確定 model | 結果 |
+|---|---|---|---|
+| deepseek | `https://api.deepseek.com/v1` (変更なし) | エイリアス `deepseek-chat` → 実体 **deepseek-v4-flash** | ✅ 疎通 (20+1 tokens) |
+| mimo | **`https://api.xiaomimimo.com/v1`** (プレースホルダ `api-inference.xiaomi.com` は DNS 不在 → 公式 platform.xiaomimimo.com ドキュメントで確定し config 修正) | `mimo-v2.5-pro` (公式記載どおり) | ✅ 疎通 (27+36 tokens、Bearer 認証で通過) |
+
+- smoke は自前 `LLMClient` をそのまま使用 (クライアント実装の本番互換も同時に実証)。キー値は出力・記録していない
+- OpenRouter フォールバックは未契約のまま保留 (主系 2 つが疎通したため不要)
+
+## Ticket T22 — 台本品質観察 Day 1 (2026-06-12, variant A 本番初配信)
+
+`draft --variant A --post` (editor=MiMo, writer=DeepSeek) を実行:
+
+- **Draft #2: 候補 40 → 採用 5 本 (生成方法: llm_retry=5, editor JSON 安定: yes)** → **Discord 配信成功**
+- **editor (MiMo)**: 40/40 候補を一発 JSON 判定 (neutral 充填ゼロ)。**JSON 安定性 100%**
+- **writer (DeepSeek)**: 全 5 本が初回違反 → フィードバック再生成 1 回で契約適合 (`llm_retry=5`)。初回違反の主因は要観察 (300字超過の可能性大 — T22 で傾向を見てプロンプト調整判断)
+- **品質所見 (Day 1)**: カナ化+初出原語併記が仕様どおり (例: アントロピック (Anthropic))、Insight が日本リスナー視点、三幕構成成立。「音声化する価値」評価は人間の Discord 確認待ち
+- **コスト実測**: 1 エピソード = prompt 13,966 + completion 2,572 tokens (約16.5k)。月22営業日でも要件 §9.7 予算 (1,500-3,000円) に対し大幅な余裕
+- evaluate による A vs L 比較が初めて成立 (JSON 安定性 100% vs 0% — ADR-0005 の評価軸が実データで機能)
+
+残: T22 Day 2 / Day 3 (翌日以降の `collect --post` → `draft --variant A --post`)
