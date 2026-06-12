@@ -78,7 +78,7 @@ uv run python -m karyu_tech_news evaluate           # A/B/C 検証の定量サ�
 # または: uv run karyu collect --post
 
 # 品質ゲート (PR 前に必ず通す)
-uv run pytest                                       # ユニットテスト (現状 235 / pass)
+uv run pytest                                       # ユニットテスト (現状 242 / pass)
 uv run ruff check .                                 # Lint
 uv run mypy src tests                               # 型 (strict)
 
@@ -143,7 +143,7 @@ panda-tech-news/
 │   ├── llm/      (T12 で追加: profile / client)
 │   ├── edit/     (T14-T16, T20 で追加: prescore / judge / select / arc / abtest)
 │   └── script/   (T17-T18, T21 で追加: generate / fallback / runner)
-├── tests/                   # pytest (現状 235 / pass, 22 ファイル)
+├── tests/                   # pytest (現状 242 / pass, 22 ファイル)
 ├── scripts/                 # spike_curl_check.sh など検証スクリプト
 ├── data/                    # state.db 等 (.gitkeep 以外 git 管理外)
 └── assets/                  # bgm / jingles / voice_reference (素材本体は git 管理外)
