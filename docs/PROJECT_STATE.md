@@ -68,6 +68,8 @@
 
 ## Codex レビューの直近結果
 
+2026-06-12: Sprint 2 実装計画ドラフト (IMPLEMENTATION_PLAN-2.md) 独立レビュー **PASS** (Critical 0 / High 0 / Medium 1 / Low 1)。Medium (ブロッカー粒度の混在) と Low (クラウド GPU/外部ストレージ選択時の費用・認証判断の明示) は同日中に計画へ反映済み。証跡は `docs/REVIEW_REPORT.md` 末尾。
+
 2026-06-03: ドキュメント同期 + CLIテスト分離修正レビュー PASS。Critical/High/Medium/Low 指摘なし。実 `.env` webhook 存在下でも pytest 104 pass、ruff/mypy strict clean、秘密保護を確認。証跡は `docs/REVIEW_REPORT.md` に追記済み。
 
 2026-06-02: T10 (Ticket #9 CLI統合: `collect` コマンド) 再々レビュー PASS。Critical/High/Medium/Low 指摘なし。`--source` 複数指定時の未知/disabled ID検証、DB更新統合テスト、Webhook fail-open を確認。証跡は `docs/REVIEW_REPORT.md` に追記済み。
@@ -181,3 +183,5 @@ meeting.md / meeting2.md / tik-choco コードdump の全読に基づき作成:
 | 2026-06-12 | Antigravity | Sprint 1B QA **PASS** を QA_REPORT に記録。IMPLEMENTATION_PLAN-1B §1 DoD 全 6 項目合格 (Discord 台本投稿はローカル LLM 実証を証跡とする)。UI/UX・回帰・整合性 OK。未解決リスク: T13 実 API (人間判断待ち)・T22 観察。**マージ残条件は人間承認のみ** |
 | 2026-06-12 | Claude Code | **PR #10 の人間承認 squash マージを確認** (main `b76f6c4`、2026-06-12 01:41 JST。`agent/T12-impl` 先端とツリー一致 = T13/T22 Day 1 含む全コミット取り込み済み)。マージ後 main で品質ゲート fresh 緑 (pytest 242 / ruff / mypy strict)。規約 §8.2 に従い `agent/T22-impl` を分岐。**T22 Day 2 (06-13)・Day 3 (06-14) 07:47 JST のローカルスケジュール自動実行を設定** (Day 3 は 3日総括 + DoD 更新 + Sprint 1B 完了 PR 作成まで。merge は人間承認のみ) |
 | 2026-06-12 | Claude Code | **Sprint 2 (音声化) 実装計画ドラフト作成** ([IMPLEMENTATION_PLAN-2.md](./IMPLEMENTATION_PLAN-2.md)): T23〜T32 タスク分解 + 設計集約インデックス (ADR-0006/architecture §4 を正とする) + 着手 3 条件ゲート (T22 完了 / 1B PR マージ / 人間 Go) + 着手前ブロッカー 5 件。**Sprint 1B 期間中の TTS コード導入はなし** (文書のみ、§3.4 遵守)。AGENTS/README 地図 + 古い T13 待ち記述を実態同期 |
+| 2026-06-12 | Codex | Sprint 2 実装計画ドラフトの独立レビュー **PASS** を REVIEW_REPORT に記録 (Critical 0 / High 0 / Medium 1 / Low 1)。スコープ NG (動画/YouTube/Playwright 等) の混入なし、`.gitignore` と生成物方針の整合を確認 |
+| 2026-06-12 | Claude Code | Codex 指摘 2 件を計画に反映: §6 を「ゲート粒度つき表」に再構成 (Sprint 2 Go 前 / T24 / T29 / T31 / T32 前を明示) + クラウド GPU・外部ストレージ選択時の provider/費用/認証管理/リンク永続期間の判断事項を追記。§7.2 をチケット単位ブロッカー解消方式に明確化 |
