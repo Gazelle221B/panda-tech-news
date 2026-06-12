@@ -105,6 +105,7 @@
 - LLM 役割 A/B/C のどれを初期既定にするか (ADR-0005、実測後確定)。
 - **【Sprint 1B 着手前ブロッカー】実 LLM model ID / endpoint の確定** (要件 §16): `deepseek-chat` / `mimo-v2.5-pro` はプレースホルダ。MiMo 海外課金が困難なら OpenRouter フォールバック。API 契約・課金は人間判断 (WORKFLOW §4 区分 D)。詳細は [IMPLEMENTATION_PLAN-1B.md](./IMPLEMENTATION_PLAN-1B.md) §6。
 - HAL の声リファレンス確定タイミング (Sprint 2 までは保留可)。
+- **【Sprint 2 Go 判断パッケージ】** T22 完了 + Sprint 1B 完了 PR マージ後に人間が判断: ① Sprint 2 着手の Go/No-Go ② Irodori-TTS-Server 実行環境 (macOS 可否 / 別マシン / クラウド GPU) ③ HAL 声リファレンス試聴 ④ BGM/ジングル素材とライセンス ⑤ mp3 配信方法 (Discord 添付 25MB vs R2/S3 リンク)。詳細は [IMPLEMENTATION_PLAN-2.md](./IMPLEMENTATION_PLAN-2.md) §6。
 - 番組オープニング/エンディング挨拶フレーズの確定 (Sprint 1B 以降で可)。
 - (E2E 検証 2026-06-11 で発見) タイトルが短い GitHub リリース (例「v1.0.0」) は台本見出しにソース名を併記すべきか — T22 観察で要否判断。
 
@@ -179,3 +180,4 @@ meeting.md / meeting2.md / tik-choco コードdump の全読に基づき作成:
 | 2026-06-12 | Codex | 再レビュー **PASS** を REVIEW_REPORT に記録。Critical/High 指摘なし。修正経路と回帰テストを確認、fresh pytest 242 / ruff / mypy strict 緑 |
 | 2026-06-12 | Antigravity | Sprint 1B QA **PASS** を QA_REPORT に記録。IMPLEMENTATION_PLAN-1B §1 DoD 全 6 項目合格 (Discord 台本投稿はローカル LLM 実証を証跡とする)。UI/UX・回帰・整合性 OK。未解決リスク: T13 実 API (人間判断待ち)・T22 観察。**マージ残条件は人間承認のみ** |
 | 2026-06-12 | Claude Code | **PR #10 の人間承認 squash マージを確認** (main `b76f6c4`、2026-06-12 01:41 JST。`agent/T12-impl` 先端とツリー一致 = T13/T22 Day 1 含む全コミット取り込み済み)。マージ後 main で品質ゲート fresh 緑 (pytest 242 / ruff / mypy strict)。規約 §8.2 に従い `agent/T22-impl` を分岐。**T22 Day 2 (06-13)・Day 3 (06-14) 07:47 JST のローカルスケジュール自動実行を設定** (Day 3 は 3日総括 + DoD 更新 + Sprint 1B 完了 PR 作成まで。merge は人間承認のみ) |
+| 2026-06-12 | Claude Code | **Sprint 2 (音声化) 実装計画ドラフト作成** ([IMPLEMENTATION_PLAN-2.md](./IMPLEMENTATION_PLAN-2.md)): T23〜T32 タスク分解 + 設計集約インデックス (ADR-0006/architecture §4 を正とする) + 着手 3 条件ゲート (T22 完了 / 1B PR マージ / 人間 Go) + 着手前ブロッカー 5 件。**Sprint 1B 期間中の TTS コード導入はなし** (文書のみ、§3.4 遵守)。AGENTS/README 地図 + 古い T13 待ち記述を実態同期 |
