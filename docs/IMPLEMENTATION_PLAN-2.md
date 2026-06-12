@@ -74,7 +74,7 @@ mix/master.py         # -16 LUFS 正規化 + mp3 192kbps/48kHz 出力
 | **Sprint 2 Go 宣言** | **Sprint 2 着手前 (必須)** | §7.1 の 3 条件成立を人間が PROJECT_STATE に記録 |
 | **Irodori-TTS-Server 実行環境** | **T24 着手前** | モデルカード想定は NVIDIA GPU (RTX 4070 Ti Super 級)。開発機は macOS — Apple Silicon 稼働可否 / 別マシン / クラウド GPU の選択 (WORKFLOW §4 区分 D)。**クラウドを選ぶ場合は provider・月額上限 (要件 §9.7 と合算)・認証情報の `.env` 管理も併せて決める**。不可なら Kokoro 等 fallback エンジンで T24 を代替する判断も人間 |
 | **HAL 声リファレンス確定** | **T24 着手前** | VoiceDesign キャプション合成 → 試聴 → Speaker Inversion 固定化の検証 (ADR-0006)。**試聴判断は人間** |
-| **BGM/ジングル素材** | **T29 着手前** | Lo-fi + 中華風アンビエント (FR-100)。入手元・ライセンス確認は人間 |
+| **BGM/ジングル素材** | **T29 着手前** | Lo-fi + 中華風アンビエント (FR-100)。入手元・ライセンス確認は人間。候補ライブラリ調査済み: [proposals/distribution-policy-and-bgm-research-v0.1.md](./proposals/distribution-policy-and-bgm-research-v0.1.md) |
 | **mp3 配信方法** | **T31 着手前** | Discord 添付 (25MB 以内) か R2/S3 リンクか (要件 §17.6)。**外部ストレージの場合は provider・費用・認証情報の `.env` 管理・リンク永続期間も決める** |
 | **A/B/C 既定 variant** (ADR-0005) | **T32 観察前** | T22 実測を見て確定 |
 
