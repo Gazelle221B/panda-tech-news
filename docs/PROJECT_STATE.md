@@ -113,7 +113,10 @@
 - 番組オープニング/エンディング挨拶フレーズの確定 (Sprint 1B 以降で可)。**→ 候補 3 案作成済み (2026-06-12): [proposals/greeting-phrases-v0.1.md](./proposals/greeting-phrases-v0.1.md)。音読/試聴して選定は人間**。
 - **【環境・区分 D】OpenCode CLI が全モデルで UnknownError (2026-06-12)**: `opencode run` が go/qwen3.7-max・go/qwen3.7-plus・zen 無料 (deepseek-v4-flash-free) の 3 連続で「Unexpected server error」。モデル非依存のためクライアント/サーバー側の問題 — `opencode` の再ログイン・更新等の復旧確認は人間。今回の起草はインライン代替で影響なし。
 - (E2E 検証 2026-06-11 で発見) タイトルが短い GitHub リリース (例「v1.0.0」) は台本見出しにソース名を併記すべきか — T22 観察で要否判断。
-- **(T22 Day 2 で発見) writer (DeepSeek) の台本生成成否が日で大きく振れる** (Day1=0/5→Day2=4/5 が template fallback)。editor (MiMo) は 100% 安定なので問題は writer 側。Day 3 で再現性を確認し、再現するなら ① writer プロンプト調整 ② DeepSeek 以外への writer 差し替え検討 (llm_profiles.yaml の variant 変更) ③ fallback 閾値の運用判断 — のいずれを採るか人間判断 (要件 §9.7 コストと品質のトレードオフ)。**fallback が機能し番組自体は毎日成立しているため緊急度は中**。
+- **(T22 Day 2 で発見・Day 2 に DB 診断で真因確定) writer (DeepSeek) の台本生成成否が日で振れる** (Day1=0/5→Day2=4/5 が template fallback)。editor (MiMo) は 100% 安定なので問題は writer 側。
+  - **確定した真因** (llm_runs/script_versions の実データ解析): writer LLM 呼び出し自体は**成功** (`ok=1`、API エラー無し)。template 落ちした 4 本はいずれも **`attempts=3` (再生成上限) まで `validate_topic_script` の「300 字超過 (空白除く)」検証に通らず** fallback。成功 1 本は空白除き ≤300 字で通過。**= DeepSeek が `TOPIC_CHAR_LIMIT=300` を超える長さで書き、フィードバック再生成 3 回でも 300 字未満に収められないのが真因**。日次変動は題材による DeepSeek の冗長度の差。
+  - **人間判断の選択肢** (post-T22): ① writer プロンプトに明示的な字数バジェット (例「空白除き 250 字以内」と上限より厳しめ) を入れる ← **最有力・低リスク・コスト不変** ② 再生成フィードバックに現在の文字数と目標差分を入れる ③ `TOPIC_CHAR_LIMIT` を緩める (ただし読み上げ尺 §9.1 と TTS 時間に影響) ④ writer を DeepSeek 以外へ差し替え (llm_profiles.yaml variant、コスト再評価)。
+  - **今は直さない**: prompt/閾値を T22 観察期間中に変えると Day1/2/3 比較が汚染される (§12.4)。**T22 完了後**に上記から人間が選択 → 通常の実装→Codex→QA サイクルで反映。**fallback が機能し番組は毎日成立しているため緊急度は中**。
 - **(運用) ローカルスケジュールタスクの信頼性**: T22 Day 2 の自動実行 (06-13 07:47) が発火したが記録・コミットを残さず途中失敗した。Day 3 (06-14) も同様に失敗する可能性があるため、**Day 3 朝に TEST_LOG へ Day 3 記録が無ければ [ORCHESTRATION_RUNBOOK.md](./ORCHESTRATION_RUNBOOK.md) §4 を手動実行**して補完する (本 Day 2 と同手順)。
 
 ## 本日 (2026-05-30) 追加した成果物

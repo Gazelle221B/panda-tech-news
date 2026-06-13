@@ -911,4 +911,6 @@ uv run karyu draft --profiles /tmp/karyu-e2e-profiles.yaml --variant L --db-path
 - **コスト**: 2 エピソード累計 約 28k tokens。要件 §9.7 予算 (月 1,500-3,000円) に対し大幅な余裕を維持
 - **環境メモ**: Docker (colima) 未起動のため Tier3 掘金が取得不可。Day 3 で掘金も観察したい場合は `colima start` → `docker compose up -d rsshub` が必要 (任意 — 直接ソース 7 本で番組は成立)
 
+- **真因診断 (Day 2、`data/state.db` の llm_runs/script_versions 解析)**: template 落ち 4 本は writer LLM 呼び出し成功 (`ok=1`、API エラー無し) かつ `attempts=3` まで `validate_topic_script` の **「300 字超過 (空白除く)」検証に通らず** fallback。成功 1 本は空白除き ≤300 字。**= DeepSeek が `TOPIC_CHAR_LIMIT=300` を超える長さで書き、再生成 3 回でも縮められないのが真因** (API/editor の問題ではない)。対処案と「観察汚染を避けるため T22 後に修正」の方針は PROJECT_STATE「人間判断待ち」に記録。
+
 残: T22 Day 3 (06-14、3 日総括 + DoD 更新 + Sprint 1B 完了 PR)。**Day 3 で writer の template fallback 率を必ず確認** (Day 1=0/5, Day 2=4/5 の振れの再現性)
