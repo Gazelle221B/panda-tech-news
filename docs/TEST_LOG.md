@@ -897,3 +897,18 @@ uv run karyu draft --profiles /tmp/karyu-e2e-profiles.yaml --variant L --db-path
 - evaluate による A vs L 比較が初めて成立 (JSON 安定性 100% vs 0% — ADR-0005 の評価軸が実データで機能)
 
 残: T22 Day 2 / Day 3 (翌日以降の `collect --post` → `draft --variant A --post`)
+
+## Ticket T22 — 台本品質観察 Day 2 (2026-06-13 16:58 JST, variant A)
+
+> 注: 06-13 07:47 のスケジュール自動実行は発火したが TEST_LOG 記録・コミットを残さず途中失敗 (旧セッション環境要因の可能性)。Day 2 観察窓は当日であるため、オーケストレーターが [ORCHESTRATION_RUNBOOK.md](./ORCHESTRATION_RUNBOOK.md) §2 決定木 行#3 に従い手動完走させた。
+
+`collect --post` → `draft --variant A --post` → `evaluate` を実行:
+
+- **collect: 7/9 ソース成功・30 新着・Discord HTTP 投稿成功**。Docker (colima) 停止により juejin 2 ソース (RSSHub 依存) が Connection refused → **fail-open 完璧動作** (残 7 ソースで完走・Discord 着弾)。§3.3 の実地実証
+- **draft: 候補 30 → 採用 5 本・Discord 投稿成功**。生成方法 `llm_retry=1, template=4`、**editor JSON 安定: yes**
+- **⚠ 品質変動 (Day 1 比)**: writer (DeepSeek) が **5 本中 4 本で template fallback** に落ちた (Day 1 は llm=5/template=0)。topic 5 (脳機接口) のみ豊かな LLM 洞察が生成され、1-4 はテンプレ定型文 (「本日注目の話題です」「詳細は引き続き確認中ですが」)。**editor (MiMo) は引き続き安定**だが **writer (DeepSeek) の生成成否が日によって大きく振れる**ことが判明 — これは T22 が検出すべき最重要観察。原因候補: DeepSeek の応答品質変動 / レート制限 / 当日候補の性質。Day 3 で再現性を確認し、再現するなら writer プロンプト調整 or fallback 閾値の人間判断へ
+- **evaluate (案 A 累計 2 回)**: 採用率 14% (10/70)、修正 平均 2.4 回 (llm_retry=6, template=4)、コスト prompt 22,532 + completion 5,804 tokens (LLM 4 回・失敗 0)、**JSON 安定性 100%**
+- **コスト**: 2 エピソード累計 約 28k tokens。要件 §9.7 予算 (月 1,500-3,000円) に対し大幅な余裕を維持
+- **環境メモ**: Docker (colima) 未起動のため Tier3 掘金が取得不可。Day 3 で掘金も観察したい場合は `colima start` → `docker compose up -d rsshub` が必要 (任意 — 直接ソース 7 本で番組は成立)
+
+残: T22 Day 3 (06-14、3 日総括 + DoD 更新 + Sprint 1B 完了 PR)。**Day 3 で writer の template fallback 率を必ず確認** (Day 1=0/5, Day 2=4/5 の振れの再現性)

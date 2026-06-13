@@ -1,4 +1,4 @@
-# 引き継ぎ書 (HANDOFF) — 2026-06-12 時点
+# 引き継ぎ書 (HANDOFF) — 2026-06-13 更新
 
 > **これは時点スナップショットである** (いずれ陳腐化する)。恒久的な運用手順は [ORCHESTRATION_RUNBOOK.md](./ORCHESTRATION_RUNBOOK.md)、真の進捗記憶は [PROJECT_STATE.md](./PROJECT_STATE.md)。
 > 用途: オーケストレーター交代時に「今どこで・次に何をすべきか」を 5 分で把握する。
@@ -18,7 +18,7 @@
 | Sprint 1A (収集基盤) | ✅ 完全終了。3 日連続稼働・Discord HTTP 204・main マージ済み | TEST_LOG, PR #1-9 |
 | Sprint 1B (LLM 編集・台本) | ✅ T12-T21 実装・**PR #10 マージ済み** (main `b76f6c4`) | REVIEW_REPORT (Codex PASS), QA_REPORT (Antigravity PASS) |
 | T13 (実 API 接続) | ✅ 完了。MiMo `https://api.xiaomimimo.com/v1` / `mimo-v2.5-pro`、DeepSeek 接続確認 | PROJECT_STATE 2026-06-12 |
-| T22 (3 日品質観察) | 🔄 Day 1/3 完了 (本番初配信成功)。Day 2/3 自動実行待ち | TEST_LOG |
+| T22 (3 日品質観察) | 🔄 Day 2/3 完了 (Day2 は手動補完)。Day 3 は 06-14。**観察中の懸案: writer(DeepSeek) の生成成否が日で振れる (Day1=0/5→Day2=4/5 が template)** | TEST_LOG |
 
 ## 3. 残作業 (完成までの正確な経路)
 

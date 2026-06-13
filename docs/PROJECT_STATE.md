@@ -42,7 +42,7 @@
 | Ticket T20 (A/B/C 比較ログ集計) | ✅ 実装完了 (2026-06-11)。`edit/abtest.py`。採用率/修正回数/コスト/JSON安定性の variant 別集計 |
 | Ticket T21 (CLI draft/evaluate + Discord 台本投稿) | ✅ 実装完了 (2026-06-11)。`script/runner.py` (統合, editor 崩壊時 neutral fallback) + `deliver/discord.py` post_markdown (2000字チャンク) + CLI 2コマンド。実DB `draft --dry-run` スモーク済み |
 | Ticket T13 (MiMo/DeepSeek 実接続 smoke) | ✅ **完了 (2026-06-12)**。人間が API 契約・キー設定 → 両系統疎通。mimo 実 endpoint `https://api.xiaomimimo.com/v1` / model `mimo-v2.5-pro` 確定 (config 修正)。deepseek-chat は実体 deepseek-v4-flash |
-| Ticket T22 (3日間の台本品質観察) | 🔄 **Day 1/3 完了 (2026-06-12)**。variant A 本番初配信: 候補40→採用5 (llm_retry=5)、editor JSON 安定 100%、Discord 配信成功、コスト 16.5k tokens/エピソード。残: Day 2/3 |
+| Ticket T22 (3日間の台本品質観察) | 🔄 **Day 2/3 完了 (2026-06-13)**。Day1: 候補40→採用5 (llm=5/template=0)。Day2: 候補30→採用5 (llm=1/**template=4**)・7/9ソース・fail-open実証 (Docker停止でjuejin2本失敗も完走)。**editor(MiMo) JSON 安定 100% 継続、writer(DeepSeek) の生成成否が日で大きく振れる**(Day1=0/5→Day2=4/5 がtemplate)。残: Day 3 (06-14、総括+DoD+PR) |
 
 ## 作業中ブランチ
 
@@ -113,6 +113,8 @@
 - 番組オープニング/エンディング挨拶フレーズの確定 (Sprint 1B 以降で可)。**→ 候補 3 案作成済み (2026-06-12): [proposals/greeting-phrases-v0.1.md](./proposals/greeting-phrases-v0.1.md)。音読/試聴して選定は人間**。
 - **【環境・区分 D】OpenCode CLI が全モデルで UnknownError (2026-06-12)**: `opencode run` が go/qwen3.7-max・go/qwen3.7-plus・zen 無料 (deepseek-v4-flash-free) の 3 連続で「Unexpected server error」。モデル非依存のためクライアント/サーバー側の問題 — `opencode` の再ログイン・更新等の復旧確認は人間。今回の起草はインライン代替で影響なし。
 - (E2E 検証 2026-06-11 で発見) タイトルが短い GitHub リリース (例「v1.0.0」) は台本見出しにソース名を併記すべきか — T22 観察で要否判断。
+- **(T22 Day 2 で発見) writer (DeepSeek) の台本生成成否が日で大きく振れる** (Day1=0/5→Day2=4/5 が template fallback)。editor (MiMo) は 100% 安定なので問題は writer 側。Day 3 で再現性を確認し、再現するなら ① writer プロンプト調整 ② DeepSeek 以外への writer 差し替え検討 (llm_profiles.yaml の variant 変更) ③ fallback 閾値の運用判断 — のいずれを採るか人間判断 (要件 §9.7 コストと品質のトレードオフ)。**fallback が機能し番組自体は毎日成立しているため緊急度は中**。
+- **(運用) ローカルスケジュールタスクの信頼性**: T22 Day 2 の自動実行 (06-13 07:47) が発火したが記録・コミットを残さず途中失敗した。Day 3 (06-14) も同様に失敗する可能性があるため、**Day 3 朝に TEST_LOG へ Day 3 記録が無ければ [ORCHESTRATION_RUNBOOK.md](./ORCHESTRATION_RUNBOOK.md) §4 を手動実行**して補完する (本 Day 2 と同手順)。
 
 ## 本日 (2026-05-30) 追加した成果物
 
@@ -193,3 +195,4 @@ meeting.md / meeting2.md / tik-choco コードdump の全読に基づき作成:
 | 2026-06-12 | Antigravity | 本日のドキュメント変更群 (Sprint 2 計画 + 提案 4 本 + 実態同期) の整合性 QA **PASS** を QA_REPORT に記録。ドリフト 2 種を検出・修正: AGENTS/README の古いテスト件数 235→242、README ステータス節の Sprint 1B 仕上げへの同期。Claude Code が残存ドリフト 2 箇所 (README の「T13 待ち」記述) を追加修正 |
 | 2026-06-12 | Claude Code | **自律オーケストレーション基盤を整備** (引き継ぎ要請対応): ① [ORCHESTRATION_RUNBOOK.md](./ORCHESTRATION_RUNBOOK.md) 新設 — 交代した AI が状態判定→次手→外部 AI 委任 (OpenCode 実装/Codex レビュー/Antigravity QA/Gemini 調査/Copilot Git) →検証→記録を人間の逐次指示なしに回す操作手順。OpenCode の正確なモデル文字列 (`opencode-go/qwen3.7-max` 等 + 無料フォールバック) と非対話呼び出しを実機確認の上で記載。② [HANDOFF.md](./HANDOFF.md) 新設 — 時点スナップショット。③ AGENTS.md 地図 + 起動時読書順に組込。**規則遵守: main 直 push せず agent/T22-impl へ。merge・Sprint 越境・人間判断は据え置き** (RUNBOOK §6 に明文化) |
 | 2026-06-13 | Claude Code | **OpenCode 委任経路を復旧** (区分 D 環境failure の自己解決): 実装委任が `UnknownError` で不通 → ログ解析で根因特定 (`NOT NULL constraint failed: session_message.seq` = OpenCode ≤1.15.0 の空セッション DB バグ) → `opencode upgrade` で 1.15.0→1.17.4 → `opencode-go/qwen3.7-max` (Go プラン) と `opencode/nemotron-3-ultra-free` (無料枠) 両方で smoke OK。RUNBOOK §3 を「稼働確認済み + 再発時の対処 (upgrade 優先)」に更新。これで実装委任 (OpenCode) / レビュー (Codex) / QA (Antigravity) / 調査 (Gemini) の 4 経路すべて稼働確認済み |
+| 2026-06-13 | Claude Code | **T22 Day 2 を手動完走** (自動実行が記録を残さず失敗していたため RUNBOOK §2 決定木に従い補完): collect 7/9・30新着・fail-open実証 (Docker停止でjuejin失敗も完走)、draft 候補30→採用5・Discord配信成功。**重要観察: writer(DeepSeek) が 5本中4本 template fallback (Day1=0/5 から悪化)、editor(MiMo) は 100% 安定継続**。TEST_LOG に Day 2 記録、人間判断待ちに writer 変動 + スケジュール信頼性を追記。fresh pytest 242/ruff/mypy strict 緑 |
