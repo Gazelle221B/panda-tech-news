@@ -64,7 +64,8 @@ codex exec --sandbox workspace-write "$(cat prompts/review.md) 対象: <Ticket>�
 agy -p "$(cat prompts/qa.md) 対象: <Ticket>。DoD: IMPLEMENTATION_PLAN-*.md の該当節"
 ```
 
-> **既知の不調**: OpenCode CLI が `UnknownError` を連続で返すことがある (2026-06 時点)。2 回連続失敗したら **区分 D (環境失敗)** として PROJECT_STATE「人間判断待ち」に記録し、当該タスクはインライン (自分) で代替するか別モデルにフォールバックする (WORKFLOW §4)。
+> **稼働確認済み (2026-06-13)**: `opencode-go/qwen3.7-max` (Go プラン) と `opencode/nemotron-3-ultra-free` (無料枠) の両方で smoke テスト成功。
+> **既知の不調と対処**: OpenCode ≤1.15.0 は `UnknownError` (実体は `NOT NULL constraint failed: session_message.seq` — 空セッション DB で seq 計算が NULL になるアプリバグ) を連発した。**`opencode upgrade` で 1.17.4 以上にすると解消**。再発したら ① まず `opencode upgrade` ② `opencode db "SELECT count(*) FROM session_message"` でローカル DB を確認。2 回連続失敗が続けば **区分 D (環境失敗)** として PROJECT_STATE「人間判断待ち」に記録し、当該タスクはインライン (自分) か Codex に一時フォールバック (WORKFLOW §4)。
 
 ---
 

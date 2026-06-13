@@ -60,4 +60,5 @@
 - 実行: `uv run python -m karyu_tech_news <cmd>` または `uv run karyu <cmd>`
 - `.env` に必要なキー (名前のみ・値は管理外): `DISCORD_WEBHOOK_URL` / `MIMO_API_KEY` / `DEEPSEEK_API_KEY` / `OPENROUTER_API_KEY` / `RSSHUB_BASE_URL`
 - RSSHub: `docker compose up -d rsshub` (Docker 表示 unhealthy でも `curl localhost:1200` が 200 なら正常)
-- 外部 AI CLI は全て導入済み: codex / agy / gemini / opencode / copilot / gh / qwen (RUNBOOK §3 参照)
+- 外部 AI CLI は全て導入・稼働確認済み: codex / agy / gemini / opencode (1.17.4 へ upgrade 済、Go プラン + 無料枠 smoke OK) / copilot / gh / qwen (RUNBOOK §3 参照)
+- OpenCode は当初 `UnknownError` (≤1.15.0 の seq バグ) で不可だったが 2026-06-13 に `opencode upgrade` で解消済み
