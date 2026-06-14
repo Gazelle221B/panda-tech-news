@@ -74,7 +74,7 @@ agy -p "$(cat prompts/qa.md) 対象: <Ticket>。DoD: IMPLEMENTATION_PLAN-*.md �
 平日朝、以下を順に実行する (要件 §13.2)。各ステップは fail-open — 1 つの失敗で全体を止めない。
 
 ```bash
-cd /Users/kairyon/projects/panda-tech-news
+cd "$(git rev-parse --show-toplevel)"        # リポジトリルートへ移動 (環境非依存)
 git checkout agent/T22-impl                  # 作業ブランチ (フェーズにより切り替え)
 docker compose up -d rsshub                   # 掘金など RSSHub 経由ソース用 (unhealthy 表示でも実応答 200 なら可)
 uv run python -m karyu_tech_news collect --post          # 収集 → SQLite → Discord サマリー

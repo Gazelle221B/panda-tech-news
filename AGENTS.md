@@ -19,9 +19,9 @@
 ## 2. 現在のフェーズ (随時更新は `docs/PROJECT_STATE.md`)
 
 - **Sprint 1A 完全終了** — T1〜T11 全チケット完了 (3日連続稼働 06-02〜04、Discord HTTP 204、main マージ済み)
-- **Sprint 1B 仕上げ** — T12〜T21 実装済み・PR #10 マージ済み (main `b76f6c4`)。T13 (実 API 接続) 完了、variant A で本番配信開始。**残: T22 (3日品質観察) Day 2/3 (06-13/14 朝に自動実行設定済み)**
+- **Sprint 1B インフラ完了・T22 3日観察完了 (06-12〜14)** — T12〜T21 実装済み・PR #10 マージ済み (main `b76f6c4`)・T13 (実 API 接続) 完了、variant A で本番配信中。**T22 でインフラ DoD 全達成 + 2 defects 捕捉 (writer 300字超過 / canonical URL 横断 dedup 欠落)。残: 2 defects の TDD 修正 → 修正後に「音声化する価値」再評価**
 - TTS/動画/YouTube は未実装 (Sprint 2 以降。計画ドラフトは [docs/IMPLEMENTATION_PLAN-2.md](docs/IMPLEMENTATION_PLAN-2.md)、着手は人間の Go 判断後)
-- 作業ブランチ: `agent/T22-impl`
+- 作業ブランチ: `agent/T22-impl` (観察 docs)。2 defects 修正は `agent/T22-fixes-impl`
 
 ## 3. 絶対 NG (禁止事項) — 最優先
 

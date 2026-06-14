@@ -10,9 +10,9 @@
 
 ## ステータス
 
-- フェーズ: **Sprint 1B 仕上げ** — T12〜T21 実装完了・PR #10 マージ済み (main `b76f6c4`)。T13 (実 API 接続) 完了、variant A で本番配信開始。
-- 品質観察: **T22 (3日品質観察) Day 2/3 進行中** (06-13/14 朝に自動実行設定済み)
-- 次アクション: **Sprint 2 (音声化) 解禁** — 音声化 (mp3 完パケ) パイプライン実装 ([docs/IMPLEMENTATION_PLAN-2.md](docs/IMPLEMENTATION_PLAN-2.md))。着手は人間 Go 判断後
+- フェーズ: **Sprint 1B インフラ完了・T22 3日観察完了 (06-12〜14)** — T12〜T21 実装・PR #10 マージ済み (main `b76f6c4`)・T13 (実 API 接続) 完了、variant A で本番配信中。
+- 品質観察: **T22 完了** — インフラ DoD 全達成。観察が 2 defects を捕捉 (writer 300字超過 / canonical URL 横断 dedup 欠落) → 修正待ち。詳細は [docs/TEST_LOG.md](docs/TEST_LOG.md) T22 3日間総括
+- 次アクション: **① 2 defects 修正 (TDD) ② Sprint 2 (音声化) は人間 Go 判断後** ([docs/IMPLEMENTATION_PLAN-2.md](docs/IMPLEMENTATION_PLAN-2.md))
 
 ## ドキュメント地図
 
