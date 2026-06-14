@@ -1,11 +1,11 @@
 # プロジェクト状態
 
-> 最終更新: 2026-06-11 / 更新者: Claude Code (Sprint 1B 実装: T12〜T21 完了)
+> 最終更新: 2026-06-14 / 更新者: Claude Code (T22 完了 — 3日観察で writer 品質と横断 dedup の 2 defects 捕捉)
 > 本ファイルは全エージェントが随時更新する。**Antigravity の内部記憶ではなくここを真の記憶とする** (WORKFLOW §13)。
 
 ## 現在のフェーズ
 
-**Sprint 1B 本番稼働開始 — T13 完了・T22 Day 1/3** — T12〜T21 実装済み (pytest 242 / カバレッジ 96%)、Codex レビュー PASS + Antigravity QA PASS。**2026-06-12 に人間が API 契約・キー設定 → T13 接続 smoke 完了 → variant A (editor=MiMo, writer=DeepSeek) で本番初配信成功** (候補40→採用5、editor JSON 安定 100%、Discord 着弾、16.5k tokens/エピソード)。**残: ① PR #10 の人間承認マージ (Codex/QA は PASS 済) ② T22 Day 2/3 (翌日以降 `collect --post` → `draft --variant A --post`)**。T22 完了で Sprint 1B 全 DoD 達成 → Sprint 2 (TTS) 解禁。
+**Sprint 1B インフラ完了・T22 3日観察完了 (06-12〜14) — writer 品質修正が残** — T12〜T21 実装済み・PR #10 マージ済み (main `b76f6c4`)・T13 実 API 接続完了。**T22 3日観察を完走** (collect→draft→evaluate→Discord、6/6 投稿成功)。結論: **インフラ DoD は全達成** (3-5本選定/Markdown台本/ソース一覧/A-B-C記録/Discord投稿/fail-open 実証)、**コンテンツ品質 DoD「音声化する価値」は未達** — T22 が実運用でしか出ない **2 defects を捕捉**: ① **writer (DeepSeek) が `TOPIC_CHAR_LIMIT=300` を一貫超過** し template 落ち (Day1 0/5→Day2 4/5→Day3 5/5、DB 診断で根因確定。editor=MiMo は JSON 100% 安定で無実) ② **canonical URL 横断 dedup 欠落** (同一記事が別 source_id 経由で同一エピソードに 2 回採用、Day 3 発見)。**2 defects は 2026-06-14 に TDD 修正済み ([PR #12](https://github.com/Gazelle221B/panda-tech-news/pull/12)、`agent/T22-fixes-impl`): ① WRITER_CHAR_BUDGET=260 + 再生成フィードバック強化 ② canonical_url_hash 横断 dedup。pytest 246 緑・Codex PASS・Antigravity QA PASS。経験的検証で template 率 100%→40%・重複解消を確認**。**残 (人間判断のみ): ① [PR #11](https://github.com/Gazelle221B/panda-tech-news/pull/11) (T22 観察 docs) と [PR #12](https://github.com/Gazelle221B/panda-tech-news/pull/12) (品質修正) のマージ承認 ② マージ後 1 日 draft で「音声化する価値」最終評価 ③ Sprint 2 (TTS) Go 判断**。詳細は [TEST_LOG.md](./TEST_LOG.md) T22 3日間総括。
 
 | ステップ | 状態 |
 |---|---|
@@ -42,11 +42,11 @@
 | Ticket T20 (A/B/C 比較ログ集計) | ✅ 実装完了 (2026-06-11)。`edit/abtest.py`。採用率/修正回数/コスト/JSON安定性の variant 別集計 |
 | Ticket T21 (CLI draft/evaluate + Discord 台本投稿) | ✅ 実装完了 (2026-06-11)。`script/runner.py` (統合, editor 崩壊時 neutral fallback) + `deliver/discord.py` post_markdown (2000字チャンク) + CLI 2コマンド。実DB `draft --dry-run` スモーク済み |
 | Ticket T13 (MiMo/DeepSeek 実接続 smoke) | ✅ **完了 (2026-06-12)**。人間が API 契約・キー設定 → 両系統疎通。mimo 実 endpoint `https://api.xiaomimimo.com/v1` / model `mimo-v2.5-pro` 確定 (config 修正)。deepseek-chat は実体 deepseek-v4-flash |
-| Ticket T22 (3日間の台本品質観察) | 🔄 **Day 1/3 完了 (2026-06-12)**。variant A 本番初配信: 候補40→採用5 (llm_retry=5)、editor JSON 安定 100%、Discord 配信成功、コスト 16.5k tokens/エピソード。残: Day 2/3 |
+| Ticket T22 (3日間の台本品質観察) | ✅ **完了 (2026-06-14、3日完走)**。Day1: 候補40→採用5 (llm=5/t=0)。Day2: 候補30→採用5 (llm=1/**t=4**)・7/9ソース・fail-open実証。Day3: 候補40→採用5 (llm=0/**t=5**)・9/9ソース。**結論: editor(MiMo) JSON 100% 安定継続、writer(DeepSeek) 300字超過で template 率 0→80→100% 悪化 (根因 DB 確定)、横断 dedup 欠落 (Day3 発見)**。インフラ DoD 全達成・コンテンツ品質は 2 defects 修正待ち |
 
 ## 作業中ブランチ
 
-`agent/T12-impl` (最新 main `965f37d` から分岐)
+`agent/T22-impl` (最新 main `b76f6c4` から分岐。`agent/T12-impl` は PR #10 squash マージ済みのため規約 §8.2 に従い切り直し)
 
 ## 直近の設計判断
 
@@ -68,6 +68,8 @@
 
 ## Codex レビューの直近結果
 
+2026-06-12: Sprint 2 実装計画ドラフト (IMPLEMENTATION_PLAN-2.md) 独立レビュー **PASS** (Critical 0 / High 0 / Medium 1 / Low 1)。Medium (ブロッカー粒度の混在) と Low (クラウド GPU/外部ストレージ選択時の費用・認証判断の明示) は同日中に計画へ反映済み。証跡は `docs/REVIEW_REPORT.md` 末尾。
+
 2026-06-03: ドキュメント同期 + CLIテスト分離修正レビュー PASS。Critical/High/Medium/Low 指摘なし。実 `.env` webhook 存在下でも pytest 104 pass、ruff/mypy strict clean、秘密保護を確認。証跡は `docs/REVIEW_REPORT.md` に追記済み。
 
 2026-06-02: T10 (Ticket #9 CLI統合: `collect` コマンド) 再々レビュー PASS。Critical/High/Medium/Low 指摘なし。`--source` 複数指定時の未知/disabled ID検証、DB更新統合テスト、Webhook fail-open を確認。証跡は `docs/REVIEW_REPORT.md` に追記済み。
@@ -79,6 +81,8 @@
 2026-06-01: T9 (Ticket #8 Discord Webhook サマリー投稿) 再レビュー PASS。Critical/High/Medium/Low 指摘なし。run 境界内の Tier/カテゴリ集計と Webhook fail-open を確認。証跡は `docs/REVIEW_REPORT.md` に追記済み。
 
 ## Antigravity QA の直近結果
+
+2026-06-12: Sprint 2 計画 + 決定支援文書群の整合性 QA **PASS** を QA_REPORT に記録。相互参照・スコープ整合・秘密情報・AGENTS 300 行制限すべて合格。QA がドリフト 2 種を検出・修正 (AGENTS/README の古いテスト件数 235→242、README ステータス節の実態同期)。
 
 2026-06-02: Ticket #9 (T10) `collect` CLI 結合の QA 確認完了。実CLIを用いた完走、DBへのアイテム新規追加（71件）、同一バッチでの重複排除、不正な `--source` 指定に対する exit 1 終了など、要件 §15.1 および実装計画の DoD をすべて満たしていることを確認し QA PASS。証跡は `docs/QA_REPORT.md` に追記済み。
 2026-06-01: Ticket #8 (T9) Discord Webhook サマリー投稿の QA 確認完了。要件 §14.1 に基づくサマリーフォーマットの正確性、JSTタイムゾーン変換、収集実行時間の正確性、そして Webhook 送信失敗時の fail-open 設計（FR-071）を確認し QA PASS。証跡は `docs/QA_REPORT.md` に追記済み。
@@ -101,12 +105,19 @@
 - ~~Python モジュール名~~ → **確定・実装済**: モジュール `karyu_tech_news`、配布名 `panda-tech-news` 維持、ビルドは hatchling (`packages = ["src/karyu_tech_news"]`)、console script `karyu`。
 - ~~ソース URL 実取得検証~~ → ✅ 完了 (2026-05-29)。
 - ~~コミット/ブランチ運用: Ticket #1+#2先行 を `agent/<task>` ブランチに乗せるか直接コミットか。~~ → 初期実装として直接 `main` へコミット済。以降は `agent/<task>` 運用を厳格に適用。
-- 初期9本に Game/Subculture 系を1本予備で入れるか (Spike §3 B案、Sprint 1A 観察中に並行検討可)。
+- 初期9本に Game/Subculture 系を1本予備で入れるか (Spike §3 B案)。**→ 決定支援資料作成済み (2026-06-12): [proposals/game-subculture-source-v0.1.md](./proposals/game-subculture-source-v0.1.md)。IndieNova を実検証 OK (HTTP 200) の第一候補として推薦、採否は人間**。
 - LLM 役割 A/B/C のどれを初期既定にするか (ADR-0005、実測後確定)。
 - **【Sprint 1B 着手前ブロッカー】実 LLM model ID / endpoint の確定** (要件 §16): `deepseek-chat` / `mimo-v2.5-pro` はプレースホルダ。MiMo 海外課金が困難なら OpenRouter フォールバック。API 契約・課金は人間判断 (WORKFLOW §4 区分 D)。詳細は [IMPLEMENTATION_PLAN-1B.md](./IMPLEMENTATION_PLAN-1B.md) §6。
 - HAL の声リファレンス確定タイミング (Sprint 2 までは保留可)。
-- 番組オープニング/エンディング挨拶フレーズの確定 (Sprint 1B 以降で可)。
+- **【Sprint 2 Go 判断パッケージ】** T22 完了 + Sprint 1B 完了 PR マージ後に人間が判断: ① Sprint 2 着手の Go/No-Go ② Irodori-TTS-Server 実行環境 (macOS 可否 / 別マシン / クラウド GPU) ③ HAL 声リファレンス試聴 ④ BGM/ジングル素材とライセンス ⑤ mp3 配信方法 (Discord 添付 25MB vs R2/S3 リンク)。詳細は [IMPLEMENTATION_PLAN-2.md](./IMPLEMENTATION_PLAN-2.md) §6。
+- 番組オープニング/エンディング挨拶フレーズの確定 (Sprint 1B 以降で可)。**→ 候補 3 案作成済み (2026-06-12): [proposals/greeting-phrases-v0.1.md](./proposals/greeting-phrases-v0.1.md)。音読/試聴して選定は人間**。
+- **【環境・区分 D】OpenCode CLI が全モデルで UnknownError (2026-06-12)**: `opencode run` が go/qwen3.7-max・go/qwen3.7-plus・zen 無料 (deepseek-v4-flash-free) の 3 連続で「Unexpected server error」。モデル非依存のためクライアント/サーバー側の問題 — `opencode` の再ログイン・更新等の復旧確認は人間。今回の起草はインライン代替で影響なし。
 - (E2E 検証 2026-06-11 で発見) タイトルが短い GitHub リリース (例「v1.0.0」) は台本見出しにソース名を併記すべきか — T22 観察で要否判断。
+- **(T22 Day 2 で発見・Day 2 に DB 診断で真因確定) writer (DeepSeek) の台本生成成否が日で振れる** (Day1=0/5→Day2=4/5 が template fallback)。editor (MiMo) は 100% 安定なので問題は writer 側。
+  - **確定した真因** (llm_runs/script_versions の実データ解析): writer LLM 呼び出し自体は**成功** (`ok=1`、API エラー無し)。template 落ちした 4 本はいずれも **`attempts=3` (再生成上限) まで `validate_topic_script` の「300 字超過 (空白除く)」検証に通らず** fallback。成功 1 本は空白除き ≤300 字で通過。**= DeepSeek が `TOPIC_CHAR_LIMIT=300` を超える長さで書き、フィードバック再生成 3 回でも 300 字未満に収められないのが真因**。日次変動は題材による DeepSeek の冗長度の差。
+  - **人間判断の選択肢** (post-T22): ① writer プロンプトに明示的な字数バジェット (例「空白除き 250 字以内」と上限より厳しめ) を入れる ← **最有力・低リスク・コスト不変** ② 再生成フィードバックに現在の文字数と目標差分を入れる ③ `TOPIC_CHAR_LIMIT` を緩める (ただし読み上げ尺 §9.1 と TTS 時間に影響) ④ writer を DeepSeek 以外へ差し替え (llm_profiles.yaml variant、コスト再評価)。
+  - **今は直さない**: prompt/閾値を T22 観察期間中に変えると Day1/2/3 比較が汚染される (§12.4)。**T22 完了後**に上記から人間が選択 → 通常の実装→Codex→QA サイクルで反映。**fallback が機能し番組は毎日成立しているため緊急度は中**。
+- **(運用) ローカルスケジュールタスクの信頼性**: T22 Day 2 の自動実行 (06-13 07:47) が発火したが記録・コミットを残さず途中失敗した。Day 3 (06-14) も同様に失敗する可能性があるため、**Day 3 朝に TEST_LOG へ Day 3 記録が無ければ [ORCHESTRATION_RUNBOOK.md](./ORCHESTRATION_RUNBOOK.md) §4 を手動実行**して補完する (本 Day 2 と同手順)。
 
 ## 本日 (2026-05-30) 追加した成果物
 
@@ -178,3 +189,15 @@ meeting.md / meeting2.md / tik-choco コードdump の全読に基づき作成:
 | 2026-06-12 | Claude Code | Codex Critical 対応 (818f88e): 例外ログを status code / 例外型名のみにサニタイズ、caplog 回帰テスト 3 件追加 (post_summary HTTP/接続 + post_markdown のトークン非露出を固定)。fresh pytest 242 緑 |
 | 2026-06-12 | Codex | 再レビュー **PASS** を REVIEW_REPORT に記録。Critical/High 指摘なし。修正経路と回帰テストを確認、fresh pytest 242 / ruff / mypy strict 緑 |
 | 2026-06-12 | Antigravity | Sprint 1B QA **PASS** を QA_REPORT に記録。IMPLEMENTATION_PLAN-1B §1 DoD 全 6 項目合格 (Discord 台本投稿はローカル LLM 実証を証跡とする)。UI/UX・回帰・整合性 OK。未解決リスク: T13 実 API (人間判断待ち)・T22 観察。**マージ残条件は人間承認のみ** |
+| 2026-06-12 | Claude Code | **PR #10 の人間承認 squash マージを確認** (main `b76f6c4`、2026-06-12 01:41 JST。`agent/T12-impl` 先端とツリー一致 = T13/T22 Day 1 含む全コミット取り込み済み)。マージ後 main で品質ゲート fresh 緑 (pytest 242 / ruff / mypy strict)。規約 §8.2 に従い `agent/T22-impl` を分岐。**T22 Day 2 (06-13)・Day 3 (06-14) 07:47 JST のローカルスケジュール自動実行を設定** (Day 3 は 3日総括 + DoD 更新 + Sprint 1B 完了 PR 作成まで。merge は人間承認のみ) |
+| 2026-06-12 | Claude Code | **Sprint 2 (音声化) 実装計画ドラフト作成** ([IMPLEMENTATION_PLAN-2.md](./IMPLEMENTATION_PLAN-2.md)): T23〜T32 タスク分解 + 設計集約インデックス (ADR-0006/architecture §4 を正とする) + 着手 3 条件ゲート (T22 完了 / 1B PR マージ / 人間 Go) + 着手前ブロッカー 5 件。**Sprint 1B 期間中の TTS コード導入はなし** (文書のみ、§3.4 遵守)。AGENTS/README 地図 + 古い T13 待ち記述を実態同期 |
+| 2026-06-12 | Codex | Sprint 2 実装計画ドラフトの独立レビュー **PASS** を REVIEW_REPORT に記録 (Critical 0 / High 0 / Medium 1 / Low 1)。スコープ NG (動画/YouTube/Playwright 等) の混入なし、`.gitignore` と生成物方針の整合を確認 |
+| 2026-06-12 | Claude Code | Codex 指摘 2 件を計画に反映: §6 を「ゲート粒度つき表」に再構成 (Sprint 2 Go 前 / T24 / T29 / T31 / T32 前を明示) + クラウド GPU・外部ストレージ選択時の provider/費用/認証管理/リンク永続期間の判断事項を追記。§7.2 をチケット単位ブロッカー解消方式に明確化 |
+| 2026-06-12 | Claude Code | 人間判断待ち 2 件の決定支援資料を作成: ① 挨拶フレーズ候補 3 案 ([proposals/greeting-phrases-v0.1.md](./proposals/greeting-phrases-v0.1.md)) ② Game/Subculture 予備ソース推薦 ([proposals/game-subculture-source-v0.1.md](./proposals/game-subculture-source-v0.1.md) — Gemini に調査委任 + セルフホスト RSSHub 実検証。IndieNova HTTP 200/12件、yystv・gcores は 503 で除外)。**OpenCode CLI は 3 連続 UnknownError → 区分 D として人間判断待ちに記録** (起草はインライン代替) |
+| 2026-06-12 | Claude Code | roadmap 未確定事項の残り 2 件 (BGM/ジングル素材源・Spotify/Apple AI ポリシー) を Gemini に調査委任し、出典 URL を実在検証の上で確度ラベル付き調査メモ化 ([proposals/distribution-policy-and-bgm-research-v0.1.md](./proposals/distribution-policy-and-bgm-research-v0.1.md))。**Apple/Spotify のポリシー引用 URL は 404 (無効引用) — 申請前の公式一次確認を必須と明記**。DOVA/Audiostock は実在確認済み。これで要件 §16 未確定事項は全件「解決済み / 人間ゲート / 資料準備済み」のいずれかに到達 |
+| 2026-06-12 | Antigravity | 本日のドキュメント変更群 (Sprint 2 計画 + 提案 4 本 + 実態同期) の整合性 QA **PASS** を QA_REPORT に記録。ドリフト 2 種を検出・修正: AGENTS/README の古いテスト件数 235→242、README ステータス節の Sprint 1B 仕上げへの同期。Claude Code が残存ドリフト 2 箇所 (README の「T13 待ち」記述) を追加修正 |
+| 2026-06-12 | Claude Code | **自律オーケストレーション基盤を整備** (引き継ぎ要請対応): ① [ORCHESTRATION_RUNBOOK.md](./ORCHESTRATION_RUNBOOK.md) 新設 — 交代した AI が状態判定→次手→外部 AI 委任 (OpenCode 実装/Codex レビュー/Antigravity QA/Gemini 調査/Copilot Git) →検証→記録を人間の逐次指示なしに回す操作手順。OpenCode の正確なモデル文字列 (`opencode-go/qwen3.7-max` 等 + 無料フォールバック) と非対話呼び出しを実機確認の上で記載。② [HANDOFF.md](./HANDOFF.md) 新設 — 時点スナップショット。③ AGENTS.md 地図 + 起動時読書順に組込。**規則遵守: main 直 push せず agent/T22-impl へ。merge・Sprint 越境・人間判断は据え置き** (RUNBOOK §6 に明文化) |
+| 2026-06-13 | Claude Code | **OpenCode 委任経路を復旧** (区分 D 環境failure の自己解決): 実装委任が `UnknownError` で不通 → ログ解析で根因特定 (`NOT NULL constraint failed: session_message.seq` = OpenCode ≤1.15.0 の空セッション DB バグ) → `opencode upgrade` で 1.15.0→1.17.4 → `opencode-go/qwen3.7-max` (Go プラン) と `opencode/nemotron-3-ultra-free` (無料枠) 両方で smoke OK。RUNBOOK §3 を「稼働確認済み + 再発時の対処 (upgrade 優先)」に更新。これで実装委任 (OpenCode) / レビュー (Codex) / QA (Antigravity) / 調査 (Gemini) の 4 経路すべて稼働確認済み |
+| 2026-06-13 | Claude Code | **T22 Day 2 を手動完走** (自動実行が記録を残さず失敗していたため RUNBOOK §2 決定木に従い補完): collect 7/9・30新着・fail-open実証 (Docker停止でjuejin失敗も完走)、draft 候補30→採用5・Discord配信成功。**重要観察: writer(DeepSeek) が 5本中4本 template fallback (Day1=0/5 から悪化)、editor(MiMo) は 100% 安定継続**。TEST_LOG に Day 2 記録、人間判断待ちに writer 変動 + スケジュール信頼性を追記。fresh pytest 242/ruff/mypy strict 緑 |
+| 2026-06-14 | Claude Code | **T22 Day 3 手動完走 → T22 完了・3日観察締結** (autopilot)。colima 起動でフル 9/9 ソース観察: collect 53新着、draft 候補40→採用5 (**template=5/llm=0**)。**writer 300字超過が間欠でなく構造的と確定** (template率 0→80→100%、DB で全5本 attempts=3→300字超過を確認)。**NEW: canonical URL 横断 dedup 欠落を発見** (juejin 2ソースの同一記事が同一エピソードに2回採用)。TEST_LOG に Day3+3日総括、DoD/roadmap を実績更新 (インフラ✅/品質は条件付き)。スケジュール自動実行は Day2/3 とも無音失敗 → 機構の不安定を確定。次: 観察 PR 作成 (人間マージ) + 2 defects を別ブランチで TDD 修正 |
+| 2026-06-14 | Claude Code | **T22 観察 PR #11 作成 + 2 defects 修正 PR #12 完了** (autopilot)。PR #11: Copilot レビュー 4 件対応 (ステータス同期/表記/可搬性) + 全スレッド resolve。PR #12 (`agent/T22-fixes-impl`、最新 main から分岐・code+tests のみ): defect① WRITER_CHAR_BUDGET=260 + 再生成フィードバック強化 / defect② canonical_url_hash 横断 dedup。**実装はインライン (OpenCode 委任は seq バグでないハング+並行編集汚染のため撤退、git reset で復旧)**。pytest 246 緑、**Codex 独立レビュー PASS + Antigravity QA PASS**。経験的検証 (draft #5): template 率 100%→40%・全 canonical hash ユニーク (重複解消)。残: 人間マージ承認のみ |

@@ -8,13 +8,17 @@
 
 ゴール: SQLite の収集済み候補から LLM で **3-5 本**を選び、**日本語 Markdown 台本 + ソース一覧 + A/B/C 判定ログ**を Discord に投稿する。**音声化はしない** (Sprint 2)。
 
-### Sprint 1B DoD (要件 §15.2)
-- [ ] 3-5本のトピックが選ばれる
-- [ ] Markdown 台本が生成される (Hook/Insight/Action)
-- [ ] ソース一覧が付く
-- [ ] どの A/B/C 構成で生成したか記録される
-- [ ] Discord に台本が投稿される
-- [ ] 人間が読んで「音声化する価値がある」水準に近い
+### Sprint 1B DoD (要件 §15.2) — T22 3日観察 (06-12〜14) で検証
+
+インフラ DoD (全達成):
+- [x] 3-5本のトピックが選ばれる (3日とも候補→採用5本)
+- [x] Markdown 台本が生成される (Hook/Insight/Action)
+- [x] ソース一覧が付く
+- [x] どの A/B/C 構成で生成したか記録される (`llm_runs`/`evaluate`、案A 3回・JSON安定100%)
+- [x] Discord に台本が投稿される (3日とも投稿成功)
+
+コンテンツ品質 DoD (条件付き):
+- [~] 人間が読んで「音声化する価値がある」水準に近い — **writer (DeepSeek) の 300字超過問題で未達**。editor (MiMo) 判定は良好だが台本生成が template 落ち (Day1 0/5→Day2 4/5→Day3 5/5)。**T22 が捕捉した 2 defects (writer 300字遵守 / canonical URL 横断 dedup) の修正後に再評価** (詳細 [TEST_LOG.md](./TEST_LOG.md) T22 3日間総括)。
 
 ## 2. 設計の所在 (集約インデックス — 新規設計はこれらを正とする)
 

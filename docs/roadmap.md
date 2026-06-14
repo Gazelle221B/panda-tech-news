@@ -36,7 +36,7 @@
 - [x] Discord にサマリー到達 (HTTP 204)
 - [x] 3日連続稼働 (06-02 / 06-03 / 06-04)
 
-## Sprint 1B — 台本生成 (現在地)
+## Sprint 1B — 台本生成 (実装完了・T22 観察完了、writer 品質修正残)
 
 ゴール: SQLite の候補から LLM で3-5本選び、Markdown台本+ソース一覧+A/B判定ログを Discord 投稿。
 
@@ -49,13 +49,13 @@
 - `llm_runs` テーブル等の追加 (要件 §12.5)
 - CLI: `draft --date today`, `post-discord --date today`, `evaluate --date today`
 
-### Sprint 1B DoD (要件 §15.2)
-- [ ] 3-5本選定 / Markdown台本生成 / ソース一覧付与
-- [ ] どの A/B/C 構成で生成したか記録
-- [ ] Discord に台本投稿
-- [ ] 「音声化する価値がある」水準に近い
+### Sprint 1B DoD (要件 §15.2) — T22 3日観察で検証
+- [x] 3-5本選定 / Markdown台本生成 / ソース一覧付与
+- [x] どの A/B/C 構成で生成したか記録 (案A 3回・JSON安定100%)
+- [x] Discord に台本投稿 (3日とも成功)
+- [~] 「音声化する価値がある」水準に近い — writer (DeepSeek) 300字超過で未達。2 defects 修正後に再評価 ([TEST_LOG](./TEST_LOG.md) T22 総括)
 
-## Sprint 2 — 音声化
+## Sprint 2 — 音声化 (現在地: 人間 Go 待ち / Sprint 1B writer 修正と並行可)
 
 ゴール: mp3 完パケ。TTS 抽象化 + Irodori 接続 ([ADR-0006](./adr/ADR-0006-tts-irodori-abstraction.md))。
 

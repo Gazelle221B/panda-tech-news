@@ -1274,3 +1274,93 @@ PR #10 は FAIL です。主機能・品質ゲートは通っていますが、D
 ### テスト不足
 
 - 今回範囲で追加必須テストなし。`post_markdown()` の汎用接続例外は直接の専用テストではなく `post_summary()` の接続系例外テストと `post_markdown()` の委譲構造で担保されているが、同じコード経路であり merge blocker ではない。
+
+## 2026-06-12: Sprint 2 実装計画ドラフト (IMPLEMENTATION_PLAN-2.md) レビュー (レビュー日: 2026-06-12 / レビュアー: Codex)
+
+### 総合判定: PASS
+
+Critical 0 / High 0 / Medium 1 / Low 1。`docs/IMPLEMENTATION_PLAN-2.md` は ADR-0006、完パケ・パイプライン、要件 §8.10-8.11 / §15.3、roadmap Sprint 2 節と大筋で整合している。Sprint 1B 期間中は文書準備に留め、TTS コード導入を禁止し、T22 完了・Sprint 1B 完了 PR の人間マージ・人間 Go の 3 条件を着手ゲートとして明記しているため、AGENTS.md §3.4 の Sprint 越境禁止も守れる書き方になっている。
+
+### 確認した証跡 (必須)
+
+- 確認したファイル:
+  - `AGENTS.md`
+  - `prompts/review.md`
+  - `docs/PROJECT_STATE.md`
+  - `docs/DESIGN.md`
+  - `docs/IMPLEMENTATION_PLAN-2.md`
+  - `docs/REVIEW_REPORT.md`
+  - `docs/adr/ADR-0006-tts-irodori-abstraction.md`
+  - `docs/architecture-podcast-station.md`
+  - `docs/requirements-v1.0.md`
+  - `docs/roadmap.md`
+  - `docs/hal-persona.md`
+  - `docs/show-format.md`
+  - `config/hal_persona.yaml`
+  - `config/show_format.yaml`
+  - `.gitignore`
+- レビュー対象:
+  - `git branch --show-current` → `agent/T22-impl`。
+  - `git status --short` → レビュー開始時点で出力なし (作業ツリー clean)。
+  - `git ls-files docs/IMPLEMENTATION_PLAN-2.md ...` → 対象ドキュメントと根拠ドキュメントは追跡済み。
+- 根拠とした差分/行:
+  - `docs/IMPLEMENTATION_PLAN-2.md:3-4` — Sprint 2 計画は準備ドキュメントであり、T22 完了 / 1B 完了 PR 人間マージ / 人間 Go の 3 条件成立後のみ実装着手、Sprint 1B 中の TTS コード導入なし。
+  - `docs/IMPLEMENTATION_PLAN-2.md:10-16` — Sprint 2 DoD は `TTSEngine`、Irodori 接続、構造化台本 JSON、読み仮名辞書、BGM/ジングル、-16 LUFS、mp3 192kbps/48kHz、Discord 投稿、3日観察。
+  - `docs/IMPLEMENTATION_PLAN-2.md:20-29` — 設計所在を ADR-0006 / architecture §4 / requirements §8.10-8.11 / hal persona / editorial policy に集約。
+  - `docs/IMPLEMENTATION_PLAN-2.md:33-46` — 追加レイヤーは `script -> tts -> mix` の一方向、`tts` は `edit` / `llm` を参照しない。新依存は roadmap 既定の `pydub` + `ffmpeg` に限定。
+  - `docs/IMPLEMENTATION_PLAN-2.md:51-62` — T23〜T32 は `TTSEngine` / Irodori smoke / structure / reading dict / emoji annotation / sentence synthesis / mix / master / persistence+CLI+Discord / 3日観察に分解され、依存循環なし。
+  - `docs/IMPLEMENTATION_PLAN-2.md:64-68` — モック駆動、決定的コード厚め、ffmpeg 小フィクスチャ、str 単位文分割テスト方針。
+  - `docs/IMPLEMENTATION_PLAN-2.md:70-80` — 人間判断待ちと着手ゲート。ただし §6 と §7.2 のブロッカー粒度に Medium 指摘あり。
+  - `docs/IMPLEMENTATION_PLAN-2.md:82-88` — Sprint 2 固有 NG: 無断声クローン禁止、動画/YouTube 禁止、LLM に JSON と台本を同時生成させない、TTS 文単位 fail-open、バイト切り詰め禁止、生成音声ファイル commit 禁止。
+  - `docs/adr/ADR-0006-tts-irodori-abstraction.md:11-16` — Irodori 主軸、`TTSEngine` 抽象化、HAL 人格の TTS 非依存、VoiceDesign -> Speaker Inversion は検証項目。
+  - `docs/adr/ADR-0006-tts-irodori-abstraction.md:27-45` — Irodori の弱点対策として読み仮名辞書、絵文字制御、抽象化層で代替エンジン退避。
+  - `docs/adr/ADR-0006-tts-irodori-abstraction.md:56-60` — Sprint 2 で `tts/engine.py` + `tts/irodori.py`、Sprint 1A/1B では TTS 実装なし。
+  - `docs/architecture-podcast-station.md:58-76` — 7層パイプラインで Sprint 2 は `tts` / `mix`、Sprint 3 は `render` / `publish`。
+  - `docs/architecture-podcast-station.md:78-94` — script -> tts 境界の構造化 JSON、LLM に JSON と日本語コピーを同時生成させない、tone から絵文字注釈を TTS 前処理で機械挿入。
+  - `docs/architecture-podcast-station.md:96-107` — Irodori v3 主軸、抽象化、HAL 人格 TTS 非依存、音響演出重視。
+  - `docs/requirements-v1.0.md:592-630` — FR-090〜092 / FR-100〜103: TTS 抽象化、HAL 音声、読み仮名辞書、BGM、ジングル、ラウドネス、mp3 192kbps。
+  - `docs/requirements-v1.0.md:632-666` — 動画生成と YouTube 配信は後続要件。Sprint 1A/1B では実装しない。
+  - `docs/requirements-v1.0.md:714-724` — 本文転載は禁止、実在人物の無断声真似禁止、BGM/ジングルのライセンス確認。
+  - `docs/requirements-v1.0.md:1043-1055` — Sprint 2 対象は TTS 抽象化、Irodori 接続、文単位合成、読み辞書、mp3、BGM/ジングル仮ミックス、Discord mp3 またはリンク投稿。
+  - `docs/requirements-v1.0.md:1097-1107` — 読み崩れ対策、TTS 抽象化、Webhook 添付制限時の R2/S3 等リンク投稿余地。
+  - `docs/roadmap.md:58-62` — Sprint 2 主要タスクは IMPLEMENTATION_PLAN-2.md の T23〜T31 と対応し、pydub+ffmpeg / -16 LUFS / mp3 192kbps/48kHz / 25MB 超リンク投稿を含む。
+  - `AGENTS.md:47-50` — Sprint 1B の TTS/音声処理/動画/YouTube 禁止、コスト上限を超える呼び出し方の変更は人間判断、スコープ膨張は PROJECT_STATE にエスカレーション。
+  - `AGENTS.md:52-59` — 実在人物の無断声真似禁止、AI 開示は Sprint 3、Go/Node/2言語化禁止。
+  - `docs/DESIGN.md:200-209` — Sprint 2 は TTS/BGM/mp3、動画/YouTube は Sprint 3。スプリント越境禁止。
+  - `docs/PROJECT_STATE.md:8` / `docs/PROJECT_STATE.md:99-108` — 現在は T22 Day 1/3 完了で Sprint 2 は T22 完了後、人間 Go 判断パッケージが必要。
+  - `docs/hal-persona.md:18-23` / `docs/hal-persona.md:55-67` — 声質仕様、無断クローン禁止、VoiceDesign / Speaker Inversion、TTS 乗り換え時の声維持レビュー。
+  - `config/hal_persona.yaml:41-45` — primary engine、voice strategy、reading dict、emoji annotation は Sprint 2 計画と整合。
+  - `config/show_format.yaml:22-30` / `config/show_format.yaml:51-59` — ジングル segment、-16 LUFS、mp3、動画/AI disclosure は将来仕様として分離。
+  - `.gitignore:16-22` — mp3/mp4/wav と素材本体は git 管理外。
+- 実行/確認したテスト:
+  - 文書レビューのため `uv run pytest` / `ruff` / `mypy` は未実行。コード変更はなく、検証は行番号付きドキュメント照合と `git status --short` に限定。
+  - `rg` / `nl -ba` / `sed` で対象節を確認。
+
+### 設計適合性
+
+- ADR-0006 との整合: `TTSEngine` Protocol、Irodori-TTS v3 主軸、HAL 人格の TTS 非依存、VoiceDesign -> Speaker Inversion を確定仕様ではなく検証項目として扱う点は整合。
+- architecture-podcast-station §4 との整合: `script -> tts -> mix` までを Sprint 2、`render -> publish` を Sprint 3 として分離している。構造化 JSON はコード側 parser、絵文字注釈は TTS 前処理という境界も一致。
+- requirements §8.10-8.11 / §15.3 との整合: FR-090〜092 と FR-100〜103、Sprint 2 の対象項目を T23〜T31 で概ね網羅している。
+- roadmap Sprint 2 との整合: pydub+ffmpeg、-16 LUFS、mp3 192kbps/48kHz、Discord 25MB 超リンク投稿を計画に反映している。
+- スコープゲート: 計画冒頭と §7 で Sprint 1B 中の TTS 実装禁止、T22 完了、1B 完了 PR の人間マージ、人間 Go を明示しているため、Sprint 越境防止としては合格。
+- タスク分解: T23/T25 をモック・決定的コードで先行でき、T24/T29/T31 は人間ブロッカーや下流成果物に依存する。T28 が T23-T27 を待つため、文単位合成前に engine / structure / normalize / annotate が揃う。循環依存は見当たらない。
+
+### 指摘事項
+
+| 重大度 | 箇所 | 内容 | 要求対応 |
+|---|---|---|---|
+| Critical | なし | なし | なし |
+| High | なし | なし | なし |
+| Medium | `docs/IMPLEMENTATION_PLAN-2.md:70-80` | §6 は 5 項目すべてを「着手前ブロッカー」と呼ぶ一方、§7.2 は「実行環境」「声リファレンス」だけを解消し、他はモック駆動で並行可としている。実質的には Sprint 2 全体の Go ブロッカーと、T29/T31 などの ticket-local ブロッカーが混在している。現状でも T22 / 人間 merge / 人間 Go は守れるが、実装者が BGM 素材・mp3 配信方法・A/B/C 既定決定を「着手前に全解消必須」なのか「該当 ticket 前までで可」なのか読み違える余地がある。 | §6 を「Sprint 2 Go 前に必須」と「該当 ticket 着手前に必須」に分割するか、§7.2 で T24=実行環境/声、T29=BGM/ジングル、T31=配信方法、T32=A/B/C 継続判断のようにブロッカー粒度を明示する。 |
+| Low | `docs/IMPLEMENTATION_PLAN-2.md:45-46` / `docs/IMPLEMENTATION_PLAN-2.md:61` / `docs/IMPLEMENTATION_PLAN-2.md:70-75` | クラウド GPU または R2/S3 リンク投稿を選ぶ場合、AGENTS.md §3.4 のコスト上限と要件 §9.5 の秘密管理が新たに効くが、§6 の人間判断待ちは provider / 月額上限 / 認証情報の保管方針までは明示していない。環境選択・配信方法の判断に内包されるため blocker ではないが、Sprint 2 着手後に追加判断が発生しやすい。 | §6 に「クラウド GPU / 外部ストレージを選ぶ場合は provider、月額上限、認証情報の `.env` 管理、リンク永続期間を人間が決める」を追記すると、後続 T24/T31 の手戻りが減る。 |
+
+### セキュリティ / スコープ / 副作用
+
+- secret: 計画は `.env` や実キーの追加を要求していない。外部 GPU / R2/S3 を選ぶ場合の秘密管理は Low 指摘として明示改善対象。
+- 生成物: `.gitignore` は mp3/mp4/wav と素材本体を git 管理外にしており、計画 §8 の「生成 mp3/wav を commit しない」と整合。
+- 法務: 実在人物の無断声真似・声クローン禁止、BGM/ジングル素材のライセンス確認、人間試聴判断は計画に含まれる。
+- スコープ: 動画生成 / YouTube 投稿は Sprint 2 計画から除外されている。Playwright / 中国 IP プロキシ / Cookie 必須ルート / Go or Node 導入も計画には含まれていない。
+
+### テスト不足
+
+- ドキュメントレビューのため追加テスト要求なし。実装開始後は T23〜T31 それぞれでモック駆動の単体テスト、ffmpeg 小フィクスチャ、str 単位文分割回帰、T24 smoke、T32 聴感観察を TEST_LOG に残す必要がある。

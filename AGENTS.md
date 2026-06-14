@@ -19,9 +19,9 @@
 ## 2. 現在のフェーズ (随時更新は `docs/PROJECT_STATE.md`)
 
 - **Sprint 1A 完全終了** — T1〜T11 全チケット完了 (3日連続稼働 06-02〜04、Discord HTTP 204、main マージ済み)
-- **Sprint 1B 実装中** — T12〜T21 実装済み (LLM profile→編集判定→選定/アーク→台本→fallback→永続化→CLI `draft`/`evaluate`)。LLM はモック駆動で実装済み、**T13 (実 API 接続 smoke) は人間ブロッカー (API 契約・課金) 解消待ち**、T22 (3日品質観察) は T13 後
-- TTS/動画/YouTube は未実装 (Sprint 2 以降)
-- 作業ブランチ: `agent/T12-impl`
+- **Sprint 1B インフラ完了・T22 3日観察完了 (06-12〜14)** — T12〜T21 実装済み・PR #10 マージ済み (main `b76f6c4`)・T13 (実 API 接続) 完了、variant A で本番配信中。**T22 でインフラ DoD 全達成 + 2 defects 捕捉 (writer 300字超過 / canonical URL 横断 dedup 欠落)。残: 2 defects の TDD 修正 → 修正後に「音声化する価値」再評価**
+- TTS/動画/YouTube は未実装 (Sprint 2 以降。計画ドラフトは [docs/IMPLEMENTATION_PLAN-2.md](docs/IMPLEMENTATION_PLAN-2.md)、着手は人間の Go 判断後)
+- 作業ブランチ: `agent/T22-impl` (観察 docs)。2 defects 修正は `agent/T22-fixes-impl`
 
 ## 3. 絶対 NG (禁止事項) — 最優先
 
@@ -46,7 +46,7 @@
 
 ### 3.4 スコープ膨張 NG (フェーズ境界)
 **Sprint 1B で以下を導入してはならない**: TTS / 音声処理 / 動画生成 / YouTube 投稿 / Playwright / 中国 IP プロキシ / Cookie 必須ルート。
-LLM 呼び出しは Sprint 1B で解禁済みだが、**実 API への接続 (T13 smoke・日次運用) は人間の API 契約・課金判断後のみ** (実装はモック駆動でテスト)。
+LLM 実 API は人間の契約・キー設定により T13 完了済み (2026-06-12)。**コスト上限 (要件 §9.7 月1,500-3,000円) を超える呼び出し方の変更は人間判断**。
 「ついでに〜したい」と思ったら即停止し、`docs/PROJECT_STATE.md` の「人間判断待ち」へエスカレーション (WORKFLOW §4 区分 E)。
 
 ### 3.5 コンテンツ NG
@@ -78,13 +78,14 @@ uv run python -m karyu_tech_news evaluate           # A/B/C 検証の定量サ�
 # または: uv run karyu collect --post
 
 # 品質ゲート (PR 前に必ず通す)
-uv run pytest                                       # ユニットテスト (現状 235 / pass)
+uv run pytest                                       # ユニットテスト (現状 242 / pass)
 uv run ruff check .                                 # Lint
 uv run mypy src tests                               # 型 (strict)
 
-# 日次運用: RSSHub 起動 → Discord 投稿込みで収集 (1B: T13 解禁後に draft --post を追加)
+# 日次運用: RSSHub 起動 → 収集 → LLM 台本生成 (いずれも Discord 投稿込み)
 docker compose up -d rsshub
 uv run python -m karyu_tech_news collect --post
+uv run python -m karyu_tech_news draft --variant A --post
 ```
 
 ## 5. アーキテクチャ方針 (Sprint 1A)
@@ -142,7 +143,7 @@ panda-tech-news/
 │   ├── llm/      (T12 で追加: profile / client)
 │   ├── edit/     (T14-T16, T20 で追加: prescore / judge / select / arc / abtest)
 │   └── script/   (T17-T18, T21 で追加: generate / fallback / runner)
-├── tests/                   # pytest (現状 235 / pass, 22 ファイル)
+├── tests/                   # pytest (現状 242 / pass, 22 ファイル)
 ├── scripts/                 # spike_curl_check.sh など検証スクリプト
 ├── data/                    # state.db 等 (.gitkeep 以外 git 管理外)
 └── assets/                  # bgm / jingles / voice_reference (素材本体は git 管理外)
@@ -226,7 +227,10 @@ panda-tech-news/
 | コミット/完了ゲート | [docs/commit-rules.md](docs/commit-rules.md) | 完了宣言ゲート・コミット前チェック・DoD/境界の集約 |
 | 実装計画 | [docs/IMPLEMENTATION_PLAN.md](docs/IMPLEMENTATION_PLAN.md) | T1〜T11 タスク分解 (Sprint 1A) |
 | 実装計画 (1B) | [docs/IMPLEMENTATION_PLAN-1B.md](docs/IMPLEMENTATION_PLAN-1B.md) | Sprint 1B タスク分解 (T12〜) + 着手前ブロッカー |
-| ワークフロー | [docs/WORKFLOW.md](docs/WORKFLOW.md) | エージェント間契約 |
+| 実装計画 (2) | [docs/IMPLEMENTATION_PLAN-2.md](docs/IMPLEMENTATION_PLAN-2.md) | Sprint 2 (音声化) タスク分解 (T23〜) + 着手ゲート |
+| ワークフロー | [docs/WORKFLOW.md](docs/WORKFLOW.md) | エージェント間契約 (組織・ロール) |
+| 運用書 | [docs/ORCHESTRATION_RUNBOOK.md](docs/ORCHESTRATION_RUNBOOK.md) | ★ 自律オーケストレーションの操作手順 (状態判定→次手→委任→検証)。交代した AI はまずここ |
+| 引き継ぎ | [docs/HANDOFF.md](docs/HANDOFF.md) | 時点スナップショット (今どこ・次に何) |
 | 状態 | [docs/PROJECT_STATE.md](docs/PROJECT_STATE.md) | 永続化された進捗 (★ ここを真の記憶とする) |
 | 長期ビジョン | [docs/architecture-podcast-station.md](docs/architecture-podcast-station.md) | 三番組構成 AI ポッドキャスト局 |
 | 設計継承 | [docs/design-inheritance-tc-newsflow.md](docs/design-inheritance-tc-newsflow.md) | Go 版からの継承パターン |
@@ -239,7 +243,7 @@ panda-tech-news/
 
 ## 11. AI エージェント向け運用ルール (本書まとめ)
 
-1. **作業開始時に必ず読む**: 本書 → `docs/PROJECT_STATE.md` → `docs/DESIGN.md` → 該当 Ticket の `docs/IMPLEMENTATION_PLAN.md` 該当行。
+1. **作業開始時に必ず読む**: 本書 → `docs/PROJECT_STATE.md` → `docs/ORCHESTRATION_RUNBOOK.md` (自律運用の操作手順) → `docs/DESIGN.md` → 該当 Ticket の `docs/IMPLEMENTATION_PLAN.md` 該当行。
 2. **判断ログを残す**: 設計判断・代替案検討は ADR (`docs/adr/ADR-000N-*.md`) に追記。
 3. **状態を必ず書く**: 進捗更新・人間判断待ち事項は `docs/PROJECT_STATE.md` へ。
 4. **疑ったら止める**: 絶対 NG (§3) に抵触する/しそうなら実装を止め、`docs/PROJECT_STATE.md` の「人間判断待ち」にエスカレーション理由を書く。

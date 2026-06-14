@@ -10,9 +10,9 @@
 
 ## ステータス
 
-- フェーズ: **Sprint 1A 完全終了** 🎉 (T1〜T11 完了) — T11 3日連続稼働観察 達成 (06-02/03/04 全日 9/9 成功。Day2/Day3 にて Discord 実配信 HTTP 204 を確認)
-- ソース検証: 完了 (2026-05-29)。有効9本 (ADOPT 5 + 監視 4) / 保留2本。詳細は [docs/source-selection-spike-v0.1.md](docs/source-selection-spike-v0.1.md) §7
-- 次アクション: **Sprint 1B (LLM編集・台本生成) 解禁** — LLM profile / MiMo・DeepSeek 接続 / Tier重みスコアリング / Markdown台本 ([docs/roadmap.md](docs/roadmap.md))
+- フェーズ: **Sprint 1B インフラ完了・T22 3日観察完了 (06-12〜14)** — T12〜T21 実装・PR #10 マージ済み (main `b76f6c4`)・T13 (実 API 接続) 完了、variant A で本番配信中。
+- 品質観察: **T22 完了** — インフラ DoD 全達成。観察が 2 defects を捕捉 (writer 300字超過 / canonical URL 横断 dedup 欠落) → 修正待ち。詳細は [docs/TEST_LOG.md](docs/TEST_LOG.md) T22 3日間総括
+- 次アクション: **① 2 defects 修正 (TDD) ② Sprint 2 (音声化) は人間 Go 判断後** ([docs/IMPLEMENTATION_PLAN-2.md](docs/IMPLEMENTATION_PLAN-2.md))
 
 ## ドキュメント地図
 
@@ -29,6 +29,7 @@
 | 設計継承 | [docs/design-inheritance-tc-newsflow.md](docs/design-inheritance-tc-newsflow.md) | Go版から継承する設計パターン |
 | 実装計画 | [docs/IMPLEMENTATION_PLAN.md](docs/IMPLEMENTATION_PLAN.md) | Sprint 1A タスク分解 |
 | 実装計画(1B) | [docs/IMPLEMENTATION_PLAN-1B.md](docs/IMPLEMENTATION_PLAN-1B.md) | Sprint 1B タスク分解 (T12〜) |
+| 実装計画(2) | [docs/IMPLEMENTATION_PLAN-2.md](docs/IMPLEMENTATION_PLAN-2.md) | Sprint 2 (音声化) タスク分解 (T23〜) + 着手ゲート |
 | ワークフロー | [docs/WORKFLOW.md](docs/WORKFLOW.md) | エージェント間契約 |
 | 状態 | [docs/PROJECT_STATE.md](docs/PROJECT_STATE.md) | 永続化された進捗 |
 | Spike | [docs/source-selection-spike-v0.1.md](docs/source-selection-spike-v0.1.md) | 初期ソース選定 (11本/有効9) |
@@ -50,7 +51,7 @@
 
 ## 現在のスコープ要旨 (Sprint 1B 実装済み)
 
-TTS・動画・YouTube は未実装 (Sprint 2 以降)。**「収集 (1A) → LLM 編集判定 → 3-5 本選定 → Markdown 台本生成 → Discord 投稿 (1B)」** までコード実装済み。実 LLM API への接続 (T13) は API 契約の人間判断待ちで、解消後は `.env` にキーを設定するだけで動く。
+TTS・動画・YouTube は未実装 (Sprint 2 以降)。**「収集 (1A) → LLM 編集判定 → 3-5 本選定 → Markdown 台本生成 → Discord 投稿 (1B)」** までコード実装済み。実 LLM API 接続 (T13) も完了済み (MiMo + DeepSeek、2026-06-12) — variant A で本番配信中。
 
 ### Quick start (現時点で動くもの)
 
@@ -65,7 +66,7 @@ uv run python -m karyu_tech_news collect --post    # 収集 → SQLite → Disco
 uv run python -m karyu_tech_news draft --dry-run   # 台本候補の確認 (LLM 不使用)
 uv run python -m karyu_tech_news draft --post      # LLM 台本生成 → Discord (要 API キー)
 uv run python -m karyu_tech_news evaluate          # A/B/C 検証の定量サマリー
-uv run pytest                                      # テスト (235 pass)
+uv run pytest                                      # テスト (242 pass)
 ```
 
 ### CLI 進捗
@@ -75,7 +76,7 @@ uv run pytest                                      # テスト (235 pass)
 | `version` / `info` / `validate-sources` | ✅ T1-T2 |
 | `init-db` | ✅ T4 (SQLite 初期化・冪等) |
 | `collect` (`--source` / `--post` / `--dry-run`) | ✅ T3-T10 (収集→保存→dedupe→source_health→Discord) |
-| `draft` (`--variant` / `--post` / `--dry-run`) | ✅ T12-T19, T21 (候補→判定→選定→台本→投稿)。実 API は T13 後 |
+| `draft` (`--variant` / `--post` / `--dry-run`) | ✅ T12-T19, T21 (候補→判定→選定→台本→投稿)。実 API 接続済み (T13) |
 | `evaluate` | ✅ T20 (採用率/修正回数/コスト/JSON安定性) |
 
 > Discord 投稿は独立コマンドではなく `collect --post` / `draft --post` に統合。
