@@ -914,3 +914,34 @@ uv run karyu draft --profiles /tmp/karyu-e2e-profiles.yaml --variant L --db-path
 - **真因診断 (Day 2、`data/state.db` の llm_runs/script_versions 解析)**: template 落ち 4 本は writer LLM 呼び出し成功 (`ok=1`、API エラー無し) かつ `attempts=3` まで `validate_topic_script` の **「300 字超過 (空白除く)」検証に通らず** fallback。成功 1 本は空白除き ≤300 字。**= DeepSeek が `TOPIC_CHAR_LIMIT=300` を超える長さで書き、再生成 3 回でも縮められないのが真因** (API/editor の問題ではない)。対処案と「観察汚染を避けるため T22 後に修正」の方針は PROJECT_STATE「人間判断待ち」に記録。
 
 残: T22 Day 3 (06-14、3 日総括 + DoD 更新 + Sprint 1B 完了 PR)。**Day 3 で writer の template fallback 率を必ず確認** (Day 1=0/5, Day 2=4/5 の振れの再現性)
+
+## Ticket T22 — 台本品質観察 Day 3 (2026-06-14 19:02 JST, variant A) + 3日間総括
+
+> 注: 06-14 07:47 のスケジュール自動実行も (Day 2 同様) 記録・コミットを残さず失敗。**スケジュール機構自体がこの多段 git コミット作業には不安定**と確定 (堅牢化プロンプトでも改善せず → 失敗原因はプロンプトでなく scheduled-session 環境)。Day 3 はオーケストレーターが手動完走 (今回は `colima start` で RSSHub も起動しフル 9 ソース観察)。
+
+`collect --post` → `draft --variant A --post` → `evaluate` を実行:
+
+- **collect: 9/9 ソース成功・53 新着・Discord 投稿成功**。掘金 (juejin) 2 ソース復活でフル稼働。
+- **draft: 候補 40 → 採用 5 本・Discord 投稿成功**。生成方法 **`template=5` (llm=0)**、**editor JSON 安定: yes**。
+- **⚠ writer fallback の悪化トレンド確定 (T22 最重要結論)**: template 率が **Day1 0/5 → Day2 4/5 → Day3 5/5** と単調悪化し、Day 3 は**全トピックがテンプレ定型文**。DB 診断 (llm_runs/script_versions): writer 呼び出しは成功 (`ok=1`, completion 2,518 tokens, エラー無し) だが全 5 本 `attempts=3` まで「300 字超過 (空白除く)」検証に通らず fallback。**= DeepSeek が冗長で `TOPIC_CHAR_LIMIT=300` を一貫して超過し、再生成フィードバックでも縮められない**。間欠的でなく**構造的**な品質問題と確定。editor (MiMo) は 3 日とも JSON 100% 安定で問題なし。
+- **⚠ NEW 発見 — エピソード内 同一記事重複**: ソース一覧の #2/#3 が同一 URL (`juejin.cn/post/7650451521307770923`)。`juejin-ai-category` と `juejin-trending-ai-weekly` が同一記事を別 `source_id` で保持 → `UNIQUE(source_id,item_key)` では別レコード → **選定が canonical URL 横断で重複排除していない**ため同一エピソードに 2 回採用。Day 2 は juejin ダウンで顕在化せず、Day 3 のフル観察で発見。
+- **evaluate (案 A 累計 3 回)**: 採用率 14% (15/110)、修正 平均 2.6 回 (**llm_retry=6, template=9**)、コスト prompt 36,497 + completion 9,179 tokens (LLM 6 回・失敗 0)、**JSON 安定性 100%**。
+
+### T22 3日間総括 (結論)
+
+| 評価軸 | 結論 |
+|---|---|
+| パイプライン完走 | ✅ 3 日とも collect→draft→evaluate→Discord 配信が完走 (Discord 6/6 投稿成功) |
+| fail-open | ✅ Day 2 (juejin ダウン) でも 7/9 ソースで番組成立・配信 — §3.3 実証 |
+| editor (MiMo) | ✅ **本番品質**。3 日とも候補全件を一発 JSON 判定、安定性 100%、neutral 充填ゼロ〜僅少 |
+| writer (DeepSeek) | ❌ **本番品質に未達**。300 字上限を一貫超過し template 率 0→80→100% と悪化。variant A の writer は現状のままでは「音声化する価値」を安定して満たさない |
+| dedup | ⚠ ソース内は ✅ だが **canonical URL 横断の重複排除が欠落** (Day 3 発見) |
+| コスト | ✅ 3 エピソード累計 ~46k tokens。要件 §9.7 (月 1,500-3,000円) に対し大幅余裕 |
+| 「音声化する価値」 | △ editor 判定は良好だが、writer のテンプレ落ちにより Day2/3 の台本は定型文中心で価値水準に未達。**writer 修正が前提条件** |
+
+**総合判定**: Sprint 1B の**インフラ DoD (3-5本選定/Markdown台本/ソース一覧/A-B-C記録/Discord投稿/fail-open) は全て達成**。一方、**コンテンツ品質 DoD「音声化する価値に近い」は writer (DeepSeek) の 300字超過問題により未達**。T22 観察は設計意図どおり**実運用でしか出ない 2 defects を捕捉**した (= 観察フェーズの成功)。
+
+**次アクション (この観察から導かれる修正)**:
+1. **writer 300字遵守** (確定根因): writer プロンプトに明示的な字数バジェット (上限より厳しめ) + 再生成フィードバックに現在文字数/超過分を含める。低リスク・コスト不変・設計保存の修正。
+2. **canonical URL 横断 dedup**: 選定段階で同一正規化 URL のトピックを 1 本に統合。
+3. (人間判断) 上記 1 で不十分なら writer モデル差し替え or `TOPIC_CHAR_LIMIT` 緩和 (TTS 尺・コストに影響)。

@@ -1,15 +1,15 @@
-# 引き継ぎ書 (HANDOFF) — 2026-06-13 更新
+# 引き継ぎ書 (HANDOFF) — 2026-06-14 更新 (T22 完了)
 
 > **これは時点スナップショットである** (いずれ陳腐化する)。恒久的な運用手順は [ORCHESTRATION_RUNBOOK.md](./ORCHESTRATION_RUNBOOK.md)、真の進捗記憶は [PROJECT_STATE.md](./PROJECT_STATE.md)。
 > 用途: オーケストレーター交代時に「今どこで・次に何をすべきか」を 5 分で把握する。
 
 ## 1. 30 秒サマリー
 
-**華流テック通信 (中華圏テック AI ポッドキャストのニュース番組) は本番稼働中。** 収集 → LLM 編集 → 台本生成 → Discord 配信のパイプライン (Sprint 1A + 1B) が完成し、実 LLM API (MiMo + DeepSeek) で variant A 配信が始まっている。残るは Sprint 1B の品質観察 (T22) の 3 日完走と、その後の人間判断のみ。
+**華流テック通信 (中華圏テック AI ポッドキャストのニュース番組) は本番稼働中。** 収集 → LLM 編集 → 台本生成 → Discord 配信のパイプライン (Sprint 1A + 1B) が完成し、実 LLM API (MiMo + DeepSeek) で variant A 配信中。**T22 3日観察 (06-12〜14) 完了** — インフラ DoD 全達成。ただし観察が **2 defects を捕捉**: writer (DeepSeek) の 300字超過による台本テンプレ落ち (品質 DoD 未達) と、canonical URL 横断 dedup 欠落。これらの修正が「音声化する価値」到達の前提。
 
-- **ブランチ**: `agent/T22-impl` (最新コミット `3336462`、origin に push 済み)
+- **ブランチ**: `agent/T22-impl` (T22 観察 docs)。2 defects 修正は別ブランチで実施。
 - **品質ゲート**: pytest 242 / ruff / mypy strict すべて緑
-- **次の自動アクション**: T22 Day 2 (06-13 朝) / Day 3 (06-14 朝) のスケジュール自動実行
+- **次のアクション**: ① T22 観察 PR を人間マージ ② 2 defects を TDD 修正 (実装 OpenCode 委任→Codex→QA) ③ Sprint 2 は人間 Go 後
 
 ## 2. 完成済み (動くもの)
 
@@ -18,22 +18,27 @@
 | Sprint 1A (収集基盤) | ✅ 完全終了。3 日連続稼働・Discord HTTP 204・main マージ済み | TEST_LOG, PR #1-9 |
 | Sprint 1B (LLM 編集・台本) | ✅ T12-T21 実装・**PR #10 マージ済み** (main `b76f6c4`) | REVIEW_REPORT (Codex PASS), QA_REPORT (Antigravity PASS) |
 | T13 (実 API 接続) | ✅ 完了。MiMo `https://api.xiaomimimo.com/v1` / `mimo-v2.5-pro`、DeepSeek 接続確認 | PROJECT_STATE 2026-06-12 |
-| T22 (3 日品質観察) | 🔄 Day 2/3 完了 (Day2 は手動補完)。Day 3 は 06-14。**観察中の懸案: writer(DeepSeek) の生成成否が日で振れる (Day1=0/5→Day2=4/5 が template)** | TEST_LOG |
+| T22 (3 日品質観察) | ✅ 完了 (06-14)。インフラ DoD 全達成・6/6 Discord 配信成功。**品質 DoD は writer 300字超過で未達** (template率 0→80→100%)。横断 dedup 欠落も発見 | TEST_LOG T22 総括 |
 
 ## 3. 残作業 (完成までの正確な経路)
 
 ```
-[06-13 朝] T22 Day 2 自動実行 ──┐
-[06-14 朝] T22 Day 3 自動実行 ──┤→ 3日総括 + DoD 更新 + Sprint 1B 完了 PR 自動作成
-                                 │
-[人間] Sprint 1B 完了 PR を merge ← ★人間専権ゲート (AI 不可)
-                                 │
-[人間] Sprint 2 Go 判断 ────────← ★人間専権ゲート (判断材料は §4 に準備済み)
-                                 │
-[Go 後] agent/T23-impl で Sprint 2 (音声化) 着手 → RUNBOOK §3 の委任サイクル
+[完了] T22 3日観察 → インフラ DoD 達成 + 2 defects 捕捉
+   │
+[AI] 2 defects を別ブランチで TDD 修正 (実装 OpenCode→Codex レビュー→Antigravity QA)
+   │   ① writer 300字遵守 (プロンプト字数バジェット + 再生成フィードバック強化)
+   │   ② canonical URL 横断 dedup (選定段階)
+   │
+[AI] 修正後 draft 再実行で template 率改善を検証
+   │
+[人間] T22 観察 PR + 2 defects 修正 PR を merge ← ★人間専権ゲート (AI 不可)
+   │
+[人間] Sprint 2 Go 判断 ────────────────────← ★人間専権ゲート (材料は §4)
+   │
+[Go 後] agent/T2x-impl で Sprint 2 (音声化) 着手 → RUNBOOK §3 の委任サイクル
 ```
 
-**重要**: 上記の人間ゲート 2 つは AI が代替できない。T22 は 3 *暦日* の観察設計であり短縮不可。「準備完了・実行待ち」が規則内で到達できる最大状態。
+**重要**: merge と Sprint 2 Go は AI が代替できない人間ゲート。2 defects の修正は AI が実施可能 (Sprint 1B 品質範囲、TTS 未着手なので §3.4 非該当)。
 
 ## 4. 人間判断待ち (材料は準備済み — 人間の入力のみ必要)
 

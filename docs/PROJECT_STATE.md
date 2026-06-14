@@ -1,11 +1,11 @@
 # プロジェクト状態
 
-> 最終更新: 2026-06-12 / 更新者: Claude Code (PR #10 マージ確認 + T22 Day 2/3 自動実行設定)
+> 最終更新: 2026-06-14 / 更新者: Claude Code (T22 完了 — 3日観察で writer 品質と横断 dedup の 2 defects 捕捉)
 > 本ファイルは全エージェントが随時更新する。**Antigravity の内部記憶ではなくここを真の記憶とする** (WORKFLOW §13)。
 
 ## 現在のフェーズ
 
-**Sprint 1B 仕上げ — PR #10 マージ済み・T22 Day 1/3 完了** — T12〜T21 実装済み (pytest 242 / カバレッジ 96%)、Codex レビュー PASS + Antigravity QA PASS。**PR #10 は 2026-06-12 01:41 JST に人間承認で squash マージ済み (main `b76f6c4`。ブランチ先端とツリー一致 = T13 完了・T22 Day 1 証跡も取り込み済み)**。2026-06-12 に T13 接続 smoke 完了 → variant A (editor=MiMo, writer=DeepSeek) で本番初配信成功 (候補40→採用5、editor JSON 安定 100%、Discord 着弾、16.5k tokens/エピソード)。**残: T22 Day 2 (06-13)・Day 3 (06-14) — ローカルスケジュールタスク (各日 07:47 JST、`~/.claude/scheduled-tasks/t22-day{2,3}-observation`) で自動実行を設定済み。Day 3 完了時に Sprint 1B 完了 PR を自動作成 (merge は人間)**。T22 完了で Sprint 1B 全 DoD 達成 → Sprint 2 (TTS) 解禁。
+**Sprint 1B インフラ完了・T22 3日観察完了 (06-12〜14) — writer 品質修正が残** — T12〜T21 実装済み・PR #10 マージ済み (main `b76f6c4`)・T13 実 API 接続完了。**T22 3日観察を完走** (collect→draft→evaluate→Discord、6/6 投稿成功)。結論: **インフラ DoD は全達成** (3-5本選定/Markdown台本/ソース一覧/A-B-C記録/Discord投稿/fail-open 実証)、**コンテンツ品質 DoD「音声化する価値」は未達** — T22 が実運用でしか出ない **2 defects を捕捉**: ① **writer (DeepSeek) が `TOPIC_CHAR_LIMIT=300` を一貫超過** し template 落ち (Day1 0/5→Day2 4/5→Day3 5/5、DB 診断で根因確定。editor=MiMo は JSON 100% 安定で無実) ② **canonical URL 横断 dedup 欠落** (同一記事が別 source_id 経由で同一エピソードに 2 回採用、Day 3 発見)。**次: ① Sprint 1B 完了 (T22 観察) PR を人間マージ ② 2 defects を別ブランチで TDD 修正 (実装 OpenCode 委任) → Codex/QA → 修正後に「音声化する価値」再評価 ③ Sprint 2 (TTS) は人間 Go 後 (writer 修正と並行可)**。詳細は [TEST_LOG.md](./TEST_LOG.md) T22 3日間総括。
 
 | ステップ | 状態 |
 |---|---|
@@ -42,7 +42,7 @@
 | Ticket T20 (A/B/C 比較ログ集計) | ✅ 実装完了 (2026-06-11)。`edit/abtest.py`。採用率/修正回数/コスト/JSON安定性の variant 別集計 |
 | Ticket T21 (CLI draft/evaluate + Discord 台本投稿) | ✅ 実装完了 (2026-06-11)。`script/runner.py` (統合, editor 崩壊時 neutral fallback) + `deliver/discord.py` post_markdown (2000字チャンク) + CLI 2コマンド。実DB `draft --dry-run` スモーク済み |
 | Ticket T13 (MiMo/DeepSeek 実接続 smoke) | ✅ **完了 (2026-06-12)**。人間が API 契約・キー設定 → 両系統疎通。mimo 実 endpoint `https://api.xiaomimimo.com/v1` / model `mimo-v2.5-pro` 確定 (config 修正)。deepseek-chat は実体 deepseek-v4-flash |
-| Ticket T22 (3日間の台本品質観察) | 🔄 **Day 2/3 完了 (2026-06-13)**。Day1: 候補40→採用5 (llm=5/template=0)。Day2: 候補30→採用5 (llm=1/**template=4**)・7/9ソース・fail-open実証 (Docker停止でjuejin2本失敗も完走)。**editor(MiMo) JSON 安定 100% 継続、writer(DeepSeek) の生成成否が日で大きく振れる**(Day1=0/5→Day2=4/5 がtemplate)。残: Day 3 (06-14、総括+DoD+PR) |
+| Ticket T22 (3日間の台本品質観察) | ✅ **完了 (2026-06-14、3日完走)**。Day1: 候補40→採用5 (llm=5/t=0)。Day2: 候補30→採用5 (llm=1/**t=4**)・7/9ソース・fail-open実証。Day3: 候補40→採用5 (llm=0/**t=5**)・9/9ソース。**結論: editor(MiMo) JSON 100% 安定継続、writer(DeepSeek) 300字超過で template 率 0→80→100% 悪化 (根因 DB 確定)、横断 dedup 欠落 (Day3 発見)**。インフラ DoD 全達成・コンテンツ品質は 2 defects 修正待ち |
 
 ## 作業中ブランチ
 
@@ -199,3 +199,4 @@ meeting.md / meeting2.md / tik-choco コードdump の全読に基づき作成:
 | 2026-06-12 | Claude Code | **自律オーケストレーション基盤を整備** (引き継ぎ要請対応): ① [ORCHESTRATION_RUNBOOK.md](./ORCHESTRATION_RUNBOOK.md) 新設 — 交代した AI が状態判定→次手→外部 AI 委任 (OpenCode 実装/Codex レビュー/Antigravity QA/Gemini 調査/Copilot Git) →検証→記録を人間の逐次指示なしに回す操作手順。OpenCode の正確なモデル文字列 (`opencode-go/qwen3.7-max` 等 + 無料フォールバック) と非対話呼び出しを実機確認の上で記載。② [HANDOFF.md](./HANDOFF.md) 新設 — 時点スナップショット。③ AGENTS.md 地図 + 起動時読書順に組込。**規則遵守: main 直 push せず agent/T22-impl へ。merge・Sprint 越境・人間判断は据え置き** (RUNBOOK §6 に明文化) |
 | 2026-06-13 | Claude Code | **OpenCode 委任経路を復旧** (区分 D 環境failure の自己解決): 実装委任が `UnknownError` で不通 → ログ解析で根因特定 (`NOT NULL constraint failed: session_message.seq` = OpenCode ≤1.15.0 の空セッション DB バグ) → `opencode upgrade` で 1.15.0→1.17.4 → `opencode-go/qwen3.7-max` (Go プラン) と `opencode/nemotron-3-ultra-free` (無料枠) 両方で smoke OK。RUNBOOK §3 を「稼働確認済み + 再発時の対処 (upgrade 優先)」に更新。これで実装委任 (OpenCode) / レビュー (Codex) / QA (Antigravity) / 調査 (Gemini) の 4 経路すべて稼働確認済み |
 | 2026-06-13 | Claude Code | **T22 Day 2 を手動完走** (自動実行が記録を残さず失敗していたため RUNBOOK §2 決定木に従い補完): collect 7/9・30新着・fail-open実証 (Docker停止でjuejin失敗も完走)、draft 候補30→採用5・Discord配信成功。**重要観察: writer(DeepSeek) が 5本中4本 template fallback (Day1=0/5 から悪化)、editor(MiMo) は 100% 安定継続**。TEST_LOG に Day 2 記録、人間判断待ちに writer 変動 + スケジュール信頼性を追記。fresh pytest 242/ruff/mypy strict 緑 |
+| 2026-06-14 | Claude Code | **T22 Day 3 手動完走 → T22 完了・3日観察締結** (autopilot)。colima 起動でフル 9/9 ソース観察: collect 53新着、draft 候補40→採用5 (**template=5/llm=0**)。**writer 300字超過が間欠でなく構造的と確定** (template率 0→80→100%、DB で全5本 attempts=3→300字超過を確認)。**NEW: canonical URL 横断 dedup 欠落を発見** (juejin 2ソースの同一記事が同一エピソードに2回採用)。TEST_LOG に Day3+3日総括、DoD/roadmap を実績更新 (インフラ✅/品質は条件付き)。スケジュール自動実行は Day2/3 とも無音失敗 → 機構の不安定を確定。次: 観察 PR 作成 (人間マージ) + 2 defects を別ブランチで TDD 修正 |
