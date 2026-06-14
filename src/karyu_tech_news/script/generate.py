@@ -74,7 +74,7 @@ def build_writer_prompts(topic: JudgedTopic) -> tuple[str, str]:
         "**Action:** リスナーが取れる行動 — 注目ポイント、追うべきリポジトリやイベント\n"
         "制約:\n"
         f"- 全体で {WRITER_CHAR_BUDGET} 文字以内 (空白除く) に必ず収める"
-        "。長くなる場合は説明を削って短くする (上限は 300 文字、これは厳守)\n"
+        f"。長くなる場合は説明を削って短くする (上限は {TOPIC_CHAR_LIMIT} 文字、これは厳守)\n"
         "- 中国語固有名詞はカナ表記にし、初出のみ括弧で原語併記 (例: ディープシーク (DeepSeek))\n"
         "- 記事本文の転載禁止。要約と HAL 自身の解説のみ\n"
         "- 出典 URL・Source 行を本文に入れない\n"
