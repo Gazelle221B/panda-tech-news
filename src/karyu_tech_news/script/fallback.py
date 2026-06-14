@@ -20,6 +20,7 @@ from pydantic import BaseModel
 from karyu_tech_news.edit.judge import ChatClient, JudgedTopic
 from karyu_tech_news.llm.client import LLMError
 from karyu_tech_news.script.generate import (
+    WRITER_CHAR_BUDGET,
     build_writer_prompts,
     validate_topic_script,
 )
@@ -97,7 +98,8 @@ def generate_with_fallback(client: ChatClient, topic: JudgedTopic) -> TopicScrip
         if attempt == 2:
             prompt_user = (
                 f"{user}\n\n前回の出力には次の契約違反がありました。"
-                f"修正して書き直してください: {'; '.join(violations_first)}"
+                f"修正して書き直してください: {'; '.join(violations_first)}\n"
+                f"特に文字数は空白除き {WRITER_CHAR_BUDGET} 文字以内に必ず短縮すること。"
             )
         try:
             body = client.chat(system=system, user=prompt_user).content

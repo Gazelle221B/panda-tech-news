@@ -17,7 +17,10 @@ from pydantic import BaseModel
 
 from karyu_tech_news.edit.judge import ChatClient, JudgedTopic
 
-TOPIC_CHAR_LIMIT = 300  # show_format.yaml topic_structure.char_limit_jp (空白除く)
+TOPIC_CHAR_LIMIT = 300  # show_format.yaml topic_structure.char_limit_jp (空白除く)。ハード検証値
+# writer プロンプトに提示する目標予算。ハード上限より厳しめにしてマージンを取る
+# (T22 観察: DeepSeek が 300 字ちょうどを狙うと一貫超過し template 落ちした defect 対策)
+WRITER_CHAR_BUDGET = 260
 PROMPT_TITLE_LIMIT = 180
 PROMPT_SUMMARY_LIMIT = 420
 CHARS_PER_MINUTE = 300  # 日本語読み上げの目安 (推定尺用)
@@ -70,7 +73,8 @@ def build_writer_prompts(topic: JudgedTopic) -> tuple[str, str]:
         "**Insight:** なぜ重要か — 日本のリスナー視点での意味\n"
         "**Action:** リスナーが取れる行動 — 注目ポイント、追うべきリポジトリやイベント\n"
         "制約:\n"
-        "- 全体で 300 文字以内 (空白除く)\n"
+        f"- 全体で {WRITER_CHAR_BUDGET} 文字以内 (空白除く) に必ず収める"
+        f"。長くなる場合は説明を削って短くする (上限は {TOPIC_CHAR_LIMIT} 文字、これは厳守)\n"
         "- 中国語固有名詞はカナ表記にし、初出のみ括弧で原語併記 (例: ディープシーク (DeepSeek))\n"
         "- 記事本文の転載禁止。要約と HAL 自身の解説のみ\n"
         "- 出典 URL・Source 行を本文に入れない\n"
