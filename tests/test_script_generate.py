@@ -9,6 +9,7 @@ from karyu_tech_news.edit.prescore import ScoredCandidate
 from karyu_tech_news.llm.client import LLMResponse
 from karyu_tech_news.script.generate import (
     TOPIC_CHAR_LIMIT,
+    WRITER_CHAR_BUDGET,
     EpisodeScript,
     assemble_episode,
     build_writer_prompts,
@@ -53,6 +54,15 @@ def _topic(
         tone=tone,
         corroboration_count=corroboration,
     )
+
+
+# ---------- writer char budget (T22 defect①: DeepSeek 300字超過対策) ----------
+
+def test_writer_prompt_uses_char_budget() -> None:
+    # writer プロンプトはハード上限(300)より厳しい予算を提示してマージンを取る
+    assert WRITER_CHAR_BUDGET < TOPIC_CHAR_LIMIT
+    system, _ = build_writer_prompts(_topic())
+    assert str(WRITER_CHAR_BUDGET) in system
 
 
 # ---------- script_char_count ----------

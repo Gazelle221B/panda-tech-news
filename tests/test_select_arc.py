@@ -21,6 +21,7 @@ def _topic(
     source_id: str = "src-a",
     category: str = "AI",
     fetched_at: datetime = NOW,
+    canonical_url_hash: str = "",
 ) -> JudgedTopic:
     return JudgedTopic(
         candidate=ScoredCandidate(
@@ -33,7 +34,7 @@ def _topic(
             fetched_at=fetched_at,
             tier=tier,
             category=category,
-            canonical_url_hash="",
+            canonical_url_hash=canonical_url_hash,
             prescore=0,
         ),
         llm_score=score,
@@ -61,6 +62,29 @@ def test_select_keeps_tier3_with_two_sources() -> None:
 def test_select_drops_tier4_without_corroboration() -> None:
     topics = [_topic(1, tier=4, corroboration=1, score=99)]
     assert select_topics(topics) == []
+
+
+def test_select_dedupes_same_canonical_url_across_sources() -> None:
+    # 同一記事が別ソース経由で別 item_id になっても、同一エピソードに2回採用しない
+    # (T22 Day3 発見: juejin 2ソースの同一記事が2回採用された defect)
+    topics = [
+        _topic(1, source_id="s1", score=90, canonical_url_hash="dup"),
+        _topic(2, source_id="s2", score=80, canonical_url_hash="dup"),
+        _topic(3, source_id="s3", score=70, canonical_url_hash="other"),
+    ]
+    selected = select_topics(topics)
+    ids = [t.candidate.item_id for t in selected]
+    assert ids == [1, 3]  # item 2 は item 1 と同一 canonical_url のため除外
+
+
+def test_select_does_not_dedupe_empty_hash() -> None:
+    # 空 hash (link 無し等) は裏取り不能なので別記事扱い — 誤 dedup しない (judge.py と整合)
+    topics = [
+        _topic(1, source_id="s1", score=90, canonical_url_hash=""),
+        _topic(2, source_id="s2", score=80, canonical_url_hash=""),
+    ]
+    selected = select_topics(topics)
+    assert [t.candidate.item_id for t in selected] == [1, 2]
 
 
 def test_select_orders_by_llm_score() -> None:

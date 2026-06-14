@@ -13,7 +13,7 @@ from karyu_tech_news.script.fallback import (
     fallback_topic_script,
     generate_with_fallback,
 )
-from karyu_tech_news.script.generate import validate_topic_script
+from karyu_tech_news.script.generate import WRITER_CHAR_BUDGET, validate_topic_script
 
 NOW = datetime(2026, 6, 10, 7, 0, tzinfo=UTC)
 
@@ -24,6 +24,12 @@ VALID_BODY = (
 )
 
 INVALID_BODY = "ただの要約テキスト。Hook も Insight も無い。"
+
+# 構造は正しいが空白除き 300 字を超える本文 (DeepSeek の冗長出力を模す)
+_FILLER = "詳細な背景説明をここに長々と書き連ねていきます" * 8
+OVER_LIMIT_BODY = (
+    f"**Hook:** {_FILLER}\n**Insight:** {_FILLER}\n**Action:** {_FILLER}"
+)
 
 
 def _topic(
@@ -119,6 +125,18 @@ def test_generate_with_fallback_retry_with_feedback() -> None:
     # 2回目の user プロンプトに違反フィードバックが含まれる
     second_user = client.chat.call_args_list[1].kwargs["user"]
     assert "違反" in second_user
+
+
+def test_retry_feedback_includes_char_budget() -> None:
+    # T22 defect①: 300字超過時の再生成プロンプトに字数予算(260)を明示し短縮を促す
+    client = _client_returning(OVER_LIMIT_BODY, VALID_BODY)
+
+    result = generate_with_fallback(client, _topic())
+
+    assert result.method == "llm_retry"
+    assert result.attempts == 2
+    second_user = client.chat.call_args_list[1].kwargs["user"]
+    assert str(WRITER_CHAR_BUDGET) in second_user
 
 
 def test_generate_with_fallback_template_when_llm_keeps_failing() -> None:
