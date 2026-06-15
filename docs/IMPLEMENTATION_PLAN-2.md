@@ -50,7 +50,7 @@ mix/master.py         # -16 LUFS 正規化 + mp3 192kbps/48kHz 出力
 
 | ID | 内容 | 成果物 | 依存 |
 |---|---|---|---|
-| T23 | `TTSEngine` Protocol + 設定駆動エンジン選択 (FR-090)。モック駆動 | `tts/engine.py` | なし |
+| T23 | ✅ **実装済 (2026-06-14)** `TTSEngine` Protocol + 設定駆動エンジン選択 (FR-090)。モック駆動 | `tts/engine.py` | なし |
 | T24 | Irodori-TTS-Server 接続 smoke (実行環境・声リファレンスは **§6 ブロッカー**) | `tts/irodori.py` + smoke | T23, **§6** |
 | T25 | 構造化台本 JSON 化 (マーカー分割、tone 引き継ぎ。LLM に JSON を書かせない) | `script/structure.py` | なし |
 | T26 | 読み仮名辞書 + テキスト正規化 (FR-092: 中国企業名/モデル名/人名/ゲーム名/アニメ名/地名) | `tts/normalize.py` `config/reading_dict.yaml` | T25 |
