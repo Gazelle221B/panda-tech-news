@@ -6,6 +6,7 @@ kokoro-onnx は optional 依存のため、テストでは backend を注入し�
 from __future__ import annotations
 
 import io
+import sys
 import wave
 
 import pytest
@@ -43,7 +44,7 @@ def test_floats_to_wav_clips_out_of_range() -> None:
 
 # ---------- KokoroTTSEngine (backend 注入) ----------
 
-def _fake_synth(text: str, voice: str) -> tuple[list[float], int]:
+def _fake_synth(text: str, voice: str, speed: float) -> tuple[list[float], int]:
     return [0.1] * len(text), 24000  # 文字数ぶんのダミーサンプル
 
 
@@ -68,8 +69,21 @@ def test_kokoro_synthesize_returns_wav() -> None:
     assert _nframes(res.audio) == 3  # "あいう" 3文字
 
 
+def test_kokoro_passes_speed_to_backend() -> None:
+    captured: list[float] = []
+
+    def _rec(text: str, voice: str, speed: float) -> tuple[list[float], int]:
+        captured.append(speed)
+        return [0.0], 24000
+
+    KokoroTTSEngine(synth=_rec).synthesize(
+        SynthesisRequest(text="x", voice_id="jf_alpha", speed=1.3)
+    )
+    assert captured == [1.3]  # req.speed がバックエンドへ伝播 (T32 話速調整の土台)
+
+
 def test_kokoro_backend_exception_wrapped_as_ttserror() -> None:
-    def _boom(text: str, voice: str) -> tuple[list[float], int]:
+    def _boom(text: str, voice: str, speed: float) -> tuple[list[float], int]:
         raise RuntimeError("model error")
 
     eng = KokoroTTSEngine(synth=_boom)
@@ -77,8 +91,9 @@ def test_kokoro_backend_exception_wrapped_as_ttserror() -> None:
         eng.synthesize(SynthesisRequest(text="x", voice_id="jf_alpha"))
 
 
-def test_kokoro_missing_dependency_raises_ttserror() -> None:
-    # backend 未注入 + kokoro-onnx 未導入 → 合成時に TTSError (CI で導入なしを想定)
+def test_kokoro_missing_dependency_raises_ttserror(monkeypatch: pytest.MonkeyPatch) -> None:
+    # kokoro_onnx の import を強制失敗させ、未導入時 TTSError を hermetic に固定
+    monkeypatch.setitem(sys.modules, "kokoro_onnx", None)
     eng = KokoroTTSEngine()
     with pytest.raises(TTSError):
         eng.synthesize(SynthesisRequest(text="x", voice_id="jf_alpha"))

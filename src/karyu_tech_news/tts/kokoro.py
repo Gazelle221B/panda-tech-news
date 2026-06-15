@@ -28,8 +28,8 @@ KOKORO_SAMPLE_RATE = 24000  # Kokoro の出力 sample rate
 KOKORO_DEFAULT_VOICE = "jf_alpha"  # 日本語女性プリセット (HAL 用に試聴で確定, ADR-0006)
 KOKORO_MAX_CHARS = 500
 
-# backend: (text, voice) -> (float サンプル列 [-1,1], sample_rate)
-SynthBackend = Callable[[str, str], tuple[Sequence[float], int]]
+# backend: (text, voice, speed) -> (float サンプル列 [-1,1], sample_rate)
+SynthBackend = Callable[[str, str, float], tuple[Sequence[float], int]]
 
 
 def floats_to_wav(samples: Sequence[float], sample_rate: int) -> bytes:
@@ -75,8 +75,10 @@ class KokoroTTSEngine:
         voices = os.environ.get("KOKORO_VOICES_PATH", "voices-v1.0.bin")
         kokoro = Kokoro(model, voices)
 
-        def _run(text: str, voice: str) -> tuple[Sequence[float], int]:
-            samples, sample_rate = kokoro.create(text, voice=voice, lang="ja")
+        def _run(text: str, voice: str, speed: float) -> tuple[Sequence[float], int]:
+            samples, sample_rate = kokoro.create(
+                text, voice=voice, speed=speed, lang="ja"
+            )
             return samples, sample_rate
 
         self._synth = _run
@@ -100,7 +102,7 @@ class KokoroTTSEngine:
     def synthesize(self, req: SynthesisRequest) -> SynthesisResult:
         voice = req.voice_id or self._voice
         try:
-            samples, sample_rate = self._backend()(req.text, voice)
+            samples, sample_rate = self._backend()(req.text, voice, req.speed)
         except TTSError:
             raise  # 遅延ロード失敗はそのまま
         except Exception as exc:  # 実合成中の任意の失敗を TTSError に正規化 (fail-open は呼び出し側)
