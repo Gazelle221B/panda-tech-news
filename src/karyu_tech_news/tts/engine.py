@@ -12,12 +12,15 @@ ADR-0006 の決定:
 from __future__ import annotations
 
 import hashlib
+import io
+import wave
 from typing import Protocol, runtime_checkable
 
 from pydantic import BaseModel, field_validator
 
 MOCK_SAMPLE_RATE = 48000  # mp3 192kbps/48kHz 想定 (要件 §17.6) に合わせたモック値
 MOCK_MAX_CHARS = 2000  # 1 リクエストの目安上限 (長文は T28 で文単位分割)
+MOCK_FRAMES_PER_CHAR = 16  # モック音声長 = 文字数 × これ (テスト用に小さく)
 
 
 class TTSError(Exception):
@@ -100,10 +103,21 @@ class MockTTSEngine:
         )
 
     def synthesize(self, req: SynthesisRequest) -> SynthesisResult:
+        # 有効な 16bit/mono/48kHz の wav を返す (内容・長さは入力から決定的に導く)。
+        # 実 wav なので T28 の wave ベース結合がモック駆動で実テストできる。
+        n_frames = max(1, len(req.text)) * MOCK_FRAMES_PER_CHAR
         seed = f"{req.voice_id}|{req.speed}|{req.text}".encode()
-        digest = hashlib.sha256(seed).digest()
+        pattern = hashlib.sha256(seed).digest()  # 入力依存 → 文ごとに異なる波形
+        nbytes = n_frames * 2  # sampwidth=2
+        raw = (pattern * (nbytes // len(pattern) + 1))[:nbytes]
+        buf = io.BytesIO()
+        with wave.open(buf, "wb") as w:
+            w.setnchannels(1)
+            w.setsampwidth(2)
+            w.setframerate(MOCK_SAMPLE_RATE)
+            w.writeframes(raw)
         return SynthesisResult(
-            audio=b"MOCKWAV" + digest,
+            audio=buf.getvalue(),
             sample_rate=MOCK_SAMPLE_RATE,
             audio_format="wav",
         )
