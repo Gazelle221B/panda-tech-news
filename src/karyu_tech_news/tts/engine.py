@@ -110,7 +110,9 @@ class MockTTSEngine:
 
 
 # FR-090: エンジン選択は設定 (エンジン名) で解決する。実エンジンは登録するだけで増やせる。
-# Irodori は T24 で `_ENGINES["irodori"]` に登録する (実行環境・声の人間判断後)。
+# registry のキーは config/hal_persona.yaml の `primary_engine` 値と一致させる
+# (現状 `irodori-tts-v3`)。T24 で `_ENGINES["irodori-tts-v3"]` に実 Irodori を登録し、
+# 設定値が解決できる契約テストを足す (実行環境・声リファレンスの人間判断後)。
 _ENGINES: dict[str, TTSEngine] = {
     "mock": MockTTSEngine(),
 }
