@@ -357,3 +357,42 @@ QA の目的は **「受け入れ条件 (要件側) を満たしているか」*
 - なし。すべてのドキュメント整備と整合性検証が完了し、QA PASS とする。
 
 
+## Sprint 2 音声化パイプライン (T25-T28) モック駆動最終 QA (検収日: 2026-06-15)
+
+### 最終動作確認 (要件 §15.3 / IMPLEMENTATION_PLAN-2 DoD)
+
+- [x] `TTSEngine` Protocol / MockTTSEngine を用いたモック駆動合成・結合ができる
+- [x] 構造化台本 JSON が segment 構造（intro/topic/outro）に基づいて正しく生成される ([structure.py](file:///Users/kairyon/projects/panda-tech-news/src/karyu_tech_news/script/structure.py))
+- [x] 読み仮名辞書が定義され、最長一致1パス置換によるテキスト正規化が適用される ([normalize.py](file:///Users/kairyon/projects/panda-tech-news/src/karyu_tech_news/tts/normalize.py))
+- [x] ASCII原語グロス「カナ (原語)」が TTS 合成前に正しく除去される ([normalize.py](file:///Users/kairyon/projects/panda-tech-news/src/karyu_tech_news/tts/normalize.py))
+- [x] 感情スタイルを表す絵文字注釈が、capabilities ゲートに基づき適切に文末（句点の直前）に挿入される ([annotate.py](file:///Users/kairyon/projects/panda-tech-news/src/karyu_tech_news/tts/annotate.py))
+- [x] 長文テキストが str 単位（コードポイント単位）で安全に文分割され、バイト単位での切り詰めが発生しない ([synthesize.py](file:///Users/kairyon/projects/panda-tech-news/src/karyu_tech_news/tts/synthesize.py))
+- [x] 1文の合成失敗（TTSError）時も処理を中断せず、残りの文を合成・結合する fail-open 処理が機能する ([synthesize.py](file:///Users/kairyon/projects/panda-tech-news/src/karyu_tech_news/tts/synthesize.py))
+- [x] 複数 wav 結合時に、パラメータ（ch/幅/sample rate）が不一致の wav チャンクを skip する安全網が機能する ([synthesize.py](file:///Users/kairyon/projects/panda-tech-news/src/karyu_tech_news/tts/synthesize.py))
+- [x] 全文が失敗した場合でも、下流がクラッシュしない有効な 0 フレームの無音 wav が返される ([synthesize.py](file:///Users/kairyon/projects/panda-tech-news/src/karyu_tech_news/tts/synthesize.py))
+- [x] テストがすべてグリーン (pytest 298 passed / Ruff clean / Mypy strict clean)
+
+### UI/UX
+
+- 音声ファイル出力はモックによる合成結果（入力依存の決定的ダミーWAV）を確認。
+- 音声再生長、サンプリングレートなどのメタデータ、波形結合の一貫性をテストアサーションレベルで検証完了。
+
+### 回帰
+
+- 既存機能影響: なし。
+  - collect/draft パイプラインを担う既存モジュール（`main.py`、`collect/`、`edit/`、`store/` 等）へのコード変更は 0 件。
+  - 既存テストもリグレッションなく 100% 通過している。
+
+### 整合性確認
+
+- `docs/PROJECT_STATE.md` ↔ 実装差分: 整合（T25-T28 の完了が正しく記述されている）
+- `docs/IMPLEMENTATION_PLAN-2.md` ↔ 実装差分: 整合（DoD 条件に合致）
+- `docs/QA_REPORT.md` / `docs/PROJECT_STATE.md` の更新: 本QA結果を反映
+
+### 未解決リスク
+
+- **実 TTS 接続 (T24)**: Kokoro-ONNX / Irodori などの実エンジン接続は T24 (依存ライブラリの追加・実機テスト) で解消予定。本 PR ではモック駆動のため未実装。
+- **BGM/ジングル素材 (T29)**: pydub+ffmpeg による仮ミックス処理は T29 以降。
+- **mp3 配信方法 (T31)**: 25MB 超の外部ストレージ接続および Discord 投稿は T31 以降。
+
+
