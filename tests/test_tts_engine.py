@@ -7,6 +7,7 @@ ADR-0006 の TTSEngine 抽象化 + FR-090 設定駆動エンジン選択を検�
 from __future__ import annotations
 
 import pytest
+from pydantic import ValidationError
 
 from karyu_tech_news.tts.engine import (
     Capabilities,
@@ -27,8 +28,9 @@ def test_synthesis_request_defaults() -> None:
 
 
 def test_synthesis_request_rejects_empty_text() -> None:
-    # 入力検証は境界で fail fast (coding-style §Input Validation)
-    with pytest.raises(ValueError):
+    # 入力検証は境界で fail fast (coding-style §Input Validation)。
+    # pydantic は ValidationError (ValueError サブクラス) を送出 — config/llm の慣習に合わせ明示。
+    with pytest.raises(ValidationError):
         SynthesisRequest(text="", voice_id="hal")
 
 
