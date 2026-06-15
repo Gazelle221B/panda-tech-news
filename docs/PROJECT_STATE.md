@@ -1,11 +1,13 @@
 # プロジェクト状態
 
-> 最終更新: 2026-06-14 / 更新者: Claude Code (T22 完了 — 3日観察で writer 品質と横断 dedup の 2 defects 捕捉)
+> 最終更新: 2026-06-14 / 更新者: Claude Code (Sprint 1B 完全終了・マージ済み → Sprint 2 着手 T23)
 > 本ファイルは全エージェントが随時更新する。**Antigravity の内部記憶ではなくここを真の記憶とする** (WORKFLOW §13)。
 
 ## 現在のフェーズ
 
-**Sprint 1B インフラ完了・T22 3日観察完了 (06-12〜14) — writer 品質修正が残** — T12〜T21 実装済み・PR #10 マージ済み (main `b76f6c4`)・T13 実 API 接続完了。**T22 3日観察を完走** (collect→draft→evaluate→Discord、6/6 投稿成功)。結論: **インフラ DoD は全達成** (3-5本選定/Markdown台本/ソース一覧/A-B-C記録/Discord投稿/fail-open 実証)、**コンテンツ品質 DoD「音声化する価値」は未達** — T22 が実運用でしか出ない **2 defects を捕捉**: ① **writer (DeepSeek) が `TOPIC_CHAR_LIMIT=300` を一貫超過** し template 落ち (Day1 0/5→Day2 4/5→Day3 5/5、DB 診断で根因確定。editor=MiMo は JSON 100% 安定で無実) ② **canonical URL 横断 dedup 欠落** (同一記事が別 source_id 経由で同一エピソードに 2 回採用、Day 3 発見)。**2 defects は 2026-06-14 に TDD 修正済み ([PR #12](https://github.com/Gazelle221B/panda-tech-news/pull/12)、`agent/T22-fixes-impl`): ① WRITER_CHAR_BUDGET=260 + 再生成フィードバック強化 ② canonical_url_hash 横断 dedup。pytest 246 緑・Codex PASS・Antigravity QA PASS。経験的検証で template 率 100%→40%・重複解消を確認**。**残 (人間判断のみ): ① [PR #11](https://github.com/Gazelle221B/panda-tech-news/pull/11) (T22 観察 docs) と [PR #12](https://github.com/Gazelle221B/panda-tech-news/pull/12) (品質修正) のマージ承認 ② マージ後 1 日 draft で「音声化する価値」最終評価 ③ Sprint 2 (TTS) Go 判断**。詳細は [TEST_LOG.md](./TEST_LOG.md) T22 3日間総括。
+**Sprint 1B 完全終了 (マージ済み) → Sprint 2 (音声化) 着手中** — Sprint 1B は PR #10/#11/#12 すべて main にマージ済み (main `16d03ed`)。T22 3日観察で捕捉した 2 defects (writer 300字超過 / canonical URL 横断 dedup) は修正・Codex PASS・QA PASS を経てマージ済み。**writer 修正後の台本品質を確認**: LLM 生成トピックは Hook/Insight/Action・カナ化+原語併記・日本リスナー視点の洞察を満たし「音声化する価値」水準 (template fallback も健全)。**Sprint 1B 全 DoD 達成**。
+**Sprint 2 着手 (2026-06-14)**: マージ + 人間「進めてください」を Go と解釈。**T23 (TTSEngine Protocol + 設定駆動エンジン選択 FR-090) を実装** (`tts/engine.py` + MockTTSEngine、エンジン非依存・モック駆動、pytest 257 緑)。Sprint 2 の非ブロッカー部 (T23/T25/T26/T27/T28) はモック駆動で先行実装可能 (1B の T13 方式)。
+**残 (人間ブロッカー)**: ① **T24 実 Irodori 接続の実行環境** (GPU/クラウド/課金 or Kokoro fallback) ② **HAL 声リファレンス試聴確定** (ADR-0006) ③ T29 BGM/ジングル素材。詳細は [IMPLEMENTATION_PLAN-2.md §6](./IMPLEMENTATION_PLAN-2.md)。
 
 | ステップ | 状態 |
 |---|---|
@@ -43,6 +45,8 @@
 | Ticket T21 (CLI draft/evaluate + Discord 台本投稿) | ✅ 実装完了 (2026-06-11)。`script/runner.py` (統合, editor 崩壊時 neutral fallback) + `deliver/discord.py` post_markdown (2000字チャンク) + CLI 2コマンド。実DB `draft --dry-run` スモーク済み |
 | Ticket T13 (MiMo/DeepSeek 実接続 smoke) | ✅ **完了 (2026-06-12)**。人間が API 契約・キー設定 → 両系統疎通。mimo 実 endpoint `https://api.xiaomimimo.com/v1` / model `mimo-v2.5-pro` 確定 (config 修正)。deepseek-chat は実体 deepseek-v4-flash |
 | Ticket T22 (3日間の台本品質観察) | ✅ **完了 (2026-06-14、3日完走)**。Day1: 候補40→採用5 (llm=5/t=0)。Day2: 候補30→採用5 (llm=1/**t=4**)・7/9ソース・fail-open実証。Day3: 候補40→採用5 (llm=0/**t=5**)・9/9ソース。**結論: editor(MiMo) JSON 100% 安定継続、writer(DeepSeek) 300字超過で template 率 0→80→100% 悪化 (根因 DB 確定)、横断 dedup 欠落 (Day3 発見)**。インフラ DoD 全達成・コンテンツ品質は 2 defects 修正待ち |
+| **Sprint 1B 全 DoD** | ✅ **完全終了 (2026-06-14、PR #10/#11/#12 マージ済 main `16d03ed`)**。2 defects 修正後の台本は「音声化する価値」水準を確認 |
+| Ticket T23 (TTSEngine Protocol + 設定駆動エンジン選択) | ✅ 実装完了 (2026-06-14)。`tts/engine.py` — Protocol (synthesize/voices/name/capabilities) + データモデル + MockTTSEngine + `select_engine` (FR-090)。エンジン非依存・モック駆動。pytest 257 緑 / ruff / mypy strict clean。Codex レビュー待ち |
 
 ## 作業中ブランチ
 
@@ -201,3 +205,5 @@ meeting.md / meeting2.md / tik-choco コードdump の全読に基づき作成:
 | 2026-06-13 | Claude Code | **T22 Day 2 を手動完走** (自動実行が記録を残さず失敗していたため RUNBOOK §2 決定木に従い補完): collect 7/9・30新着・fail-open実証 (Docker停止でjuejin失敗も完走)、draft 候補30→採用5・Discord配信成功。**重要観察: writer(DeepSeek) が 5本中4本 template fallback (Day1=0/5 から悪化)、editor(MiMo) は 100% 安定継続**。TEST_LOG に Day 2 記録、人間判断待ちに writer 変動 + スケジュール信頼性を追記。fresh pytest 242/ruff/mypy strict 緑 |
 | 2026-06-14 | Claude Code | **T22 Day 3 手動完走 → T22 完了・3日観察締結** (autopilot)。colima 起動でフル 9/9 ソース観察: collect 53新着、draft 候補40→採用5 (**template=5/llm=0**)。**writer 300字超過が間欠でなく構造的と確定** (template率 0→80→100%、DB で全5本 attempts=3→300字超過を確認)。**NEW: canonical URL 横断 dedup 欠落を発見** (juejin 2ソースの同一記事が同一エピソードに2回採用)。TEST_LOG に Day3+3日総括、DoD/roadmap を実績更新 (インフラ✅/品質は条件付き)。スケジュール自動実行は Day2/3 とも無音失敗 → 機構の不安定を確定。次: 観察 PR 作成 (人間マージ) + 2 defects を別ブランチで TDD 修正 |
 | 2026-06-14 | Claude Code | **T22 観察 PR #11 作成 + 2 defects 修正 PR #12 完了** (autopilot)。PR #11: Copilot レビュー 4 件対応 (ステータス同期/表記/可搬性) + 全スレッド resolve。PR #12 (`agent/T22-fixes-impl`、最新 main から分岐・code+tests のみ): defect① WRITER_CHAR_BUDGET=260 + 再生成フィードバック強化 / defect② canonical_url_hash 横断 dedup。**実装はインライン (OpenCode 委任は seq バグでないハング+並行編集汚染のため撤退、git reset で復旧)**。pytest 246 緑、**Codex 独立レビュー PASS + Antigravity QA PASS**。経験的検証 (draft #5): template 率 100%→40%・全 canonical hash ユニーク (重複解消)。残: 人間マージ承認のみ |
+| 2026-06-14 | 人間 | **PR #11 + #12 を承認マージ** → main `16d03ed`。Sprint 1B 完全終了。「進めてください」で Sprint 2 着手を指示 |
+| 2026-06-14 | Claude Code | **Sprint 2 着手 — T23 (TTSEngine Protocol) 実装** (autopilot)。ADR-0006 のエンジン抽象を `tts/engine.py` に実装: `TTSEngine` Protocol (runtime_checkable) + Voice/Capabilities/SynthesisRequest(空text検証)/SynthesisResult + MockTTSEngine (決定的・モック駆動) + `select_engine` (FR-090 設定駆動)。テスト11件。pytest 257 / ruff / mypy strict (51 files) 緑。**非ブロッカー部 (T23/T25-T28) はモック駆動で継続可。T24 (実 Irodori) は実行環境・声の人間ブロッカー待ち** |
