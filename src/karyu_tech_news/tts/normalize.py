@@ -32,6 +32,18 @@ def load_reading_dict(path: Path) -> dict[str, str]:
     return flat
 
 
+# 「カナ (原語)」表記の原語グロスを除去する用 (半角/全角括弧 + ASCII 中身)。
+# 台本は読みやすさのため「ディープシーク (DeepSeek)」と書くが、TTS では原語を
+# 読み上げない & 読み辞書で二重読みになるため、合成前に括弧グロスを落とす
+# (Codex レビュー指摘)。中身が日本語の括弧 (意味的補足) は残す。
+_ASCII_GLOSS_RE = re.compile(r"\s*[（(][ -~]+[）)]")
+
+
+def strip_ascii_gloss(text: str) -> str:
+    """「カナ (原語)」の ASCII 原語グロスを除去する (TTS 入力前処理)."""
+    return _ASCII_GLOSS_RE.sub("", text)
+
+
 def normalize_text(text: str, reading_dict: dict[str, str]) -> str:
     """text 中の既知用語を読み仮名へ置換する (TTS 発音用).
 

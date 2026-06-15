@@ -64,8 +64,14 @@ def test_concat_wav_sums_frames() -> None:
     assert _nframes(combined) == _nframes(a) + _nframes(b)
 
 
-def test_concat_wav_empty_returns_empty() -> None:
-    assert concat_wav([]) == b""
+def test_concat_wav_empty_returns_valid_silent_wav() -> None:
+    # 空入力でも有効な無音 wav (0フレーム) を返す (下流が wave.open で落ちない)
+    assert _nframes(concat_wav([])) == 0
+
+
+def test_split_keeps_annotated_emoji_with_sentence() -> None:
+    # T27 が句点直前に挿入した絵文字は分割で単独文にならない (Codex High 回帰)
+    assert split_sentences("深刻です😟。", 100) == ["深刻です😟。"]
 
 
 # ---------- synthesize_script ----------
@@ -136,4 +142,29 @@ def test_synthesize_script_all_fail_returns_empty_audio() -> None:
             raise TTSError("always fails")
 
     res = synthesize_script(_script(("文。", "neutral")), _DeadEngine(), {})
-    assert res.audio == b""  # 全滅でも例外を投げず空音声 (fail-open)
+    # 全滅でも例外を投げず、有効な無音 wav (0フレーム) を返す (下流が wave.open 可能)
+    assert _nframes(res.audio) == 0
+
+
+def test_synthesize_strips_ascii_gloss_before_synth() -> None:
+    # 「カナ (原語)」の原語グロスは TTS で読まない & 二重読み回避 (Codex Medium 回帰)
+    received: list[str] = []
+
+    class _RecordingEngine:
+        def name(self) -> str:
+            return "rec"
+
+        def voices(self) -> list[Voice]:
+            return [Voice(id="hal", name="HAL")]
+
+        def capabilities(self) -> Capabilities:
+            return Capabilities(emoji_style=False, voice_clone=False, streaming=False, max_chars=100)
+
+        def synthesize(self, req: SynthesisRequest) -> SynthesisResult:
+            received.append(req.text)
+            return MockTTSEngine().synthesize(req)
+
+    synthesize_script(_script(("ディープシーク (DeepSeek)。", "neutral")), _RecordingEngine(), {})
+    joined = "".join(received)
+    assert "(" not in joined and "DeepSeek" not in joined  # グロス除去
+    assert "ディープシーク" in joined

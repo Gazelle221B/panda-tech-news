@@ -15,7 +15,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from karyu_tech_news.edit.judge import JudgedTopic
 from karyu_tech_news.script.generate import CLOSING_PHRASE, OPENING_PHRASE
@@ -37,7 +37,9 @@ _OUTRO_TONE = "bright"  # 明るい話題で締める (アーク, design-inherit
 class Segment(BaseModel):
     """音声化の最小単位. tts レイヤーが 1 segment ずつ合成し時間軸に並べる."""
 
-    kind: SegmentKind  # architecture §4 の segment "type"
+    # architecture §4 の segment "type"。Python 内部は `kind`、JSON 出力 (by_alias=True)
+    # では設計文書どおり "type" を出す。
+    kind: SegmentKind = Field(serialization_alias="type")
     text: str
     tone: str
     bgm: str

@@ -7,7 +7,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from karyu_tech_news.tts.normalize import load_reading_dict, normalize_text
+from karyu_tech_news.tts.normalize import (
+    load_reading_dict,
+    normalize_text,
+    strip_ascii_gloss,
+)
 
 DICT_PATH = Path("config/reading_dict.yaml")
 
@@ -41,6 +45,21 @@ def test_normalize_empty_dict_unchanged() -> None:
 def test_normalize_multiple_terms() -> None:
     d = {"小米": "シャオミ", "華為": "ファーウェイ"}
     assert normalize_text("小米と華為", d) == "シャオミとファーウェイ"
+
+
+# ---------- ASCII 原語グロス除去 ----------
+
+def test_strip_ascii_gloss_removes_paren_original() -> None:
+    assert strip_ascii_gloss("ディープシーク (DeepSeek)") == "ディープシーク"
+
+
+def test_strip_ascii_gloss_handles_fullwidth_parens() -> None:
+    assert strip_ascii_gloss("ジーフー（Zhipu AI）") == "ジーフー"
+
+
+def test_strip_ascii_gloss_keeps_japanese_parens() -> None:
+    # 中身が日本語の括弧 (意味的補足) は残す
+    assert strip_ascii_gloss("脳機接口（ブレイン）") == "脳機接口（ブレイン）"
 
 
 # ---------- 辞書ロード ----------

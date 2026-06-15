@@ -105,3 +105,9 @@ def test_structured_script_is_json_serializable() -> None:
 def test_segment_model_defaults_voice() -> None:
     seg = Segment(kind="topic", text="x", tone="neutral", bgm="neutral")
     assert seg.voice == "HAL"
+
+
+def test_segment_serializes_kind_as_type_alias() -> None:
+    # architecture §4 の JSON 契約: segment field は "type" (by_alias=True)
+    seg = Segment(kind="topic", text="x", tone="neutral", bgm="neutral")
+    assert seg.model_dump(by_alias=True)["type"] == "topic"

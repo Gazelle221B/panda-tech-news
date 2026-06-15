@@ -24,12 +24,25 @@ from karyu_tech_news.tts.engine import (
     TTSEngine,
     TTSError,
 )
-from karyu_tech_news.tts.normalize import normalize_text
+from karyu_tech_news.tts.normalize import normalize_text, strip_ascii_gloss
 
 logger = logging.getLogger(__name__)
 
+DEFAULT_SAMPLE_RATE = 48000  # 空結合時の無音 wav 用 (要件 §17.6)
+
 # 句点・感嘆・疑問で文を切る (区切り文字は前文に残す)。改行は区切り扱い。
 _SENTENCE_RE = re.compile(r"[^。！？\n]*[。！？]|[^。！？\n]+")
+
+
+def _silent_wav(sample_rate: int = DEFAULT_SAMPLE_RATE) -> bytes:
+    """0 フレームの有効な wav (16bit/mono). 合成全滅時も下流が wave.open できるよう返す."""
+    out = io.BytesIO()
+    with wave.open(out, "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(sample_rate)
+        w.writeframes(b"")
+    return out.getvalue()
 
 
 def split_sentences(text: str, max_chars: int) -> list[str]:
@@ -48,17 +61,30 @@ def split_sentences(text: str, max_chars: int) -> list[str]:
 
 
 def concat_wav(chunks: list[bytes]) -> bytes:
-    """複数の wav バイト列を 1 本に結合する (先頭チャンクのパラメータに揃える)."""
+    """複数の wav バイト列を 1 本に結合する (先頭チャンクのパラメータに揃える).
+
+    - 空入力でも**有効な無音 wav** を返す (下流が wave.open で落ちないように)。
+    - 2 本目以降でパラメータ (ch/幅/sample rate) が先頭と異なる chunk はログ付きで
+      skip する (異 sample rate を混ぜると速度の壊れた音声になるため, Codex レビュー指摘)。
+    """
     if not chunks:
-        return b""
+        return _silent_wav()
     out = io.BytesIO()
+    params: tuple[int, int, int] | None = None
     with wave.open(out, "wb") as writer:
-        for i, chunk in enumerate(chunks):
+        for chunk in chunks:
             with wave.open(io.BytesIO(chunk), "rb") as reader:
-                if i == 0:
-                    writer.setnchannels(reader.getnchannels())
-                    writer.setsampwidth(reader.getsampwidth())
-                    writer.setframerate(reader.getframerate())
+                cur = (reader.getnchannels(), reader.getsampwidth(), reader.getframerate())
+                if params is None:
+                    params = cur
+                    writer.setnchannels(cur[0])
+                    writer.setsampwidth(cur[1])
+                    writer.setframerate(cur[2])
+                elif cur != params:
+                    logger.warning(
+                        "wav パラメータ不一致 %s != %s, skip (fail-open)", cur, params
+                    )
+                    continue
                 writer.writeframes(reader.readframes(reader.getnframes()))
     return out.getvalue()
 
@@ -75,7 +101,8 @@ def synthesize_script(
     chunks: list[bytes] = []
     sample_rate = MOCK_SAMPLE_RATE
     for seg in script.segments:
-        normalized = normalize_text(seg.text, reading_dict)
+        # 「カナ (原語)」の原語グロスを落としてから読み仮名正規化 (二重読み回避)
+        normalized = normalize_text(strip_ascii_gloss(seg.text), reading_dict)
         for sentence in split_sentences(normalized, max_chars):
             try:
                 res = engine.synthesize(

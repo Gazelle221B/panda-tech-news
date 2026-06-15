@@ -36,10 +36,13 @@ def _script() -> StructuredScript:
 
 # ---------- annotate_text ----------
 
-def test_annotate_text_appends_emoji_for_known_tone() -> None:
-    out = annotate_text("テスト。", "hard_negative", MAP)
-    assert out.startswith("テスト。")
-    assert out.endswith("😟")  # 文末に絵文字 (先頭候補を決定的に採用)
+def test_annotate_text_inserts_emoji_before_final_punctuation() -> None:
+    # 句点の直前に挿入 (文末の後ろだと T28 分割で絵文字が単独文になる)
+    assert annotate_text("テスト。", "hard_negative", MAP) == "テスト😟。"
+
+
+def test_annotate_text_appends_when_no_trailing_punctuation() -> None:
+    assert annotate_text("テスト", "hard_negative", MAP) == "テスト😟"
 
 
 def test_annotate_text_neutral_unchanged() -> None:
@@ -56,8 +59,8 @@ def test_annotate_text_deterministic() -> None:
 def test_annotate_script_enabled_annotates_by_tone() -> None:
     out = annotate_script(_script(), MAP, emoji_enabled=True)
     by_kind = {s.kind: s for s in out.segments}
-    assert by_kind["topic"].text.endswith("😟")  # hard_negative
-    assert by_kind["outro"].text.endswith("✨")  # bright
+    assert "😟。" in by_kind["topic"].text  # hard_negative, 句点直前
+    assert "✨。" in by_kind["outro"].text  # bright, 句点直前
     assert by_kind["intro"].text == "おはようございます。"  # neutral 無注釈
 
 

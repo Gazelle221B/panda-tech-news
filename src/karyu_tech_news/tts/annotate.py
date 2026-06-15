@@ -30,15 +30,23 @@ def load_emoji_annotation(persona_path: Path) -> dict[str, list[str]]:
     return result
 
 
+_SENTENCE_END = ("。", "！", "？")
+
+
 def annotate_text(text: str, tone: str, mapping: dict[str, list[str]]) -> str:
     """tone に対応する絵文字を 1 個、文末に決定的に付ける (候補先頭を採用).
 
-    mapping に無い tone (neutral 等) は無注釈で返す。
+    末尾が句点なら**句点の直前**に挿入する。文末句点の後ろに付けると T28 の
+    文分割で絵文字が単独文になり、スタイル制御が対象文から剥がれるため
+    (Codex レビュー指摘)。mapping に無い tone (neutral 等) は無注釈で返す。
     """
     emojis = mapping.get(tone)
     if not emojis:
         return text
-    return f"{text}{emojis[0]}"
+    emoji = emojis[0]
+    if text and text[-1] in _SENTENCE_END:
+        return f"{text[:-1]}{emoji}{text[-1]}"
+    return f"{text}{emoji}"
 
 
 def annotate_script(
