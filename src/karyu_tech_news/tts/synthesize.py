@@ -18,7 +18,6 @@ import wave
 
 from karyu_tech_news.script.structure import StructuredScript
 from karyu_tech_news.tts.engine import (
-    MOCK_SAMPLE_RATE,
     SynthesisRequest,
     SynthesisResult,
     TTSEngine,
@@ -99,7 +98,6 @@ def synthesize_script(
     """構造化台本を 1 本の wav に合成する (正規化 → 文分割 → 合成 → 結合, fail-open)."""
     max_chars = engine.capabilities().max_chars
     chunks: list[bytes] = []
-    sample_rate = MOCK_SAMPLE_RATE
     for seg in script.segments:
         # 「カナ (原語)」の原語グロスを落としてから読み仮名正規化 (二重読み回避)
         normalized = normalize_text(strip_ascii_gloss(seg.text), reading_dict)
@@ -112,7 +110,8 @@ def synthesize_script(
                 logger.warning("synth failed (fail-open), skipped: %s", exc)
                 continue
             chunks.append(res.audio)
-            sample_rate = res.sample_rate
-    return SynthesisResult(
-        audio=concat_wav(chunks), sample_rate=sample_rate, audio_format="wav"
-    )
+    combined = concat_wav(chunks)
+    # sample_rate は結合済み wav のヘッダから読む (chunk skip 時もメタデータが実値と一致)
+    with wave.open(io.BytesIO(combined), "rb") as r:
+        sample_rate = r.getframerate()
+    return SynthesisResult(audio=combined, sample_rate=sample_rate, audio_format="wav")

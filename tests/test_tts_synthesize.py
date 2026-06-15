@@ -127,6 +127,40 @@ def test_synthesize_script_fail_open_on_sentence_error() -> None:
     assert _nframes(res.audio) > 0  # 「正常。」の音声は残る
 
 
+def test_synthesize_result_sample_rate_matches_wav_header() -> None:
+    # chunk skip (異 sample rate) があっても返却 sample_rate は実 wav ヘッダと一致 (Codex Med 回帰)
+    def _wav(rate: int) -> bytes:
+        buf = io.BytesIO()
+        with wave.open(buf, "wb") as w:
+            w.setnchannels(1)
+            w.setsampwidth(2)
+            w.setframerate(rate)
+            w.writeframes(b"\x00\x00" * 10)
+        return buf.getvalue()
+
+    class _MixedRateEngine:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def name(self) -> str:
+            return "mixed"
+
+        def voices(self) -> list[Voice]:
+            return [Voice(id="hal", name="HAL")]
+
+        def capabilities(self) -> Capabilities:
+            return Capabilities(emoji_style=False, voice_clone=False, streaming=False, max_chars=100)
+
+        def synthesize(self, req: SynthesisRequest) -> SynthesisResult:
+            self.calls += 1
+            rate = 48000 if self.calls == 1 else 24000  # 2文目だけ異 rate
+            return SynthesisResult(audio=_wav(rate), sample_rate=rate)
+
+    res = synthesize_script(_script(("一文目。二文目。", "neutral")), _MixedRateEngine(), {})
+    with wave.open(io.BytesIO(res.audio), "rb") as r:
+        assert res.sample_rate == r.getframerate() == 48000  # 先頭 chunk に揃う
+
+
 def test_synthesize_script_all_fail_returns_empty_audio() -> None:
     class _DeadEngine:
         def name(self) -> str:
