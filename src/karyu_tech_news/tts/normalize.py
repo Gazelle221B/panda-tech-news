@@ -26,8 +26,10 @@ def load_reading_dict(path: Path) -> dict[str, str]:
             if not isinstance(category, dict):
                 continue
             for term, reading in category.items():
-                term_s, reading_s = str(term), str(reading)
-                if term_s and reading_s:
+                if term is None or reading is None:
+                    continue  # YAML null は除外 ('None' 文字列化を防ぐ, Copilot 指摘)
+                term_s, reading_s = str(term).strip(), str(reading).strip()
+                if term_s and reading_s:  # strip 後の空文字も落とす
                     flat[term_s] = reading_s
     return flat
 

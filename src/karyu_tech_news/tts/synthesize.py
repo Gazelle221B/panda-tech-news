@@ -46,6 +46,8 @@ def _silent_wav(sample_rate: int = DEFAULT_SAMPLE_RATE) -> bytes:
 
 def split_sentences(text: str, max_chars: int) -> list[str]:
     """text を文に分割する. max_chars を超える文は str 単位でさらに分割する."""
+    if max_chars <= 0:  # engine が誤って 0/負を返した場合に分かりやすく失敗 (Copilot 指摘)
+        raise ValueError(f"max_chars は正である必要があります: {max_chars}")
     sentences: list[str] = []
     for raw in _SENTENCE_RE.findall(text):
         s = raw.strip()
@@ -65,26 +67,33 @@ def concat_wav(chunks: list[bytes]) -> bytes:
     - 空入力でも**有効な無音 wav** を返す (下流が wave.open で落ちないように)。
     - 2 本目以降でパラメータ (ch/幅/sample rate) が先頭と異なる chunk はログ付きで
       skip する (異 sample rate を混ぜると速度の壊れた音声になるため, Codex レビュー指摘)。
+    - 壊れた wav chunk (wave.Error/EOFError) もログ付きで skip する (fail-open, Copilot 指摘)。
     """
-    if not chunks:
-        return _silent_wav()
-    out = io.BytesIO()
     params: tuple[int, int, int] | None = None
-    with wave.open(out, "wb") as writer:
-        for chunk in chunks:
+    parsed: list[bytes] = []
+    for chunk in chunks:
+        try:
             with wave.open(io.BytesIO(chunk), "rb") as reader:
                 cur = (reader.getnchannels(), reader.getsampwidth(), reader.getframerate())
-                if params is None:
-                    params = cur
-                    writer.setnchannels(cur[0])
-                    writer.setsampwidth(cur[1])
-                    writer.setframerate(cur[2])
-                elif cur != params:
-                    logger.warning(
-                        "wav パラメータ不一致 %s != %s, skip (fail-open)", cur, params
-                    )
-                    continue
-                writer.writeframes(reader.readframes(reader.getnframes()))
+                frames = reader.readframes(reader.getnframes())
+        except (wave.Error, EOFError) as exc:
+            logger.warning("壊れた wav chunk を skip (fail-open): %s", exc)
+            continue
+        if params is None:
+            params = cur
+        elif cur != params:
+            logger.warning("wav パラメータ不一致 %s != %s, skip (fail-open)", cur, params)
+            continue
+        parsed.append(frames)
+    if params is None:  # 有効 chunk ゼロ (空入力 or 全破損) → 有効な無音 wav
+        return _silent_wav()
+    out = io.BytesIO()
+    with wave.open(out, "wb") as writer:
+        writer.setnchannels(params[0])
+        writer.setsampwidth(params[1])
+        writer.setframerate(params[2])
+        for frames in parsed:
+            writer.writeframes(frames)
     return out.getvalue()
 
 

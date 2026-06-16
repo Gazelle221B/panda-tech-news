@@ -76,3 +76,13 @@ def test_load_reading_dict_usable_for_normalize() -> None:
     d = load_reading_dict(DICT_PATH)
     term, reading = next(iter(d.items()))
     assert normalize_text(term, d) == reading
+
+
+def test_load_reading_dict_excludes_null_and_blank(tmp_path: Path) -> None:
+    # YAML の null / 空白キー・値を除外 (Copilot 指摘: 'None' 文字列化・空白キー化を防ぐ)
+    p = tmp_path / "rd.yaml"
+    p.write_text(
+        "companies:\n  小米: シャオミ\n  空値: null\n  '   ': トリム\n  華為: '  '\n",
+        encoding="utf-8",
+    )
+    assert load_reading_dict(p) == {"小米": "シャオミ"}
