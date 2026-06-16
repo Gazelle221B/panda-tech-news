@@ -362,14 +362,14 @@ QA の目的は **「受け入れ条件 (要件側) を満たしているか」*
 ### 最終動作確認 (要件 §15.3 / IMPLEMENTATION_PLAN-2 DoD)
 
 - [x] `TTSEngine` Protocol / MockTTSEngine を用いたモック駆動合成・結合ができる
-- [x] 構造化台本 JSON が segment 構造（intro/topic/outro）に基づいて正しく生成される ([structure.py](file:///Users/kairyon/projects/panda-tech-news/src/karyu_tech_news/script/structure.py))
-- [x] 読み仮名辞書が定義され、最長一致1パス置換によるテキスト正規化が適用される ([normalize.py](file:///Users/kairyon/projects/panda-tech-news/src/karyu_tech_news/tts/normalize.py))
-- [x] ASCII原語グロス「カナ (原語)」が TTS 合成前に正しく除去される ([normalize.py](file:///Users/kairyon/projects/panda-tech-news/src/karyu_tech_news/tts/normalize.py))
-- [x] 感情スタイルを表す絵文字注釈が、capabilities ゲートに基づき適切に文末（句点の直前）に挿入される ([annotate.py](file:///Users/kairyon/projects/panda-tech-news/src/karyu_tech_news/tts/annotate.py))
-- [x] 長文テキストが str 単位（コードポイント単位）で安全に文分割され、バイト単位での切り詰めが発生しない ([synthesize.py](file:///Users/kairyon/projects/panda-tech-news/src/karyu_tech_news/tts/synthesize.py))
-- [x] 1文の合成失敗（TTSError）時も処理を中断せず、残りの文を合成・結合する fail-open 処理が機能する ([synthesize.py](file:///Users/kairyon/projects/panda-tech-news/src/karyu_tech_news/tts/synthesize.py))
-- [x] 複数 wav 結合時に、パラメータ（ch/幅/sample rate）が不一致の wav チャンクを skip する安全網が機能する ([synthesize.py](file:///Users/kairyon/projects/panda-tech-news/src/karyu_tech_news/tts/synthesize.py))
-- [x] 全文が失敗した場合でも、下流がクラッシュしない有効な 0 フレームの無音 wav が返される ([synthesize.py](file:///Users/kairyon/projects/panda-tech-news/src/karyu_tech_news/tts/synthesize.py))
+- [x] 構造化台本 JSON が segment 構造（intro/topic/outro）に基づいて正しく生成される ([structure.py](../src/karyu_tech_news/script/structure.py))
+- [x] 読み仮名辞書が定義され、最長一致1パス置換によるテキスト正規化が適用される ([normalize.py](../src/karyu_tech_news/tts/normalize.py))
+- [x] ASCII原語グロス「カナ (原語)」が TTS 合成前に正しく除去される ([normalize.py](../src/karyu_tech_news/tts/normalize.py))
+- [x] 感情スタイルを表す絵文字注釈が、capabilities ゲートに基づき適切に文末（句点の直前）に挿入される ([annotate.py](../src/karyu_tech_news/tts/annotate.py))
+- [x] 長文テキストが str 単位（コードポイント単位）で安全に文分割され、バイト単位での切り詰めが発生しない ([synthesize.py](../src/karyu_tech_news/tts/synthesize.py))
+- [x] 1文の合成失敗（TTSError）時も処理を中断せず、残りの文を合成・結合する fail-open 処理が機能する ([synthesize.py](../src/karyu_tech_news/tts/synthesize.py))
+- [x] 複数 wav 結合時に、パラメータ（ch/幅/sample rate）が不一致の wav チャンクを skip する安全網が機能する ([synthesize.py](../src/karyu_tech_news/tts/synthesize.py))
+- [x] 全文が失敗した場合でも、下流がクラッシュしない有効な 0 フレームの無音 wav が返される ([synthesize.py](../src/karyu_tech_news/tts/synthesize.py))
 - [x] テストがすべてグリーン (pytest 298 passed / Ruff clean / Mypy strict clean)
 
 ### UI/UX

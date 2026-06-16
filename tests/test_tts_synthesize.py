@@ -9,6 +9,8 @@ import io
 import wave
 from datetime import UTC, datetime
 
+import pytest
+
 from karyu_tech_news.script.structure import Segment, StructuredScript
 from karyu_tech_news.tts.engine import (
     Capabilities,
@@ -67,6 +69,23 @@ def test_concat_wav_sums_frames() -> None:
 def test_concat_wav_empty_returns_valid_silent_wav() -> None:
     # 空入力でも有効な無音 wav (0フレーム) を返す (下流が wave.open で落ちない)
     assert _nframes(concat_wav([])) == 0
+
+
+def test_concat_wav_skips_corrupt_chunk() -> None:
+    # 壊れた wav chunk は fail-open で skip し、正常 chunk は結合する (Copilot 指摘)
+    good = MockTTSEngine().synthesize(SynthesisRequest(text="あ", voice_id="hal")).audio
+    combined = concat_wav([good, b"not a valid wav", good])
+    assert _nframes(combined) == 2 * _nframes(good)
+
+
+def test_concat_wav_all_corrupt_returns_silent_wav() -> None:
+    assert _nframes(concat_wav([b"garbage", b"also bad"])) == 0
+
+
+def test_split_sentences_rejects_nonpositive_max_chars() -> None:
+    # engine が max_chars=0/負を返したら早期に分かりやすく失敗 (Copilot 指摘)
+    with pytest.raises(ValueError):
+        split_sentences("文。", 0)
 
 
 def test_split_keeps_annotated_emoji_with_sentence() -> None:
