@@ -18,6 +18,13 @@ dependencies = [
     "sqlalchemy>=2.0.29",
 ]
 
+# 音声化 (Sprint 2) は optional。コア (収集→台本) は依存最小のまま保つ (§5)。
+# `uv sync --extra tts` で導入。ONNX ベースで torch 不要・Apple Silicon で動く。
+[project.optional-dependencies]
+tts = [
+    "kokoro-onnx>=0.4.0",
+]
+
 [dependency-groups]
 dev = [
     "pytest>=8.1.1",

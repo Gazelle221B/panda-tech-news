@@ -133,9 +133,17 @@ _ENGINES: dict[str, TTSEngine] = {
 
 
 def select_engine(name: str) -> TTSEngine:
-    """エンジン名から `TTSEngine` を返す (FR-090). 未知名は TTSError."""
+    """エンジン名から `TTSEngine` を返す (FR-090). 未知名は TTSError.
+
+    "kokoro" は optional 依存 (extra `tts`) のため遅延 import する (循環 import 回避 +
+    未導入でも構築は可能・実バックエンドは合成時に遅延ロード)。
+    """
     engine = _ENGINES.get(name)
-    if engine is None:
-        available = ", ".join(sorted(_ENGINES)) or "(なし)"
-        raise TTSError(f"未知の TTS エンジン: {name!r} (利用可能: {available})")
-    return engine
+    if engine is not None:
+        return engine
+    if name == "kokoro":
+        from karyu_tech_news.tts.kokoro import KokoroTTSEngine
+
+        return KokoroTTSEngine()
+    available = ", ".join([*sorted(_ENGINES), "kokoro"])
+    raise TTSError(f"未知の TTS エンジン: {name!r} (利用可能: {available})")

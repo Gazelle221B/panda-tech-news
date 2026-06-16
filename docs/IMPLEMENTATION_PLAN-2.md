@@ -51,7 +51,7 @@ mix/master.py         # -16 LUFS 正規化 + mp3 192kbps/48kHz 出力
 | ID | 内容 | 成果物 | 依存 |
 |---|---|---|---|
 | T23 | ✅ **実装済 (2026-06-14)** `TTSEngine` Protocol + 設定駆動エンジン選択 (FR-090)。モック駆動 | `tts/engine.py` | なし |
-| T24 | Irodori-TTS-Server 接続 smoke (実行環境・声リファレンスは **§6 ブロッカー**) | `tts/irodori.py` + smoke | T23, **§6** |
+| T24 | 🔄 **アダプタ実装済 (2026-06-14)** Kokoro (ONNX) 接続 — 人間判断で Irodori→Kokoro fallback (Mac)。`tts/kokoro.py` (遅延 optional import, backend 注入可, numpy 非依存 wav 化) + extra `tts` (kokoro-onnx)。**実モデル smoke (extra 導入 + モデル DL + 声試聴) は人間環境で実施** | `tts/kokoro.py` + smoke | T23, **§6** |
 | T25 | ✅ **実装済 (2026-06-14)** 構造化台本 (segment 化、tone 引き継ぎ。LLM に JSON を書かせず保持済み構造から組む) | `script/structure.py` | なし |
 | T26 | ✅ **実装済 (2026-06-14)** 読み仮名辞書 + テキスト正規化 (FR-092、最長一致1パス置換) | `tts/normalize.py` `config/reading_dict.yaml` | T25 |
 | T27 | ✅ **実装済 (2026-06-14)** 絵文字注釈レイヤー (tone→絵文字、capabilities 分岐、入力非破壊) | `tts/annotate.py` | T23, T25 |
