@@ -66,7 +66,7 @@ class KokoroTTSEngine:
         if self._synth is not None:
             return self._synth
         try:
-            from kokoro_onnx import Kokoro  # type: ignore[import-not-found]
+            from kokoro_onnx import Kokoro
         except ImportError as exc:
             raise TTSError(
                 "kokoro-onnx 未導入。`uv sync --extra tts` で導入してください"
@@ -79,7 +79,7 @@ class KokoroTTSEngine:
             samples, sample_rate = kokoro.create(
                 text, voice=voice, speed=speed, lang="ja"
             )
-            return samples, sample_rate
+            return list(samples), sample_rate  # ndarray → Sequence[float] (mypy strict)
 
         self._synth = _run
         return _run

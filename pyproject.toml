@@ -58,6 +58,12 @@ strict = true
 warn_return_any = true
 warn_unused_configs = true
 
+# kokoro-onnx は optional extra `tts`。未導入の環境 (extra なし CI) でも
+# import-not-found で strict が落ちないよう missing import を許容する。
+[[tool.mypy.overrides]]
+module = "kokoro_onnx.*"
+ignore_missing_imports = true
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"
