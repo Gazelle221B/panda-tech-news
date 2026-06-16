@@ -27,7 +27,10 @@ from karyu_tech_news.tts.engine import (
 
 IRODORI_DEFAULT_BASE_URL = "http://localhost:8088"
 IRODORI_DEFAULT_VOICE = "hal"  # 声リファレンスは試聴で確定 (ADR-0006)
-IRODORI_MODEL = "Aratako/Irodori-TTS-500M-v3"
+# OpenAI 互換 API の `model` は Irodori-TTS-Server の settings.model_name (既定 "irodori-tts")
+# と一致が必要。HF checkpoint ID (Aratako/Irodori-TTS-500M-v3) はサーバ内部ロード用
+# (IRODORI_CHECKPOINT) であって API の model 値ではない (Codex レビュー指摘)。
+IRODORI_MODEL = "irodori-tts"
 IRODORI_MAX_CHARS = 2000  # サーバ側も自動チャンクするが、T28 でも文単位分割する
 TIMEOUT_SECONDS = 120.0  # TTS 合成は LLM より遅い (要件 §3.3 タイムアウト必須)
 
@@ -44,13 +47,14 @@ class IrodoriTTSEngine:
         *,
         base_url: str | None = None,
         voice: str = IRODORI_DEFAULT_VOICE,
-        model: str = IRODORI_MODEL,
+        model: str | None = None,
         api_key_env: str = "IRODORI_API_KEY",
     ) -> None:
         resolved = base_url or os.getenv("IRODORI_BASE_URL") or IRODORI_DEFAULT_BASE_URL
         self._base_url = resolved.rstrip("/")
         self._voice = voice
-        self._model = model
+        # サーバの model_name と一致させる。env で上書き可 (server 設定を変えた場合)。
+        self._model = model or os.getenv("IRODORI_MODEL") or IRODORI_MODEL
         self._api_key = os.getenv(api_key_env, "")
 
     def name(self) -> str:

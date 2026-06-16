@@ -79,15 +79,21 @@ def test_irodori_synthesize_posts_openai_shape() -> None:
     assert body["voice"] == "hal"
     assert body["response_format"] == "wav"
     assert body["speed"] == 1.2
+    assert body["model"] == "irodori-tts"  # サーバ settings.model_name と一致 (HF ID ではない)
 
 
-def test_irodori_http_error_raises_ttserror_without_leak() -> None:
+def test_irodori_http_error_raises_ttserror_without_leak(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # 実 API キーを設定し、Authorization header 経路で例外文字列に秘密が出ないことを固定
+    monkeypatch.setenv("IRODORI_API_KEY", "sk-secret-xyz")
     with (
         patch("karyu_tech_news.tts.irodori.httpx.post", return_value=_mock_resp(b"", status=500)),
         pytest.raises(TTSError) as ei,
     ):
-        IrodoriTTSEngine(api_key_env="X").synthesize(SynthesisRequest(text="x", voice_id="hal"))
-    assert "Bearer" not in str(ei.value)  # 秘密を漏らさない
+        IrodoriTTSEngine().synthesize(SynthesisRequest(text="x", voice_id="hal"))
+    assert "sk-secret-xyz" not in str(ei.value)  # 秘密を漏らさない
+    assert "Bearer" not in str(ei.value)
 
 
 def test_irodori_connect_error_raises_ttserror() -> None:
