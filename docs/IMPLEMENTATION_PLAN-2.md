@@ -52,10 +52,10 @@ mix/master.py         # -16 LUFS 正規化 + mp3 192kbps/48kHz 出力
 |---|---|---|---|
 | T23 | ✅ **実装済 (2026-06-14)** `TTSEngine` Protocol + 設定駆動エンジン選択 (FR-090)。モック駆動 | `tts/engine.py` | なし |
 | T24 | Irodori-TTS-Server 接続 smoke (実行環境・声リファレンスは **§6 ブロッカー**) | `tts/irodori.py` + smoke | T23, **§6** |
-| T25 | 構造化台本 JSON 化 (マーカー分割、tone 引き継ぎ。LLM に JSON を書かせない) | `script/structure.py` | なし |
-| T26 | 読み仮名辞書 + テキスト正規化 (FR-092: 中国企業名/モデル名/人名/ゲーム名/アニメ名/地名) | `tts/normalize.py` `config/reading_dict.yaml` | T25 |
-| T27 | 絵文字注釈レイヤー (tone→絵文字、capabilities 分岐) | `tts/annotate.py` | T23, T25 |
-| T28 | 文単位合成 + 結合 (str 単位の長文分割、失敗文 fail-open、wav 結合) | `tts/synthesize.py` | T23-T27 |
+| T25 | ✅ **実装済 (2026-06-14)** 構造化台本 (segment 化、tone 引き継ぎ。LLM に JSON を書かせず保持済み構造から組む) | `script/structure.py` | なし |
+| T26 | ✅ **実装済 (2026-06-14)** 読み仮名辞書 + テキスト正規化 (FR-092、最長一致1パス置換) | `tts/normalize.py` `config/reading_dict.yaml` | T25 |
+| T27 | ✅ **実装済 (2026-06-14)** 絵文字注釈レイヤー (tone→絵文字、capabilities 分岐、入力非破壊) | `tts/annotate.py` | T23, T25 |
+| T28 | ✅ **実装済 (2026-06-14)** 文単位合成 + 結合 (str 単位分割、失敗文 fail-open、wave 結合) | `tts/synthesize.py` | T23-T27 |
 | T29 | BGM/ジングル仮ミックス (素材は **§6 ブロッカー**。pydub + ffmpeg) | `mix/mixer.py` | T28, **§6** |
 | T30 | ラウドネス正規化 -16 LUFS + mp3 192kbps/48kHz (FR-102/103) | `mix/master.py` | T29 |
 | T31 | `audio_versions` 永続化 + CLI `produce` + Discord mp3 投稿 (25MB 超はリンク、§6) | `store/` `main.py` `deliver/discord.py` | T30 |
