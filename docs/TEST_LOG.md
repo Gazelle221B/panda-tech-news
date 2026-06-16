@@ -945,3 +945,30 @@ uv run karyu draft --profiles /tmp/karyu-e2e-profiles.yaml --variant L --db-path
 1. **writer 300字遵守** (確定根因): writer プロンプトに明示的な字数バジェット (上限より厳しめ) + 再生成フィードバックに現在文字数/超過分を含める。低リスク・コスト不変・設計保存の修正。
 2. **canonical URL 横断 dedup**: 選定段階で同一正規化 URL のトピックを 1 本に統合。
 3. (人間判断) 上記 1 で不十分なら writer モデル差し替え or `TOPIC_CHAR_LIMIT` 緩和 (TTS 尺・コストに影響)。
+
+---
+
+## Ticket T30 — ラウドネス正規化 + mp3 完パケ (2026-06-17, autopilot インライン)
+
+FR-102/103 のマスタリング層 `mix/master.py`。ffmpeg `loudnorm` (EBU R128) 2-pass で
+-16 LUFS へ正規化し mp3 192kbps/48kHz で書き出す。**計画の T29(BGM)→T30 順を判断で逆転**し、
+BGM 素材 (人間ゲート §6) を待たずに「素の音声→完パケ mp3」のエンドツーエンドを開通。
+
+**目標駆動の検証手順** (`命令 → verify`):
+1. 純ロジック (loudnorm JSON パース・フィルタ構築) を ffmpeg 非依存で実装 → verify: `pytest tests/test_mix_master.py -k "parse or build"` 緑 (4 件)。
+2. ffmpeg 統合で実 mp3 生成・正規化 → verify: tone wav を master し `measured_lufs ≈ -16 ±1.5` / 出力が mp3 / 48kHz をアサート (ffmpeg 不在は skipif で除外)。
+3. 無音入力で測定不能 (-inf) のとき単一パス dynamic に縮退 (fail-open) → verify: `_build_loudnorm_filter(None,...)` が measured_* を含まない。
+4. E2E 実 smoke (実エピソード wav): `master_to_mp3(episode_smoke2.wav)` →
+   - 入力: **-20.17 LUFS** / TP -3.66 dBTP (配信には静かすぎる素の音声)
+   - 完パケ: **-16.30 LUFS** (目標 -16.0, 誤差 0.3 LU) / TP **-1.71 dBTP** (≤ -1.5 ceiling)
+   - 尺 73.1s / 192k / 48kHz / **1.7MB** (Discord 25MB 添付上限内 → T31 配信方法判断の材料)
+
+**依存最小の判断 (§5)**: ffmpeg `loudnorm` 単体で測定+正規化+mp3化が完結するため **pydub を足さない**
+(pydub が要るのは T29 の BGM 時間軸合成)。
+
+**併せて修正した main 回帰**: `uv sync --extra tts` で kokoro-onnx 実インストール後、mypy strict が
+`tts/kokoro.py` で 2 件 (不要 `# type: ignore` / ndarray 戻り値) を検出。`[[tool.mypy.overrides]]`
+(未導入 CI 用) + 不要 ignore 削除 + `list(samples)` 変換で解消。これは PR #16 と共通の修正。
+
+**ゲート (fresh 実行)**: `pytest` **321 passed** / `ruff check .` クリーン / `mypy src tests` strict
+**Success (64 files)**。生成 mp3/wav は `data/episodes/` (git 管理外)。
