@@ -945,3 +945,15 @@ uv run karyu draft --profiles /tmp/karyu-e2e-profiles.yaml --variant L --db-path
 1. **writer 300字遵守** (確定根因): writer プロンプトに明示的な字数バジェット (上限より厳しめ) + 再生成フィードバックに現在文字数/超過分を含める。低リスク・コスト不変・設計保存の修正。
 2. **canonical URL 横断 dedup**: 選定段階で同一正規化 URL のトピックを 1 本に統合。
 3. (人間判断) 上記 1 で不十分なら writer モデル差し替え or `TOPIC_CHAR_LIMIT` 緩和 (TTS 尺・コストに影響)。
+
+## Ticket T24 — 実音声 smoke (2026-06-17, Kokoro ONNX 実機合成)
+
+> 人間が `uv sync --extra tts` で kokoro-onnx 導入 + Kokoro モデル DL を許可 (Irodori も実機で動作可と確認)。これで T24 の人間環境ブロッカーが解消 → **実音声を初生成** (T13 の音声版)。
+
+- **環境**: Kokoro モデル `kokoro-v1.0.onnx` (325MB) + `voices-v1.0.bin` (28MB) を `~/.cache/karyu-tts/` に DL。`KOKORO_MODEL_PATH`/`KOKORO_VOICES_PATH` で指定。Mac でローカル ONNX 推論 (GPU/課金不要)。
+- **単体 smoke**: `select_engine('kokoro')` → 「こんにちは。華流テック通信、本日の…」を合成 → **820KB / 24kHz / 17.1s の有効 wav**。アダプタ (`tts/kokoro.py`) + エンジン抽象が実機で動作。
+- **フルパイプライン smoke**: 構造化(T25)→読み仮名正規化(T26)→絵文字注釈(T27, kokoro は emoji 非対応でゲート off)→文分割+実合成+wav結合(T28) → **1 エピソード実音声 4MB / 73-84s**。T23-T28 全鎖が実エンジンで動作。
+- **⚠ 実音声 smoke で発見した defect (修正済み)**: 台本本文の Markdown マーカー `**Hook:**`/`**Insight:**`/`**Action:**` を TTS が「アスタリスク…」と読み上げていた (モック駆動では出ない欠陥)。→ `tts/normalize.strip_script_markup` を追加し合成前に除去。修正後、尺 83.8s→73.1s に短縮 (マーカー読み上げ分が消失)・回帰テスト追加。
+- **⚠ T32 観察項目 (要調整)**: 修正後も 73s は ~140 字に対し長すぎ (話速が遅い)。`SynthesisRequest.speed` 引き上げ or 声/lang 設定の調整を T32 聴感観察で詰める。
+- **Irodori アダプタ (ADR-0006 主軸) を実装**: `tts/irodori.py` (OpenAI 互換 `POST /v1/audio/speech` を httpx で叩く、絵文字スタイル制御対応・emoji_style=True)。`select_engine('irodori-tts-v3')` で config primary_engine と一致。実サーバ smoke は `uv run python -m irodori_openai_tts --port 8088` 起動後に実施 (人間環境)。ユニットは httpx モックで契約固定。
+- **生成 wav は `data/episodes/` (git 管理外)**。pytest 325 / ruff / mypy strict (63 files) 緑。

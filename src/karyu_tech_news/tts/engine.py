@@ -141,9 +141,13 @@ def select_engine(name: str) -> TTSEngine:
     engine = _ENGINES.get(name)
     if engine is not None:
         return engine
+    if name in ("irodori-tts-v3", "irodori"):  # ADR-0006 主軸 (config primary_engine と一致)
+        from karyu_tech_news.tts.irodori import IrodoriTTSEngine
+
+        return IrodoriTTSEngine()
     if name == "kokoro":
         from karyu_tech_news.tts.kokoro import KokoroTTSEngine
 
         return KokoroTTSEngine()
-    available = ", ".join([*sorted(_ENGINES), "kokoro"])
+    available = ", ".join([*sorted(_ENGINES), "irodori-tts-v3", "kokoro"])
     raise TTSError(f"未知の TTS エンジン: {name!r} (利用可能: {available})")

@@ -23,7 +23,11 @@ from karyu_tech_news.tts.engine import (
     TTSEngine,
     TTSError,
 )
-from karyu_tech_news.tts.normalize import normalize_text, strip_ascii_gloss
+from karyu_tech_news.tts.normalize import (
+    normalize_text,
+    strip_ascii_gloss,
+    strip_script_markup,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -108,8 +112,9 @@ def synthesize_script(
     max_chars = engine.capabilities().max_chars
     chunks: list[bytes] = []
     for seg in script.segments:
-        # 「カナ (原語)」の原語グロスを落としてから読み仮名正規化 (二重読み回避)
-        normalized = normalize_text(strip_ascii_gloss(seg.text), reading_dict)
+        # TTS 前処理: Markdown マーカー除去 → 原語グロス除去 → 読み仮名正規化
+        cleaned = strip_ascii_gloss(strip_script_markup(seg.text))
+        normalized = normalize_text(cleaned, reading_dict)
         for sentence in split_sentences(normalized, max_chars):
             try:
                 res = engine.synthesize(
