@@ -191,6 +191,53 @@ def test_post_audio_http_error_fail_open(tmp_path: Path) -> None:
         assert post_audio("https://discord/webhook", p) is False  # 落ちず False
 
 
+# Webhook URL にはトークンが含まれる。ログ・例外に漏らさないことを固定 (過去 Critical)。
+_WEBHOOK_WITH_TOKEN = "https://discord.com/api/webhooks/123/secret-token-abc"
+
+
+def test_post_audio_http_error_log_has_no_webhook_token(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    import logging
+
+    import httpx
+
+    p = tmp_path / "e.mp3"
+    p.write_bytes(b"id3audio")
+    resp = MagicMock()
+    resp.raise_for_status.side_effect = httpx.HTTPStatusError(
+        "err", request=MagicMock(), response=MagicMock(status_code=500)
+    )
+    with (
+        patch("karyu_tech_news.deliver.discord.httpx.post", return_value=resp),
+        caplog.at_level(logging.ERROR),
+    ):
+        assert post_audio(_WEBHOOK_WITH_TOKEN, p) is False
+    assert "secret-token-abc" not in caplog.text
+    assert "discord.com/api/webhooks" not in caplog.text
+    assert "500" in caplog.text  # status code は記録される
+
+
+def test_post_audio_connect_error_log_has_no_webhook_token(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    import logging
+
+    import httpx
+
+    p = tmp_path / "e.mp3"
+    p.write_bytes(b"id3audio")
+    with (
+        patch(
+            "karyu_tech_news.deliver.discord.httpx.post",
+            side_effect=httpx.ConnectError(f"failed connecting to {_WEBHOOK_WITH_TOKEN}"),
+        ),
+        caplog.at_level(logging.ERROR),
+    ):
+        assert post_audio(_WEBHOOK_WITH_TOKEN, p) is False
+    assert "secret-token-abc" not in caplog.text  # 例外文字列に URL が混ざっても漏らさない
+
+
 # ---------- T31 produce CLI ----------
 
 
@@ -261,6 +308,32 @@ def test_produce_persists_audio_version(tmp_path: Path) -> None:
         assert len(rows) == 1
         assert rows[0].engine == "mock"
         assert rows[0].sample_rate == 48000
+
+
+@pytest.mark.skipif(not _HAS_FFMPEG, reason="ffmpeg 不在")
+def test_produce_uses_config_primary_engine(tmp_path: Path) -> None:
+    # --engine 未指定なら config の tts.primary_engine を使う (Codex HIGH: voice 誤読の回帰)
+    db = tmp_path / "state.db"
+    _seed_draft(db)
+    persona = tmp_path / "persona.yaml"
+    persona.write_text("tts:\n  primary_engine: mock\n", encoding="utf-8")
+    result = runner.invoke(
+        app,
+        [
+            "produce",
+            "--dry-run",
+            "--db-path",
+            str(db),
+            "--persona",
+            str(persona),
+            "--bgm-dir",
+            str(tmp_path / "nobgm"),
+            "--out-dir",
+            str(tmp_path / "ep"),
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert "engine=mock" in result.output  # config(tts.primary_engine) 由来で mock が選ばれた
 
 
 # ---------- 回帰: エンジン既定声フォールバック (実 smoke で発見) ----------

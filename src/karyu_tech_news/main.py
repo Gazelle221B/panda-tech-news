@@ -517,16 +517,17 @@ def produce(
 
     settings = ctx.obj
 
-    # config/hal_persona.yaml から primary_engine と reading_dict パスを読む (無ければ既定)
+    # config/hal_persona.yaml の `tts` ブロックから primary_engine と reading_dict を読む。
+    # (構造は `tts: {primary_engine, reading_dict}`。Codex 指摘で `voice` 誤読を修正)
     eng_name = engine_name
     reading_path = Path("config/reading_dict.yaml")
     if persona_file.exists():
         try:
             persona = yaml.safe_load(persona_file.read_text(encoding="utf-8")) or {}
-            voice_cfg = persona.get("voice") or {}
-            eng_name = eng_name or voice_cfg.get("primary_engine")
-            if voice_cfg.get("reading_dict"):
-                reading_path = Path(voice_cfg["reading_dict"])
+            tts_cfg = persona.get("tts") or {}
+            eng_name = eng_name or tts_cfg.get("primary_engine")
+            if tts_cfg.get("reading_dict"):
+                reading_path = Path(tts_cfg["reading_dict"])
         except Exception as exc:  # noqa: BLE001
             typer.secho(
                 f"WARN: persona 読み込み失敗 (既定で続行): {type(exc).__name__}",
