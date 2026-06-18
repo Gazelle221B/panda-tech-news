@@ -15,6 +15,7 @@ from karyu_tech_news.edit.judge import JudgedTopic
 from karyu_tech_news.script.fallback import TopicScriptResult
 from karyu_tech_news.script.generate import EpisodeScript
 from karyu_tech_news.store.schema import (
+    AudioVersion,
     CollectRun,
     EpisodeDraft,
     Item,
@@ -263,3 +264,38 @@ def insert_script_versions(
                 body=result.body,
             )
         )
+
+
+def get_latest_episode_draft(session: Session) -> EpisodeDraft | None:
+    """最新の episode_draft を返す (produce の既定対象). 無ければ None."""
+    return session.execute(
+        select(EpisodeDraft).order_by(EpisodeDraft.id.desc()).limit(1)
+    ).scalar_one_or_none()
+
+
+def insert_audio_version(
+    session: Session,
+    draft_id: int,
+    *,
+    engine: str,
+    duration_sec: float,
+    lufs: float | None,
+    bitrate: str,
+    sample_rate: int,
+    path: str,
+    now: datetime,
+) -> AudioVersion:
+    """完パケ mp3 のメタを audio_versions に1行記録する (T31)."""
+    row = AudioVersion(
+        draft_id=draft_id,
+        created_at=now,
+        engine=engine,
+        duration_sec=duration_sec,
+        lufs=lufs,
+        bitrate=bitrate,
+        sample_rate=sample_rate,
+        path=path,
+    )
+    session.add(row)
+    session.flush()  # id 採番
+    return row

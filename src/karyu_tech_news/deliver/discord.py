@@ -4,6 +4,7 @@ from __future__ import annotations
 import logging
 from collections import defaultdict
 from datetime import UTC, timedelta, timezone
+from pathlib import Path
 
 import httpx
 from sqlalchemy import select
@@ -15,6 +16,8 @@ logger = logging.getLogger(__name__)
 
 JST = timezone(timedelta(hours=9))
 DISCORD_CONTENT_LIMIT = 2000  # Discord message content の上限 (コードポイント単位)
+DISCORD_FILE_LIMIT_BYTES = 25 * 1024 * 1024  # 無料 Discord の添付上限 25MB (要件 §17.6)
+AUDIO_UPLOAD_TIMEOUT = 60.0  # mp3 アップロードは要約投稿より時間がかかる
 
 
 def format_summary(session: Session, run: CollectRun) -> str:
@@ -99,6 +102,47 @@ def post_summary(webhook_url: str, content: str) -> bool:
     except Exception as exc:  # noqa: BLE001
         # 接続系例外のメッセージにも URL が混ざり得るため、例外型名のみ記録
         logger.error("Discord Webhook post failed: %s", type(exc).__name__)
+        return False
+
+
+def post_audio(webhook_url: str, mp3_path: Path, content: str = "") -> bool:
+    """完パケ mp3 を Discord に添付投稿する (T31, FR-071 で fail-open).
+
+    25MB 超は添付できないため、サイズを知らせるメッセージに degrade する
+    (外部ストレージ R2/S3 リンクは将来の選択肢, IMPLEMENTATION_PLAN-2 §6)。
+    失敗してもログのみで False を返し、produce を止めない。
+    """
+    if not webhook_url:
+        logger.warning("Discord Webhook URL is not set")
+        return False
+    if not mp3_path.exists():
+        logger.error("mp3 が見つかりません: %s", mp3_path.name)
+        return False
+    size = mp3_path.stat().st_size
+    if size > DISCORD_FILE_LIMIT_BYTES:
+        mb = size / 1024 / 1024
+        logger.warning("mp3 が %s の添付上限超過 (%.1fMB)、メッセージのみ投稿", mp3_path.name, mb)
+        return post_summary(
+            webhook_url,
+            f"{content}\n⚠️ 音声 {mp3_path.name} ({mb:.1f}MB) は 25MB 超のため添付不可。",
+        )
+    try:
+        with mp3_path.open("rb") as f:
+            resp = httpx.post(
+                webhook_url,
+                data={"content": content} if content else None,
+                files={"file": (mp3_path.name, f, "audio/mpeg")},
+                timeout=AUDIO_UPLOAD_TIMEOUT,
+            )
+        resp.raise_for_status()
+        logger.info("Discord に mp3 を添付投稿 (%s)", mp3_path.name)
+        return True
+    except httpx.HTTPStatusError as exc:
+        # 例外文字列に Webhook URL (トークン) が含まれるため status code のみ記録
+        logger.error("Discord mp3 post failed: HTTP %d", exc.response.status_code)
+        return False
+    except Exception as exc:  # noqa: BLE001
+        logger.error("Discord mp3 post failed: %s", type(exc).__name__)
         return False
 
 

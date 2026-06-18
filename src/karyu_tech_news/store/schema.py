@@ -6,6 +6,7 @@ from sqlalchemy import (
     CheckConstraint,
     Column,
     DateTime,
+    Float,
     ForeignKey,
     Index,
     Integer,
@@ -174,3 +175,24 @@ class ScriptVersion(Base):
     method = Column(String, nullable=False)  # llm | llm_retry | template
     attempts = Column(Integer, nullable=False)
     body = Column(Text, nullable=False)
+
+
+class AudioVersion(Base):
+    """audio_versions テーブル (Sprint 2 T31, IMPLEMENTATION_PLAN-2 §3).
+
+    1 回の `produce` 実行 = 1 行。完パケ mp3 のメタ (エンジン/尺/ラウドネス/パス) を
+    記録し、T32 の音声品質観察や再生成の追跡に使う。音声ファイル本体は data/episodes/
+    (git 管理外) に置き、ここにはパスのみ保持する。
+    """
+
+    __tablename__ = "audio_versions"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    draft_id = Column(Integer, ForeignKey("episode_drafts.id"), nullable=False)
+    created_at = Column(DateTime, nullable=False)
+    engine = Column(String, nullable=False)  # tts エンジン名 (mock/kokoro/irodori-tts-v3)
+    duration_sec = Column(Float, nullable=False)
+    lufs = Column(Float, nullable=True)  # 無音 fail-open 時は測定不能 (-inf) → NULL 記録
+    bitrate = Column(String, nullable=False)
+    sample_rate = Column(Integer, nullable=False)
+    path = Column(String, nullable=False)
