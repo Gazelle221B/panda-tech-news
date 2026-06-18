@@ -87,8 +87,14 @@ class IrodoriTTSEngine:
         try:
             resp = httpx.post(url, json=body, headers=headers, timeout=TIMEOUT_SECONDS)
             resp.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            # status code は秘密でなくトラブルシュート (401/429/500 等) に有用。
+            # 本文/ヘッダ/秘密は載せない。HTTPStatusError は HTTPError 派生のため先に置く。
+            raise TTSError(
+                f"Irodori 合成失敗: HTTP {exc.response.status_code}"
+            ) from exc
         except (httpx.HTTPError, httpx.TimeoutException) as exc:
-            # 秘密漏洩防止のため例外型名のみ (本文/ヘッダは載せない)
+            # 接続失敗・タイムアウト等は型名のみ (本文/ヘッダ/秘密を載せない)
             raise TTSError(f"Irodori 合成失敗: {type(exc).__name__}") from exc
         audio = resp.content
         if not audio:

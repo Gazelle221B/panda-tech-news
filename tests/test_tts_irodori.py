@@ -36,8 +36,10 @@ def _mock_resp(content: bytes, status: int = 200) -> MagicMock:
     resp = MagicMock()
     resp.content = content
     if status >= 400:
+        err_resp = MagicMock()
+        err_resp.status_code = status  # メッセージに status code が載る経路を固定
         resp.raise_for_status.side_effect = httpx.HTTPStatusError(
-            "error", request=MagicMock(), response=MagicMock()
+            "error", request=MagicMock(), response=err_resp
         )
     else:
         resp.raise_for_status.return_value = None
@@ -94,6 +96,7 @@ def test_irodori_http_error_raises_ttserror_without_leak(
         IrodoriTTSEngine().synthesize(SynthesisRequest(text="x", voice_id="hal"))
     assert "sk-secret-xyz" not in str(ei.value)  # 秘密を漏らさない
     assert "Bearer" not in str(ei.value)
+    assert "500" in str(ei.value)  # status code はトラブルシュート用に載せる (Copilot 指摘)
 
 
 def test_irodori_connect_error_raises_ttserror() -> None:

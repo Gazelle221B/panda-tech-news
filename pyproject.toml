@@ -58,10 +58,12 @@ strict = true
 warn_return_any = true
 warn_unused_configs = true
 
-# kokoro-onnx は optional 依存 + 型スタブ無し。未導入 (import-not-found) と
-# 導入時 (untyped) の両方を override で吸収する (extra tts の有無で gate が割れないように)。
+# kokoro-onnx は optional 依存。未導入 (extra tts なし) の環境でも import-not-found で
+# strict が落ちないよう missing import を許容する。コードは `from kokoro_onnx import Kokoro`
+# のトップレベル import のみ行う。`kokoro_onnx.*` (サブモジュール) は未使用で
+# warn_unused_configs のノイズになるため、トップレベルのみ指定する (Copilot 指摘)。
 [[tool.mypy.overrides]]
-module = "kokoro_onnx.*"
+module = "kokoro_onnx"
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
