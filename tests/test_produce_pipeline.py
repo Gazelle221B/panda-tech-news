@@ -261,3 +261,49 @@ def test_produce_persists_audio_version(tmp_path: Path) -> None:
         assert len(rows) == 1
         assert rows[0].engine == "mock"
         assert rows[0].sample_rate == 48000
+
+
+# ---------- 回帰: エンジン既定声フォールバック (実 smoke で発見) ----------
+
+
+def test_synthesize_script_uses_engine_default_voice() -> None:
+    """声 ID が "hal" でないエンジン (kokoro=jf_alpha) でも、その声で合成される。
+
+    "hal" 固定だと kokoro が全文 fail-open し無音になる回帰を防ぐ (実 produce smoke で発見)。
+    """
+    from datetime import UTC, datetime
+
+    from karyu_tech_news.script.structure import Segment, StructuredScript
+    from karyu_tech_news.tts.engine import (
+        Capabilities,
+        SynthesisRequest,
+        SynthesisResult,
+        Voice,
+    )
+    from karyu_tech_news.tts.synthesize import synthesize_script
+
+    seen: list[str] = []
+
+    class FakeEngine:
+        def name(self) -> str:
+            return "fake"
+
+        def voices(self) -> list[Voice]:
+            return [Voice(id="jf_alpha", name="HAL", language="ja")]
+
+        def capabilities(self) -> Capabilities:
+            return Capabilities(
+                emoji_style=False, voice_clone=False, streaming=False, max_chars=500
+            )
+
+        def synthesize(self, req: SynthesisRequest) -> SynthesisResult:
+            seen.append(req.voice_id)
+            return SynthesisResult(audio=_wav_bytes(), sample_rate=48000, audio_format="wav")
+
+    script = StructuredScript(
+        variant="A",
+        generated_at=datetime.now(UTC),
+        segments=[Segment(kind="topic", text="こんにちは。", tone="neutral", bgm="neutral")],
+    )
+    synthesize_script(script, FakeEngine(), {})
+    assert seen and all(v == "jf_alpha" for v in seen)  # "hal" でなくエンジンの既定声
