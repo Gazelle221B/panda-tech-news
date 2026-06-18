@@ -512,7 +512,7 @@ def produce(
     from karyu_tech_news.store.repo import init_db as init_database
     from karyu_tech_news.store.schema import EpisodeDraft
     from karyu_tech_news.tts.engine import TTSError, select_engine
-    from karyu_tech_news.tts.normalize import load_reading_dict
+    from karyu_tech_news.tts.normalize import load_reading_dict, strip_markdown_structure
     from karyu_tech_news.tts.synthesize import synthesize_script
 
     settings = ctx.obj
@@ -561,11 +561,17 @@ def produce(
 
         # 保存済み markdown を 1 topic segment として構造化 (JudgedTopic は非永続のため、
         # markdown 再パースの脆さを避け全体を 1 segment にする。文分割は synthesize 側)。
+        # 見出し (中国語原文タイトル) と生成メタは発話しない (要件 §9.6・editorial §1/§10)。
         script = StructuredScript(
             variant=variant,
             generated_at=now,
             segments=[
-                Segment(kind="topic", text=markdown, tone="neutral", bgm="neutral")
+                Segment(
+                    kind="topic",
+                    text=strip_markdown_structure(markdown),
+                    tone="neutral",
+                    bgm="neutral",
+                )
             ],
         )
         reading_dict = load_reading_dict(reading_path) if reading_path.exists() else {}

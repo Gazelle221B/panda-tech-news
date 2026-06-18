@@ -380,3 +380,28 @@ def test_synthesize_script_uses_engine_default_voice() -> None:
     )
     synthesize_script(script, FakeEngine(), {})
     assert seen and all(v == "jf_alpha" for v in seen)  # "hal" でなくエンジンの既定声
+
+
+# ---------- 回帰: 見出し/メタを発話しない (実 produce smoke で発見) ----------
+
+
+def test_strip_markdown_structure_drops_headers_and_meta() -> None:
+    """Markdown 見出し (中国語原文タイトル) と生成メタを発話テキストから除去する。
+
+    要件 §9.6 (中国メディア本文朗読禁止) + Kokoro の中国語誤読/尺膨張を防ぐ (実 smoke 発見)。
+    """
+    from karyu_tech_news.tts.normalize import strip_markdown_structure
+
+    md = (
+        "# 華流テック通信 — HAL Daily Briefing\n"
+        "生成日時: 2026-06-14 10:48 / LLM profile: A\n\n"
+        "華流テック通信、本日のHAL Daily Briefingです。\n\n"
+        "## 1. 智谱：GLM-5.2将面向GLM Coding Plan全量用户开放\n"
+        "智谱が、コード生成特化モデルを公開します。\n"
+    )
+    out = strip_markdown_structure(md)
+    assert "智谱：GLM-5.2将面向" not in out  # 中国語原文タイトル (見出し) は読まない
+    assert "生成日時" not in out  # ビルドメタは読まない
+    assert not out.lstrip().startswith("#")
+    assert "本日のHAL Daily Briefingです" in out  # 日本語ナレーションは残る
+    assert "コード生成特化モデルを公開します" in out
