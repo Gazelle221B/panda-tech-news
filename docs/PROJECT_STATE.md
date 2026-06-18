@@ -9,6 +9,8 @@
 **Sprint 2 着手 (2026-06-14)**: マージ + 人間「進めてください」を Go と解釈。**T23 (TTSEngine Protocol + 設定駆動エンジン選択 FR-090) を実装** (`tts/engine.py` + MockTTSEngine、エンジン非依存・モック駆動、pytest 257 緑)。Sprint 2 の非ブロッカー部 (T23/T25/T26/T27/T28) はモック駆動で先行実装可能 (1B の T13 方式)。
 **残 (人間ブロッカー)**: ① **T24 実 Irodori 接続の実行環境** (GPU/クラウド/課金 or Kokoro fallback) ② **HAL 声リファレンス試聴確定** (ADR-0006) ③ T29 BGM/ジングル素材。詳細は [IMPLEMENTATION_PLAN-2.md §6](./IMPLEMENTATION_PLAN-2.md)。
 
+**2026-06-17 更新 — 実音声生成 達成**: T23-T28 マージ済み (main `ea431e0`)。人間が `uv sync --extra tts` + Kokoro モデル DL を実施 → **実 Kokoro で初の実音声生成成功** (単体 + 全パイプライン 1 エピソード 4MB)。実 smoke が Markdown マーカー読み上げ defect を発見・修正。**Irodori 主軸アダプタ (`tts/irodori.py`, OpenAI 互換) も実装** (実サーバ smoke は人間環境)。**残: 話速調整 (T32) / T29 BGM 素材 / T30 ラウドネス・mp3 / T31 配信方法**。
+
 | ステップ | 状態 |
 |---|---|
 | 要件定義 v1.0 | ✅ 確定 |
@@ -215,3 +217,8 @@ meeting.md / meeting2.md / tik-choco コードdump の全読に基づき作成:
 | 2026-06-14 | Claude Code | **T24 Kokoro アダプタ実装** (autopilot, インライン)。`tts/kokoro.py`: KokoroTTSEngine (遅延 optional import・未導入で TTSError・backend 注入でテスト可) + `floats_to_wav` (numpy 非依存)。pyproject に extra `tts` (kokoro-onnx)。`select_engine("kokoro")` は遅延 import で循環回避。テスト8件、pytest 306 / ruff / mypy strict (61 files) 緑。**実モデル smoke (extra 導入 + モデル DL + HAL 声試聴) は人間環境ブロッカー** (T13 の音声版) |
 | 2026-06-14 | Codex | T24 ([PR #15](https://github.com/Gazelle221B/panda-tech-news/pull/15)) 独立レビュー: 初回 FAIL (uv.lock未コミット/speed未伝播/非hermeticテスト) → 修正 → **PASS**。uv lock --check 通過・kokoro-onnx 0.5.0 実API一致を確認 |
 | 2026-06-14 | Antigravity | T24 QA **PASS**。依存最小遵守 (kokoro-onnx optional)・回帰なし・実モデル接続未実行 (hermetic)・voice_clone=False。pytest 307 緑。**Sprint 2 の自律実装可能分 (T23-T28) 完了。残 T29(BGM素材)/T30(ffmpeg)/T31(配信方法)/T32(実音声観察) は全て人間ブロッカー or 重依存+実音声待ち** |
+| 2026-06-15〜16 | 人間 | PR #13/#14/#15 を順次マージ (Sprint 2 T23-T28 + Kokoro アダプタが main に)。各 stacked PR の squash 衝突は Claude が `git merge` で解消・Copilot 指摘も対応 |
+| 2026-06-17 | 人間 | `uv sync --extra tts` で kokoro-onnx 導入 + Irodori が実機 (Mac) で動作可と確認・agmsg 活用を指示 |
+| 2026-06-17 | Claude Code | **実音声生成 達成 (autopilot)**。Kokoro モデル DL → 実機合成 smoke 成功 (単体 17s + 全パイプライン 1 エピソード 4MB/73s)。**実 smoke で Markdown マーカー読み上げ defect 発見 → `strip_script_markup` で修正** (尺 83.8→73.1s)。**Irodori 主軸アダプタ `tts/irodori.py` 実装** (OpenAI 互換 httpx, `select_engine('irodori-tts-v3')` で config 一致)。kokoro-onnx 導入で顕在化した mypy 2 件も修正 (override + list()変換)。テスト計 +18 (irodori 10/markdown 4/その他)、pytest 325 / ruff / mypy strict (63 files) 緑。残: 話速調整 (T32)・T29/T30/T31 ([PR #16](https://github.com/Gazelle221B/panda-tech-news/pull/16)) |
+| 2026-06-17 | Codex | PR #16 独立レビュー FAIL (High1/Low1) → 修正 → 解消。**High: Irodori API の `model` は server の model_name (`irodori-tts`) と一致が必要** (HF checkpoint ID では 400)。Codex が上流 Irodori-TTS-Server ソースを確認して捕捉。既定を `irodori-tts` に変更 (env 上書き可) + テスト固定。Low: 秘密非漏洩テスト強化。実 API 契約の最終検証は人間環境の実サーバ smoke |
+| 2026-06-17 | Antigravity | PR #16 QA **PASS**。pytest 325/ruff/mypy 緑・回帰なし・ADR-0006/§3/§5 適合・秘密保護・Markdown 除去精度を確認。未解決リスク (既知): 話速 T32 / Irodori サーバ起動依存 / BGM 未合成。**残: 人間マージ** |
