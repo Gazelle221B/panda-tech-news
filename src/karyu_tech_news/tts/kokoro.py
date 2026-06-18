@@ -79,7 +79,7 @@ class KokoroTTSEngine:
             samples, sample_rate = kokoro.create(
                 text, voice=voice, speed=speed, lang="ja"
             )
-            return list(samples), sample_rate  # ndarray → Sequence[float] (mypy strict)
+            return list(samples), sample_rate  # ndarray → list[float] (Sequence 適合)
 
         self._synth = _run
         return _run

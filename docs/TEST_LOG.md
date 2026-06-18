@@ -948,6 +948,20 @@ uv run karyu draft --profiles /tmp/karyu-e2e-profiles.yaml --variant L --db-path
 
 ---
 
+## Ticket T24 — 実音声 smoke (2026-06-17, Kokoro ONNX 実機合成)
+
+> 人間が `uv sync --extra tts` で kokoro-onnx 導入 + Kokoro モデル DL を許可 (Irodori も実機で動作可と確認)。これで T24 の人間環境ブロッカーが解消 → **実音声を初生成** (T13 の音声版)。
+
+- **環境**: Kokoro モデル `kokoro-v1.0.onnx` (325MB) + `voices-v1.0.bin` (28MB) を `~/.cache/karyu-tts/` に DL。`KOKORO_MODEL_PATH`/`KOKORO_VOICES_PATH` で指定。Mac でローカル ONNX 推論 (GPU/課金不要)。
+- **単体 smoke**: `select_engine('kokoro')` → 「こんにちは。華流テック通信、本日の…」を合成 → **820KB / 24kHz / 17.1s の有効 wav**。アダプタ (`tts/kokoro.py`) + エンジン抽象が実機で動作。
+- **フルパイプライン smoke**: 構造化(T25)→読み仮名正規化(T26)→絵文字注釈(T27, kokoro は emoji 非対応でゲート off)→文分割+実合成+wav結合(T28) → **1 エピソード実音声 4MB / 73-84s**。T23-T28 全鎖が実エンジンで動作。
+- **⚠ 実音声 smoke で発見した defect (修正済み)**: 台本本文の Markdown マーカー `**Hook:**`/`**Insight:**`/`**Action:**` を TTS が「アスタリスク…」と読み上げていた (モック駆動では出ない欠陥)。→ `tts/normalize.strip_script_markup` を追加し合成前に除去。修正後、尺 83.8s→73.1s に短縮 (マーカー読み上げ分が消失)・回帰テスト追加。
+- **⚠ T32 観察項目 (要調整)**: 修正後も 73s は ~140 字に対し長すぎ (話速が遅い)。`SynthesisRequest.speed` 引き上げ or 声/lang 設定の調整を T32 聴感観察で詰める。
+- **Irodori アダプタ (ADR-0006 主軸) を実装**: `tts/irodori.py` (OpenAI 互換 `POST /v1/audio/speech` を httpx で叩く、絵文字スタイル制御対応・emoji_style=True)。`select_engine('irodori-tts-v3')` で config primary_engine と一致。実サーバ smoke は `uv run python -m irodori_openai_tts --port 8088` 起動後に実施 (人間環境)。ユニットは httpx モックで契約固定。
+- **生成 wav は `data/episodes/` (git 管理外)**。pytest 325 / ruff / mypy strict (63 files) 緑。
+
+---
+
 ## Ticket T30 — ラウドネス正規化 + mp3 完パケ (2026-06-17, autopilot インライン)
 
 FR-102/103 のマスタリング層 `mix/master.py`。ffmpeg `loudnorm` (EBU R128) 2-pass で
@@ -957,7 +971,7 @@ BGM 素材 (人間ゲート §6) を待たずに「素の音声→完パケ mp3�
 **目標駆動の検証手順** (`命令 → verify`):
 1. 純ロジック (loudnorm JSON パース・フィルタ構築) を ffmpeg 非依存で実装 → verify: `pytest tests/test_mix_master.py -k "parse or build"` 緑 (4 件)。
 2. ffmpeg 統合で実 mp3 生成・正規化 → verify: tone wav を master し `measured_lufs ≈ -16 ±1.5` / 出力が mp3 / 48kHz をアサート (ffmpeg 不在は skipif で除外)。
-3. 無音入力で測定不能 (-inf) のとき単一パス dynamic に縮退 (fail-open) → verify: `_build_loudnorm_filter(None,...)` が measured_* を含まない。
+3. 測定不能 (無音 -inf / 0フレーム) のとき **loudnorm をスキップし素エンコードに縮退** (真の fail-open, Codex 指摘で修正) → verify: `_build_loudnorm_filter` が None を返し、無音 wav・0フレーム wav (→短い無音退避) が valid mp3 になる統合テスト。不正バイトは `MasteringError` で区別。
 4. E2E 実 smoke (実エピソード wav): `master_to_mp3(episode_smoke2.wav)` →
    - 入力: **-20.17 LUFS** / TP -3.66 dBTP (配信には静かすぎる素の音声)
    - 完パケ: **-16.30 LUFS** (目標 -16.0, 誤差 0.3 LU) / TP **-1.71 dBTP** (≤ -1.5 ceiling)
@@ -966,9 +980,9 @@ BGM 素材 (人間ゲート §6) を待たずに「素の音声→完パケ mp3�
 **依存最小の判断 (§5)**: ffmpeg `loudnorm` 単体で測定+正規化+mp3化が完結するため **pydub を足さない**
 (pydub が要るのは T29 の BGM 時間軸合成)。
 
-**併せて修正した main 回帰**: `uv sync --extra tts` で kokoro-onnx 実インストール後、mypy strict が
-`tts/kokoro.py` で 2 件 (不要 `# type: ignore` / ndarray 戻り値) を検出。`[[tool.mypy.overrides]]`
-(未導入 CI 用) + 不要 ignore 削除 + `list(samples)` 変換で解消。これは PR #16 と共通の修正。
+**Codex 独立レビュー**: 初回 FAIL (High1: 測定不能/無音/0フレーム時の fail-open が不完全で
+libmp3lame assertion crash) → 修正 (上記 step 3) → 再レビューで実 ffmpeg/ffprobe 検証し **PASS**。
+**Antigravity QA PASS** (無音/0フレーム/実音声を実際に master_to_mp3 へ投入)。
 
-**ゲート (fresh 実行)**: `pytest` **321 passed** / `ruff check .` クリーン / `mypy src tests` strict
+**ゲート (fresh 実行)**: `pytest` **324 passed** / `ruff check .` クリーン / `mypy src tests` strict
 **Success (64 files)**。生成 mp3/wav は `data/episodes/` (git 管理外)。

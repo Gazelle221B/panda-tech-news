@@ -11,6 +11,7 @@ from karyu_tech_news.tts.normalize import (
     load_reading_dict,
     normalize_text,
     strip_ascii_gloss,
+    strip_script_markup,
 )
 
 DICT_PATH = Path("config/reading_dict.yaml")
@@ -60,6 +61,26 @@ def test_strip_ascii_gloss_handles_fullwidth_parens() -> None:
 def test_strip_ascii_gloss_keeps_japanese_parens() -> None:
     # 中身が日本語の括弧 (意味的補足) は残す
     assert strip_ascii_gloss("脳機接口（ブレイン）") == "脳機接口（ブレイン）"
+
+
+# ---------- Markdown マーカー除去 (実音声 smoke で発見) ----------
+
+def test_strip_script_markup_removes_labels() -> None:
+    body = (
+        "**Hook:** つかみです。\n**Insight:** 意味です。\n**Action:** 行動です。"
+    )
+    out = strip_script_markup(body)
+    assert "**" not in out  # ** が TTS で読み上げられない
+    assert "Hook" not in out and "Insight" not in out and "Action" not in out
+    assert "つかみです。" in out and "意味です。" in out and "行動です。" in out
+
+
+def test_strip_script_markup_handles_fullwidth_colon() -> None:
+    assert strip_script_markup("**Hook：** あ") == "あ"
+
+
+def test_strip_script_markup_noop_on_plain_text() -> None:
+    assert strip_script_markup("普通の文。") == "普通の文。"
 
 
 # ---------- 辞書ロード ----------

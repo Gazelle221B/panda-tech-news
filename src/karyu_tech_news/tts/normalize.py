@@ -46,6 +46,17 @@ def strip_ascii_gloss(text: str) -> str:
     return _ASCII_GLOSS_RE.sub("", text)
 
 
+# 台本本文の Markdown 構造マーカー (**Hook:** / **Insight:** / **Action:**) を除去する用。
+# Discord 表示には必要だが TTS では「アスタリスク アスタリスク フック コロン」と読み上げて
+# しまうため、合成前に落とす (実音声 smoke で発見, architecture §4 の script→tts 境界)。
+_SCRIPT_LABEL_RE = re.compile(r"\*\*\s*(?:Hook|Insight|Action)\s*[:：]\s*\*\*\s*")
+
+
+def strip_script_markup(text: str) -> str:
+    """TTS 前に台本の Markdown マーカーを除去する (ラベルと残存 ** を落とす)."""
+    return _SCRIPT_LABEL_RE.sub("", text).replace("**", "")
+
+
 def normalize_text(text: str, reading_dict: dict[str, str]) -> str:
     """text 中の既知用語を読み仮名へ置換する (TTS 発音用).
 

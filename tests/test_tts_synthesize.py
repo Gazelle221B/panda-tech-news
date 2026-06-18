@@ -199,6 +199,31 @@ def test_synthesize_script_all_fail_returns_empty_audio() -> None:
     assert _nframes(res.audio) == 0
 
 
+def test_synthesize_strips_markdown_markers_before_synth() -> None:
+    # **Hook:** 等の Markdown マーカーは TTS に渡さない (実音声 smoke で発見)
+    received: list[str] = []
+
+    class _RecordingEngine:
+        def name(self) -> str:
+            return "rec"
+
+        def voices(self) -> list[Voice]:
+            return [Voice(id="hal", name="HAL")]
+
+        def capabilities(self) -> Capabilities:
+            return Capabilities(emoji_style=False, voice_clone=False, streaming=False, max_chars=200)
+
+        def synthesize(self, req: SynthesisRequest) -> SynthesisResult:
+            received.append(req.text)
+            return MockTTSEngine().synthesize(req)
+
+    body = "**Hook:** つかみ。\n**Insight:** 意味。\n**Action:** 行動。"
+    synthesize_script(_script((body, "neutral")), _RecordingEngine(), {})
+    joined = "".join(received)
+    assert "**" not in joined and "Hook" not in joined  # マーカー除去済み
+    assert "つかみ" in joined and "行動" in joined  # 本文は残る
+
+
 def test_synthesize_strips_ascii_gloss_before_synth() -> None:
     # 「カナ (原語)」の原語グロスは TTS で読まない & 二重読み回避 (Codex Medium 回帰)
     received: list[str] = []

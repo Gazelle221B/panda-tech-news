@@ -58,10 +58,10 @@ strict = true
 warn_return_any = true
 warn_unused_configs = true
 
-# kokoro-onnx は optional extra `tts`。未導入の環境 (extra なし CI) でも
-# import-not-found で strict が落ちないよう missing import を許容する。コードは
-# `from kokoro_onnx import Kokoro` のトップレベル import のみ (`kokoro_onnx.*` の
-# サブモジュール指定では未カバー + warn_unused_configs のノイズになる, Copilot 指摘)。
+# kokoro-onnx は optional 依存。未導入 (extra tts なし) の環境でも import-not-found で
+# strict が落ちないよう missing import を許容する。コードは `from kokoro_onnx import Kokoro`
+# のトップレベル import のみ行う。`kokoro_onnx.*` (サブモジュール) は未使用で
+# warn_unused_configs のノイズになるため、トップレベルのみ指定する (Copilot 指摘)。
 [[tool.mypy.overrides]]
 module = "kokoro_onnx"
 ignore_missing_imports = true
