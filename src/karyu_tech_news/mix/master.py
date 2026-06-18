@@ -10,7 +10,8 @@ mp3 192kbps/48kHz で書き出す。BGM ミックス (T29) はこの前段 (mixe
   エンコード」が完結するため pydub を足さない (pydub が要るのは T29 の BGM 時間軸合成)。
 - **2-pass loudnorm**: pass1 で入力ラウドネスを測定 (print_format=json) し、pass2 で
   測定値を渡した線形補正をかける。1-pass の dynamic より integrated 目標を正確に狙える。
-- **fail-open**: 無音等で測定不能 (-inf) のときは measured_* なしの単一パスに縮退する。
+- **fail-open**: 無音等で測定不能 (-inf) や 0フレーム入力のときは loudnorm を通さず
+  素エンコードに縮退し、valid な mp3 を返す (番組を止めない)。
 - ffmpeg 呼び出しには必ずタイムアウトを付ける (AGENTS §3.3 タイムアウト必須の精神)。
 """
 from __future__ import annotations
