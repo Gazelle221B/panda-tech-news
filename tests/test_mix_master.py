@@ -50,6 +50,29 @@ def _tone_wav(
     return buf.getvalue()
 
 
+def _silence_wav(*, seconds: float = 1.0, sample_rate: int = 48000) -> bytes:
+    """無音 wav (測定不能 -inf になる入力. fail-open 縮退テスト用)."""
+    n = int(seconds * sample_rate)
+    buf = io.BytesIO()
+    with wave.open(buf, "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(sample_rate)
+        w.writeframes(b"\x00\x00" * n)
+    return buf.getvalue()
+
+
+def _zero_frame_wav(*, sample_rate: int = 48000) -> bytes:
+    """0フレーム wav (T28 が全合成失敗時に返す fail-open 産物と同型)."""
+    buf = io.BytesIO()
+    with wave.open(buf, "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(sample_rate)
+        w.writeframes(b"")
+    return buf.getvalue()
+
+
 # loudnorm pass1 の典型的な stderr 末尾 (print_format=json)
 _SAMPLE_LOUDNORM_JSON = """
 [Parsed_loudnorm_0 @ 0x600000]
@@ -99,6 +122,7 @@ def test_parse_loudnorm_stats_handles_inf_silence() -> None:
 def test_build_filter_two_pass_includes_measured() -> None:
     stats = _parse_loudnorm_stats(_SAMPLE_LOUDNORM_JSON)
     f = _build_loudnorm_filter(stats, target_i=-16.0, target_tp=-1.5, target_lra=11.0)
+    assert f is not None  # 測定可能なので 2-pass フィルタ文字列が返る (型を str に絞る)
     assert "loudnorm=" in f
     assert "I=-16.0" in f
     assert "TP=-1.5" in f
@@ -107,12 +131,22 @@ def test_build_filter_two_pass_includes_measured() -> None:
     assert "linear=true" in f
 
 
-def test_build_filter_dynamic_when_unmeasurable() -> None:
-    # 測定不能 (None or 非有限) のときは measured_* を付けない単一パス (dynamic)
-    f = _build_loudnorm_filter(None, target_i=-16.0, target_tp=-1.5, target_lra=11.0)
-    assert "loudnorm=" in f
-    assert "I=-16.0" in f
-    assert "measured_I" not in f
+def test_build_filter_none_when_unmeasurable() -> None:
+    # 測定不能 (None) のときは loudnorm を通さない (素エンコードへ縮退) → None
+    assert _build_loudnorm_filter(None, target_i=-16.0, target_tp=-1.5, target_lra=11.0) is None
+
+
+def test_build_filter_none_for_inf_stats() -> None:
+    # input_i=-inf (無音) でも None。dynamic loudnorm を無音に通すと libmp3lame が
+    # 落ちるため、素エンコードへ退避させる (Codex 指摘の fail-open 漏れ修正)。
+    silent = LoudnormStats(
+        input_i=float("-inf"),
+        input_tp=float("-inf"),
+        input_lra=0.0,
+        input_thresh=float("-inf"),
+        target_offset=0.0,
+    )
+    assert _build_loudnorm_filter(silent, target_i=-16.0, target_tp=-1.5, target_lra=11.0) is None
 
 
 # ---------- ffmpeg 統合 (skip 可) ----------
@@ -159,3 +193,21 @@ def test_master_to_mp3_creates_parent_dirs(tmp_path: Path) -> None:
 def test_master_to_mp3_raises_on_invalid_audio(tmp_path: Path) -> None:
     with pytest.raises(MasteringError):
         master_to_mp3(b"not a wav at all", tmp_path / "x.mp3")
+
+
+@_needs_ffmpeg
+def test_master_to_mp3_handles_silence(tmp_path: Path) -> None:
+    # 無音 (測定不能) でも fail-open: loudnorm をスキップしクラッシュせず valid mp3
+    out = tmp_path / "silent.mp3"
+    res = master_to_mp3(_silence_wav(seconds=1.0), out)
+    assert out.exists() and out.stat().st_size > 0
+    assert res.audio_format == "mp3"
+
+
+@_needs_ffmpeg
+def test_master_to_mp3_handles_zero_frame_wav(tmp_path: Path) -> None:
+    # T28 全滅 fail-open 産物 (0フレーム wav) → 短い無音に退避し valid mp3 を返す
+    out = tmp_path / "empty.mp3"
+    res = master_to_mp3(_zero_frame_wav(), out)
+    assert out.exists() and out.stat().st_size > 0
+    assert res.audio_format == "mp3"

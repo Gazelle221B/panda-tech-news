@@ -123,20 +123,24 @@ def _build_loudnorm_filter(
     target_i: float,
     target_tp: float,
     target_lra: float,
-) -> str:
-    """loudnorm フィルタ文字列を組む. 測定値があれば 2-pass 線形補正にする."""
-    base = f"loudnorm=I={target_i}:TP={target_tp}:LRA={target_lra}"
-    if stats is not None and _is_measurable(stats):
-        return (
-            f"{base}"
-            f":measured_I={stats.input_i}"
-            f":measured_TP={stats.input_tp}"
-            f":measured_LRA={stats.input_lra}"
-            f":measured_thresh={stats.input_thresh}"
-            f":offset={stats.target_offset}"
-            f":linear=true"
-        )
-    return base  # 測定不能 → dynamic 単一パスに縮退 (fail-open)
+) -> str | None:
+    """loudnorm フィルタ文字列を組む (測定値があれば 2-pass 線形補正).
+
+    測定不能 (無音で input_i=-inf 等) のときは **None** を返し、呼び出し側は
+    loudnorm を通さず素エンコードする。dynamic loudnorm を無音に通すと
+    libmp3lame が assertion で落ち fail-open を破るため (Codex 指摘)。
+    """
+    if stats is None or not _is_measurable(stats):
+        return None
+    return (
+        f"loudnorm=I={target_i}:TP={target_tp}:LRA={target_lra}"
+        f":measured_I={stats.input_i}"
+        f":measured_TP={stats.input_tp}"
+        f":measured_LRA={stats.input_lra}"
+        f":measured_thresh={stats.input_thresh}"
+        f":offset={stats.target_offset}"
+        f":linear=true"
+    )
 
 
 def _wav_duration_seconds(audio_wav: bytes) -> float:
@@ -147,6 +151,27 @@ def _wav_duration_seconds(audio_wav: bytes) -> float:
     except (wave.Error, EOFError):
         return 0.0
     return frames / rate if rate else 0.0
+
+
+def _wav_frames_rate(audio_wav: bytes) -> tuple[int, int]:
+    """有効 wav の (nframes, framerate). 不正 wav は MasteringError (素エンコードと区別)."""
+    try:
+        with wave.open(io.BytesIO(audio_wav), "rb") as r:
+            return r.getnframes(), r.getframerate()
+    except (wave.Error, EOFError) as exc:
+        raise MasteringError(f"入力が有効な wav でない: {type(exc).__name__}") from exc
+
+
+def _short_silence(sample_rate: int, *, seconds: float = 0.3) -> bytes:
+    """短い無音 wav (16bit/mono). 0フレーム入力 (T28 全滅 fail-open 産物) の退避用."""
+    n = max(1, int(sample_rate * seconds))
+    out = io.BytesIO()
+    with wave.open(out, "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(sample_rate)
+        w.writeframes(b"\x00\x00" * n)
+    return out.getvalue()
 
 
 def _measure_loudness_path(path: Path) -> LoudnormStats:
@@ -182,40 +207,45 @@ def master_to_mp3(
     """
     out = Path(output_path)
     out.parent.mkdir(parents=True, exist_ok=True)
+
+    # 入力検証: 不正バイトは MasteringError、0フレーム (T28 全滅 fail-open 産物) は
+    # 短い無音に退避して valid mp3 を返す (番組を止めず degrade)。
+    frames, in_rate = _wav_frames_rate(audio_wav)
+    if frames == 0:
+        audio_wav = _short_silence(in_rate or sample_rate)
+
     with tempfile.TemporaryDirectory() as tmp:
         src = Path(tmp) / "in.wav"
         src.write_bytes(audio_wav)
 
-        stats = _measure_loudness_path(src)  # pass1 (不正 wav はここで MasteringError)
+        # pass1 測定。有効 wav でも無音等で測定不能なら None に縮退 (raise しない)。
+        try:
+            stats: LoudnormStats | None = _measure_loudness_path(src)
+        except MasteringError:
+            stats = None
         flt = _build_loudnorm_filter(
             stats, target_i=target_lufs, target_tp=target_tp, target_lra=target_lra
         )
-        proc = _run_ffmpeg(
-            [
-                "-y",
-                "-i",
-                str(src),
-                "-af",
-                flt,
-                "-ar",
-                str(sample_rate),
-                "-c:a",
-                "libmp3lame",
-                "-b:a",
-                bitrate,
-                str(out),
-            ]
-        )
+        # 測定不能時 (flt is None) は loudnorm を通さず素エンコード (無音でも valid mp3)。
+        args = ["-y", "-i", str(src)]
+        if flt is not None:
+            args += ["-af", flt]
+        args += ["-ar", str(sample_rate), "-c:a", "libmp3lame", "-b:a", bitrate, str(out)]
+        proc = _run_ffmpeg(args)
         if proc.returncode != 0 or not out.exists():
             tail = proc.stderr.strip().splitlines()[-3:]
             raise MasteringError("mp3 エンコード失敗: " + " / ".join(tail))
 
-    verify = _measure_loudness_path(out)  # pass3: 出力の実ラウドネス
+    # pass3: 出力の実ラウドネス (無音出力は測定不能 → -inf として記録)。
+    try:
+        verify: LoudnormStats | None = _measure_loudness_path(out)
+    except MasteringError:
+        verify = None
     return MasteringResult(
         path=str(out),
         target_lufs=target_lufs,
-        measured_lufs=verify.input_i,
-        true_peak_dbtp=verify.input_tp,
+        measured_lufs=verify.input_i if verify is not None else float("-inf"),
+        true_peak_dbtp=verify.input_tp if verify is not None else float("-inf"),
         duration_sec=_wav_duration_seconds(audio_wav),
         bitrate=bitrate,
         sample_rate=sample_rate,
