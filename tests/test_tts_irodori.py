@@ -123,6 +123,31 @@ def test_irodori_non_wav_response_raises() -> None:
         IrodoriTTSEngine().synthesize(SynthesisRequest(text="x", voice_id="hal"))
 
 
+def test_irodori_retries_transient_then_succeeds() -> None:
+    # 1回目 ConnectError (一過性) → リトライで 2回目成功 (FR-013, Copilot 指摘)
+    wav = _wav_bytes()
+    with patch(
+        "karyu_tech_news.tts.irodori.httpx.post",
+        side_effect=[httpx.ConnectError("transient"), _mock_resp(wav)],
+    ) as post:
+        res = IrodoriTTSEngine().synthesize(SynthesisRequest(text="x", voice_id="hal"))
+    assert res.audio == wav
+    assert post.call_count == 2  # 初回失敗 + リトライ成功
+
+
+def test_irodori_retries_exhausted_raises() -> None:
+    # MAX_RETRIES 回すべて失敗 → TTSError (試行回数 = 初回 + MAX_RETRIES)
+    with (
+        patch(
+            "karyu_tech_news.tts.irodori.httpx.post",
+            side_effect=httpx.ConnectError("down"),
+        ) as post,
+        pytest.raises(TTSError),
+    ):
+        IrodoriTTSEngine().synthesize(SynthesisRequest(text="x", voice_id="hal"))
+    assert post.call_count == 3  # 初回 + 2 リトライ
+
+
 # ---------- select_engine 統合 (FR-090) ----------
 
 def test_select_engine_irodori_by_config_key() -> None:

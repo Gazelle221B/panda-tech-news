@@ -12,6 +12,7 @@ ADR-0006: 主軸は Irodori-TTS v3 (日本語特化・絵文字スタイル制�
 from __future__ import annotations
 
 import io
+import logging
 import os
 import wave
 
@@ -33,6 +34,9 @@ IRODORI_DEFAULT_VOICE = "hal"  # 声リファレンスは試聴で確定 (ADR-00
 IRODORI_MODEL = "irodori-tts"
 IRODORI_MAX_CHARS = 2000  # サーバ側も自動チャンクするが、T28 でも文単位分割する
 TIMEOUT_SECONDS = 120.0  # TTS 合成は LLM より遅い (要件 §3.3 タイムアウト必須)
+MAX_RETRIES = 2  # 一過性の 5xx/接続断を想定 (FR-013 / llm・fetcher と同値)
+
+logger = logging.getLogger(__name__)
 
 
 class IrodoriTTSEngine:
@@ -84,18 +88,7 @@ class IrodoriTTSEngine:
         if self._api_key:  # キーは header のみ (URL/エラーに載せない)
             headers["Authorization"] = f"Bearer {self._api_key}"
         url = f"{self._base_url}/v1/audio/speech"
-        try:
-            resp = httpx.post(url, json=body, headers=headers, timeout=TIMEOUT_SECONDS)
-            resp.raise_for_status()
-        except httpx.HTTPStatusError as exc:
-            # status code は秘密でなくトラブルシュート (401/429/500 等) に有用。
-            # 本文/ヘッダ/秘密は載せない。HTTPStatusError は HTTPError 派生のため先に置く。
-            raise TTSError(
-                f"Irodori 合成失敗: HTTP {exc.response.status_code}"
-            ) from exc
-        except (httpx.HTTPError, httpx.TimeoutException) as exc:
-            # 接続失敗・タイムアウト等は型名のみ (本文/ヘッダ/秘密を載せない)
-            raise TTSError(f"Irodori 合成失敗: {type(exc).__name__}") from exc
+        resp = self._post_with_retry(url, body, headers)
         audio = resp.content
         if not audio:
             raise TTSError("Irodori 応答が空")
@@ -105,3 +98,37 @@ class IrodoriTTSEngine:
         except (wave.Error, EOFError) as exc:
             raise TTSError(f"Irodori 応答が wav でない: {type(exc).__name__}") from exc
         return SynthesisResult(audio=audio, sample_rate=sample_rate, audio_format="wav")
+
+    def _post_with_retry(
+        self, url: str, body: dict[str, object], headers: dict[str, str]
+    ) -> httpx.Response:
+        """一過性の失敗 (接続断・5xx/429) を想定し最大 MAX_RETRIES 回リトライ (FR-013).
+
+        既存 `llm/client.py` / `collect/fetcher.py` と同 idiom (初回 + MAX_RETRIES 回)。
+        ログ・エラーには型名/status code のみ載せ、秘密 (キー/本文/ヘッダ) は載せない。
+        """
+        last_exc: httpx.HTTPError | None = None
+        for attempt in range(MAX_RETRIES + 1):
+            try:
+                resp = httpx.post(url, json=body, headers=headers, timeout=TIMEOUT_SECONDS)
+                resp.raise_for_status()
+                return resp
+            except (httpx.HTTPError, httpx.TimeoutException) as exc:
+                last_exc = exc
+                if attempt < MAX_RETRIES:
+                    logger.info(
+                        "Irodori retry %d/%d: %s",
+                        attempt + 1,
+                        MAX_RETRIES,
+                        type(exc).__name__,
+                    )
+                continue
+        # status code はトラブルシュートに有用 (秘密でない)。本文/ヘッダ/キーは載せない。
+        detail = (
+            f"HTTP {last_exc.response.status_code}"
+            if isinstance(last_exc, httpx.HTTPStatusError)
+            else type(last_exc).__name__
+        )
+        raise TTSError(
+            f"Irodori 合成失敗 ({MAX_RETRIES + 1} 回試行): {detail}"
+        ) from last_exc
