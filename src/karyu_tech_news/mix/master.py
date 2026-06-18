@@ -89,24 +89,37 @@ def _run_ffmpeg(args: list[str]) -> subprocess.CompletedProcess[str]:
 
 
 def _parse_loudnorm_stats(stderr: str) -> LoudnormStats:
-    """loudnorm pass1 の stderr から JSON ブロックを抽出して指標化する."""
+    """loudnorm pass1 の stderr から JSON ブロックを抽出して指標化する.
+
+    外部 (ffmpeg) 出力を信用せず、失敗は全て MasteringError に正規化する:
+    - JSON ブロック不在 / json.loads 失敗 → MasteringError
+    - 必須キー (input_i/tp/lra/thresh) 欠落 → MasteringError (別ブロック誤検出で
+      0.0 を「測定成功」と誤認し誤正規化するのを防ぐ, Copilot 指摘)
+    """
     matches = _JSON_BLOCK_RE.findall(stderr)
     if not matches:
         raise MasteringError("loudnorm の測定 JSON が見つかりません (ffmpeg 失敗の可能性)")
-    raw = json.loads(matches[-1])  # 末尾ブロックが測定結果
+    try:
+        raw = json.loads(matches[-1])  # 末尾ブロックが測定結果
+    except json.JSONDecodeError as exc:
+        raise MasteringError(f"loudnorm JSON のパース失敗: {exc}") from exc
 
-    def _f(key: str, default: float = 0.0) -> float:
-        val = raw.get(key)
-        if val is None:
-            return default
-        return float(val)  # "-inf" 等も float() で扱える
+    def _req(key: str) -> float:
+        if key not in raw:
+            raise MasteringError(f"loudnorm JSON に必須キー {key!r} が無い (測定失敗)")
+        try:
+            return float(raw[key])  # "-inf" 等も float() で扱える
+        except (TypeError, ValueError) as exc:
+            raise MasteringError(f"loudnorm JSON のキー {key!r} が数値でない") from exc
 
+    # target_offset は ffmpeg 版により欠ける場合があり 0.0 (補正なし) が安全な既定。
+    offset = float(raw["target_offset"]) if "target_offset" in raw else 0.0
     return LoudnormStats(
-        input_i=_f("input_i"),
-        input_tp=_f("input_tp"),
-        input_lra=_f("input_lra"),
-        input_thresh=_f("input_thresh"),
-        target_offset=_f("target_offset"),
+        input_i=_req("input_i"),
+        input_tp=_req("input_tp"),
+        input_lra=_req("input_lra"),
+        input_thresh=_req("input_thresh"),
+        target_offset=offset,
     )
 
 

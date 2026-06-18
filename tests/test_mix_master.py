@@ -116,6 +116,19 @@ def test_parse_loudnorm_stats_handles_inf_silence() -> None:
     assert math.isinf(stats.input_i)
 
 
+def test_parse_loudnorm_stats_raises_on_missing_key() -> None:
+    # JSON はあるが必須キー (input_i) 欠落 → MasteringError。
+    # 別ブロック誤検出時に 0.0 を「測定成功」と誤認し誤正規化するのを防ぐ (Copilot 指摘)。
+    with pytest.raises(MasteringError):
+        _parse_loudnorm_stats('[loudnorm]\n{"input_tp":"-3.2","input_lra":"5.4"}')
+
+
+def test_parse_loudnorm_stats_raises_on_broken_json() -> None:
+    # JSON ブロック形だが json.loads 失敗 → MasteringError に統一 (例外型をブレさせない)
+    with pytest.raises(MasteringError):
+        _parse_loudnorm_stats("{not valid json at all}")
+
+
 # ---------- 純ロジック: loudnorm フィルタ構築 (ffmpeg 不要) ----------
 
 
