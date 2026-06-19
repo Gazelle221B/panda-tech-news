@@ -68,6 +68,8 @@ _MD_META_RE = re.compile(r"^[ \t]*生成日時[:：].*$", re.MULTILINE)
 _MD_LINK_LINE_RE = re.compile(
     r"^[ \t]*(?:[-*]|\d+[.)])?[ \t]*\[[^\]]*\]\([^)]*\)[ \t]*$", re.MULTILINE
 )
+# 水平線 (`---` / `***` / `___`)。装飾でナレーションでなく、Kokoro が記号を読むため除去。
+_MD_HR_RE = re.compile(r"^[ \t]*([-*_])(?:[ \t]*\1){2,}[ \t]*$", re.MULTILINE)
 
 
 def strip_markdown_structure(text: str) -> str:
@@ -81,6 +83,7 @@ def strip_markdown_structure(text: str) -> str:
     text = _MD_HEADER_RE.sub("", text)
     text = _MD_META_RE.sub("", text)
     text = _MD_LINK_LINE_RE.sub("", text)
+    text = _MD_HR_RE.sub("", text)
     return re.sub(r"\n{3,}", "\n\n", text).strip()
 
 
