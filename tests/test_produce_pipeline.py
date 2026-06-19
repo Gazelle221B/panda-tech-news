@@ -168,6 +168,20 @@ def test_post_audio_oversized_degrades_to_message(
     assert ps.called  # 添付不可 → メッセージに degrade
 
 
+def test_post_audio_oversized_no_leading_newline_when_content_empty(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # content 空時に degrade メッセージ先頭へ改行を入れない (Copilot 指摘)
+    p = tmp_path / "big.mp3"
+    p.write_bytes(b"0123456789")
+    monkeypatch.setattr("karyu_tech_news.deliver.discord.DISCORD_FILE_LIMIT_BYTES", 5)
+    with patch("karyu_tech_news.deliver.discord.post_summary", return_value=True) as ps:
+        post_audio("https://discord/webhook", p)  # content="" (既定)
+    body = ps.call_args.args[1]  # post_summary(webhook_url, body)
+    assert not body.startswith("\n")
+    assert body.startswith("⚠️")
+
+
 def test_post_audio_success_uploads_multipart(tmp_path: Path) -> None:
     p = tmp_path / "e.mp3"
     p.write_bytes(b"id3audio")
@@ -205,8 +219,11 @@ def test_post_audio_http_error_log_has_no_webhook_token(
     p = tmp_path / "e.mp3"
     p.write_bytes(b"id3audio")
     resp = MagicMock()
+    # 例外メッセージに Webhook URL (トークン) が混入する実状況を再現し redaction を検証 (Copilot 指摘)
     resp.raise_for_status.side_effect = httpx.HTTPStatusError(
-        "err", request=MagicMock(), response=MagicMock(status_code=500)
+        f"Server error '500' for url '{_WEBHOOK_WITH_TOKEN}'",
+        request=MagicMock(),
+        response=MagicMock(status_code=500),
     )
     with (
         patch("karyu_tech_news.deliver.discord.httpx.post", return_value=resp),

@@ -122,10 +122,9 @@ def post_audio(webhook_url: str, mp3_path: Path, content: str = "") -> bool:
     if size > DISCORD_FILE_LIMIT_BYTES:
         mb = size / 1024 / 1024
         logger.warning("mp3 が %s の添付上限超過 (%.1fMB)、メッセージのみ投稿", mp3_path.name, mb)
-        return post_summary(
-            webhook_url,
-            f"{content}\n⚠️ 音声 {mp3_path.name} ({mb:.1f}MB) は 25MB 超のため添付不可。",
-        )
+        notice = f"⚠️ 音声 {mp3_path.name} ({mb:.1f}MB) は 25MB 超のため添付不可。"
+        # content 空時に先頭改行が入らないようにする (Copilot 指摘)
+        return post_summary(webhook_url, f"{content}\n{notice}" if content else notice)
     try:
         with mp3_path.open("rb") as f:
             resp = httpx.post(
