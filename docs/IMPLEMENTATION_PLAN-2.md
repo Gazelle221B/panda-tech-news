@@ -42,7 +42,7 @@ mix/master.py         # -16 LUFS 正規化 + mp3 192kbps/48kHz 出力
 ```
 
 - 依存の流れ: `script → tts → mix` (一方向。tts が edit/llm を参照しない)
-- 新規依存: `pydub` (Python) + `ffmpeg` (システム)。roadmap Sprint 2 節で既定。これ以外を足す場合は ADR
+- 新規依存: `ffmpeg` (システム, T30 で使用) + `pydub` (Python, **T29 の BGM 時間軸合成で使用**)。roadmap Sprint 2 節で既定。**T30 は ffmpeg 単体で完結し pydub 不要** (依存最小 §5)。これ以外を足す場合は ADR
 - 新テーブル: `audio_versions` (episode_draft_id, engine, duration_sec, lufs, path, created_at)。音声ファイル本体は `data/episodes/` (git 管理外)
 - 素材: `assets/bgm/` `assets/jingles/` (本体 git 管理外、§6 人間判断待ち)
 
@@ -57,7 +57,7 @@ mix/master.py         # -16 LUFS 正規化 + mp3 192kbps/48kHz 出力
 | T27 | ✅ **実装済 (2026-06-14)** 絵文字注釈レイヤー (tone→絵文字、capabilities 分岐、入力非破壊) | `tts/annotate.py` | T23, T25 |
 | T28 | ✅ **実装済 (2026-06-14)** 文単位合成 + 結合 (str 単位分割、失敗文 fail-open、wave 結合) | `tts/synthesize.py` | T23-T27 |
 | T29 | BGM/ジングル仮ミックス (素材は **§6 ブロッカー**。pydub + ffmpeg) | `mix/mixer.py` | T28, **§6** |
-| T30 | ラウドネス正規化 -16 LUFS + mp3 192kbps/48kHz (FR-102/103) | `mix/master.py` | T29 |
+| T30 | ✅ **実装済 (2026-06-17)** ラウドネス正規化 -16 LUFS + mp3 192kbps/48kHz (FR-102/103)。ffmpeg `loudnorm` 2-pass (pass1 測定→pass2 線形補正→pass3 出力再測定で証跡化) を subprocess 実行。**判断: T29(BGM) に先行実装** — マスタリングは入力 wav 単体で完結し BGM 素材 (人間ゲート §6) に非依存なため「素の音声→完パケ mp3」のE2E経路を先行開通。**pydub は足さず ffmpeg 単体**で完結 (依存最小 §5)。実 smoke: 実エピソード wav -20.17→**-16.30 LUFS** / TP -1.71 dBTP / 73s=1.7MB | `mix/master.py` | **T28** (T29 とは独立) |
 | T31 | `audio_versions` 永続化 + CLI `produce` + Discord mp3 投稿 (25MB 超はリンク、§6) | `store/` `main.py` `deliver/discord.py` | T30 |
 | T32 | 3日間の音声品質観察 (固有名詞読み/話速/BGM 音量/「配信する価値」評価) | `docs/TEST_LOG.md` | T31 |
 
