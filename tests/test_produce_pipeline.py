@@ -397,10 +397,15 @@ def test_strip_markdown_structure_drops_headers_and_meta() -> None:
         "生成日時: 2026-06-14 10:48 / LLM profile: A\n\n"
         "華流テック通信、本日のHAL Daily Briefingです。\n\n"
         "## 1. 智谱：GLM-5.2将面向GLM Coding Plan全量用户开放\n"
-        "智谱が、コード生成特化モデルを公開します。\n"
+        "智谱が、コード生成特化モデルを公開します。\n\n"
+        "## 出典\n"
+        "1. [智谱：GLM-5.2将面向GLM Coding Plan全量用户开放](https://36kr.com/x)\n"
+        "2. [外媒曝蚂蚁集团正秘密测试AI 版支付宝](https://36kr.com/y)\n"
     )
     out = strip_markdown_structure(md)
-    assert "智谱：GLM-5.2将面向" not in out  # 中国語原文タイトル (見出し) は読まない
+    assert "智谱：GLM-5.2将面向" not in out  # 中国語原文タイトル (見出し + 出典) は読まない
+    assert "外媒曝" not in out  # ソース一覧の原文タイトルも除去
+    assert "https://" not in out  # URL は読まない
     assert "生成日時" not in out  # ビルドメタは読まない
     assert not out.lstrip().startswith("#")
     assert "本日のHAL Daily Briefingです" in out  # 日本語ナレーションは残る
