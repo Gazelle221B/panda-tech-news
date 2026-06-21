@@ -106,9 +106,18 @@ def synthesize_script(
     engine: TTSEngine,
     reading_dict: dict[str, str],
     *,
-    voice_id: str = "hal",
+    voice_id: str | None = None,
 ) -> SynthesisResult:
-    """構造化台本を 1 本の wav に合成する (正規化 → 文分割 → 合成 → 結合, fail-open)."""
+    """構造化台本を 1 本の wav に合成する (正規化 → 文分割 → 合成 → 結合, fail-open).
+
+    voice_id 未指定時は **エンジン自身の既定声** を使う。エンジンごとに声 ID が異なる
+    (kokoro=jf_alpha / irodori=hal) ため "hal" 固定だと kokoro で全文が「声が無い」と
+    fail-open し無音になる。HAL ペルソナはエンジン非依存 (FR-091) で各エンジンが
+    内部の実声 ID にマップする。
+    """
+    if voice_id is None:
+        voices = engine.voices()
+        voice_id = voices[0].id if voices else ""
     max_chars = engine.capabilities().max_chars
     chunks: list[bytes] = []
     for seg in script.segments:

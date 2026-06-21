@@ -57,6 +57,36 @@ def strip_script_markup(text: str) -> str:
     return _SCRIPT_LABEL_RE.sub("", text).replace("**", "")
 
 
+# 台本 Markdown の見出し行 (`# / ##`) と生成メタ行を除去する用。見出しは番組タイトルや
+# **中国語原文の記事タイトル** で朗読対象でなく (要件 §9.6 中国メディア本文朗読禁止・
+# editorial-policy §1/§10)、Kokoro 等が中国語を遅く誤読し尺も膨らむ。生成日時/LLM profile
+# のビルドメタも発話しない。保存済み台本 markdown を produce で合成する経路で使う。
+_MD_HEADER_RE = re.compile(r"^[ \t]*#{1,6}[ \t].*$", re.MULTILINE)
+_MD_META_RE = re.compile(r"^[ \t]*生成日時[:：].*$", re.MULTILINE)
+# ソース一覧の Markdown リンク行 (`1. [中国語原文タイトル](https://...)`)。原文タイトル+URL は
+# 発話対象でない (出典は Discord の視覚表示に残す)。番号/箇条書き付きの単独リンク行のみ対象。
+_MD_LINK_LINE_RE = re.compile(
+    r"^[ \t]*(?:[-*]|\d+[.)])?[ \t]*\[[^\]]*\]\([^)]*\)[ \t]*$", re.MULTILINE
+)
+# 水平線 (`---` / `***` / `___`)。装飾でナレーションでなく、Kokoro が記号を読むため除去。
+_MD_HR_RE = re.compile(r"^[ \t]*([-*_])(?:[ \t]*\1){2,}[ \t]*$", re.MULTILINE)
+
+
+def strip_markdown_structure(text: str) -> str:
+    """TTS 前に Markdown 見出し行・生成メタ行・ソース一覧リンク行を除去する.
+
+    見出し (`# 華流テック通信...` / `## 1. 智谱：...`) は番組タイトルや中国語原文の記事
+    タイトル、ソース一覧 (`1. [原文](URL)`) は出典で、いずれも発話対象でない (要件 §9.6
+    中国メディア本文朗読禁止・editorial-policy §1/§10、URL も読まない)。生成日時/LLM profile
+    のメタも読まない。Hook/Insight/Action の日本語ナレーションのみ残す (produce 経路で使用)。
+    """
+    text = _MD_HEADER_RE.sub("", text)
+    text = _MD_META_RE.sub("", text)
+    text = _MD_LINK_LINE_RE.sub("", text)
+    text = _MD_HR_RE.sub("", text)
+    return re.sub(r"\n{3,}", "\n\n", text).strip()
+
+
 def normalize_text(text: str, reading_dict: dict[str, str]) -> str:
     """text 中の既知用語を読み仮名へ置換する (TTS 発音用).
 
