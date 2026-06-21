@@ -1,6 +1,6 @@
 # プロジェクト状態
 
-> 最終更新: 2026-06-14 / 更新者: Claude Code (Sprint 1B 完全終了・マージ済み → Sprint 2 着手 T23)
+> 最終更新: 2026-06-21 / 更新者: Claude Code (PR #19 の main 到達を独立検証。Sprint 2 自律実装可能分 T23-T31 完了)
 > 本ファイルは全エージェントが随時更新する。**Antigravity の内部記憶ではなくここを真の記憶とする** (WORKFLOW §13)。
 
 ## 現在のフェーズ
@@ -11,7 +11,8 @@
 
 **2026-06-17 更新 — 実音声生成 達成**: T23-T28 マージ済み (main `ea431e0`)。人間が `uv sync --extra tts` + Kokoro モデル DL を実施 → **実 Kokoro で初の実音声生成成功** (単体 + 全パイプライン 1 エピソード 4MB)。実 smoke が Markdown マーカー読み上げ defect を発見・修正。**Irodori 主軸アダプタ (`tts/irodori.py`, OpenAI 互換) も実装** (実サーバ smoke は人間環境)。**残: 話速調整 (T32) / T29 BGM 素材 / T30 ラウドネス・mp3 / T31 配信方法**。
 
-**2026-06-21 更新 — ⚠️ PR #18 ミスマージ発見・再ランディングで是正中**: 現状把握の過程で、T29/T31 (PR #18) が **ベース `main` ではなく土台ブランチ `agent/T30-impl` のままマージされ、内容が `main` に未到達**であることを発見 (gh は MERGED 表示だが `git merge-base --is-ancestor 054bf92 origin/main` が偽)。根因: スタック PR (#18 は #17 にスタック) の土台 #17 マージ後、土台ブランチ `agent/T30-impl` が削除されず GitHub の自動 retarget が未発火。**是正**: 最新 `origin/main` (`3c38523`, #17=T30 まで) から `agent/T31-reland-impl` を切り、PR #18 の純差分 (13 files / +845 / -4、`mix/master.py` 等 T30 ファイルは差分に出ない = main の #17 squash と同一内容) を byte-identical に再配置。main ベースで fresh 全ゲート緑 (**pytest 365 / ruff / mypy strict 68 files / uv lock --check OK**)。**新 PR を作成 → 人間マージで `main` に T29/T31 が初到達**。マージ後に redundant ブランチ (`agent/T30-impl` / `agent/T31-impl`) を削除推奨。Codex PASS + Antigravity QA PASS は #18 で同一ツリーに対し取得済みのため再レビューは任意。
+**2026-06-21 更新 — PR #18 ミスマージ発見・再ランディングで是正済み (解消確認)**: 現状把握の過程で、T29/T31 (PR #18) が **ベース `main` ではなく土台ブランチ `agent/T30-impl` のままマージされ、内容が `main` に未到達**であることを発見 (gh は MERGED 表示だが `git merge-base --is-ancestor 054bf92 origin/main` が偽)。根因: スタック PR (#18 は #17 にスタック) の土台 #17 マージ後、土台ブランチ `agent/T30-impl` が削除されず GitHub の自動 retarget が未発火。**是正**: 最新 `origin/main` (`3c38523`, #17=T30 まで) から `agent/T31-reland-impl` を切り、PR #18 の純差分 (13 files / +845 / -4、`mix/master.py` 等 T30 ファイルは差分に出ない = main の #17 squash と同一内容) を byte-identical に再配置。main ベースで fresh 全ゲート緑 (**pytest 365 / ruff / mypy strict 68 files / uv lock --check OK**)。新 PR #19 を作成。
+**解消確認 (同日続報)**: 人間が PR #19 をマージ。前回 #18 で「`gh` の MERGED 表示が実態と不一致」だった教訓から、今回は表示を信じず `git fetch origin --prune` 後の `origin/main` 生ログを直接確認し、squash コミット `3b3c9ec fix: T29/T31 を main へ再ランディング ... (#19)` の到達を検証。**T29 (BGM mixer) / T31 (produce CLI・`audio_versions` 永続化・Discord mp3 配信) は main に到達済み**。再ランディング後ブランチでも fresh 全ゲート再検証 (pytest **365 passed** / ruff clean / mypy strict 68 files clean)。`agent/T31-impl` の remote は削除済みを確認、**旧土台 `agent/T30-impl` の remote ブランチも内容の main 到達済みを確認した上で人間承認を得て削除済み** ([PR #20](https://github.com/Gazelle221B/panda-tech-news/pull/20))。これで Sprint 2 の自律実装可能スコープ (T23〜T31) は完了。残課題は T32 (3日間聴感観察、人間)・BGM素材ライセンス (人間)・A/B/C既定 variant 確定 (人間) のみ。
 
 | ステップ | 状態 |
 |---|---|
@@ -238,3 +239,5 @@ meeting.md / meeting2.md / tik-choco コードdump の全読に基づき作成:
 | 2026-06-19 | Codex | PR #18 追加修正 (見出し/メタ/出典/HR 除去) 再レビュー **PASS** (指摘なし)。`_MD_LINK_LINE_RE` の行全体一致が本文 inline link を誤削除しないこと・適用順の妥当性を確認。**#18 は Codex PASS + QA PASS で人間マージ待ち (#17 マージ後 main へ retarget)** |
 | 2026-06-19 | 人間 | PR #17 (T30) → main マージ (`3c38523`)。PR #18 (T29/T31) も承認したが、**ベースが `main` へ retarget されず土台 `agent/T30-impl` のままマージされた** (当時は気付かず) |
 | 2026-06-21 | Claude Code | **現状把握 (autopilot) で PR #18 ミスマージを検出・再ランディングで是正**。`gh` の MERGED 表示と `git merge-base --is-ancestor 054bf92 origin/main`=偽 の不一致から、PR #18 の内容 (T29 BGM mixer / T31 produce・`audio_versions`・Discord mp3 配信) が `main` 未到達と確定。最新 `origin/main` から `agent/T31-reland-impl` を切り、#18 純差分 (13 files / +845 / -4、`mix/master.py` 等 T30 ファイルは差分に出ない = main の #17 squash と同一内容) を byte-identical 再配置。main ベースで fresh **pytest 365 / ruff / mypy strict 68 files / uv lock --check** 全緑。AGENTS §2 の停滞 (T22 時点で凍結) も実態へ同期。新 PR 作成 → **マージは人間専権**。redundant ブランチ (`agent/T30-impl`/`agent/T31-impl`) 削除は人間に推奨 |
+| 2026-06-21 | 人間 | PR #19 (T29/T31 再ランディング) を承認マージ |
+| 2026-06-21 | Claude Code | **現状把握 (autopilot 第2回) で PR #19 の main 到達を独立検証・解消確認**。前回 #18 の教訓 (`gh` 表示と実態の不一致) を踏まえ、今回は `git fetch origin --prune` 後に `origin/main` の生ログを直接確認: `3b3c9ec fix: T29/T31 を main へ再ランディング ... (#19)` が tip に到達済みと確定。`agent/T31-reland-impl` の remote は GitHub が merge 後に自動削除済みを確認 (prune で local tracking も解消)。同ブランチ上で fresh 全ゲート再実行 (**pytest 365 passed / ruff clean / mypy strict 68 files clean**)。ブランチ後始末状況を点検: `agent/T31-impl` remote は削除済み、`agent/T30-impl` remote は残存 (内容は #17 squash で main 到達済みのため削除は安全) と判明 → **人間承認を得て `agent/T30-impl` remote を削除**。AGENTS.md §2・本ファイルを解消後の実態へ更新し、最新 main から切った `agent/docs-sync-impl` で [PR #20](https://github.com/Gazelle221B/panda-tech-news/pull/20) 化。**結論: Sprint 2 の自律実装可能スコープ (T23〜T31) は完了・main 到達済み。残る作業はすべて人間判断 (T32 聴感観察 / BGM素材ライセンス / variant既定) のみ** |
