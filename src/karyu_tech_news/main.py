@@ -462,5 +462,161 @@ def evaluate(
         typer.echo(format_evaluation(evaluate_variants(session)))
 
 
+@app.command()
+def produce(
+    ctx: typer.Context,
+    db_path: Path = typer.Option(
+        Path("data/state.db"), "--db-path", "-d", help="SQLite DB パス", show_default=True
+    ),
+    draft_id: int | None = typer.Option(
+        None, "--draft-id", help="対象 episode_draft の id (未指定で最新)"
+    ),
+    engine_name: str | None = typer.Option(
+        None, "--engine", help="TTS エンジン名 (未指定で config primary_engine。ローカルは kokoro)"
+    ),
+    persona_file: Path = typer.Option(
+        Path("config/hal_persona.yaml"), "--persona", help="hal_persona.yaml のパス"
+    ),
+    bgm_dir: Path = typer.Option(
+        Path("assets/bgm"), "--bgm-dir", help="BGM 素材ディレクトリ (無ければ素通し)"
+    ),
+    out_dir: Path = typer.Option(
+        Path("data/episodes"), "--out-dir", help="mp3 出力先 (git 管理外)"
+    ),
+    post: bool = typer.Option(False, "--post", "-p", help="完パケ mp3 を Discord に添付投稿"),
+    dry_run: bool = typer.Option(
+        False, "--dry-run", help="mp3 は生成するが DB 記録・Discord 投稿はしない"
+    ),
+) -> None:
+    """保存済み台本から 1 エピソードの完パケ mp3 を生成 (Sprint 2 T29/T30/T31)。
+
+    structure → 文単位合成 → BGM ミックス(素材があれば) → -16 LUFS 正規化 + mp3 →
+    audio_versions 記録 → (Discord 添付)。fail-open: BGM 無し/合成失敗文/Discord 失敗でも
+    番組を止めない。ローカルで実音声を出すには `--engine kokoro` を指定する。
+    """
+    import math
+    from datetime import UTC, datetime
+
+    import yaml
+    from sqlalchemy.orm import Session
+
+    from karyu_tech_news.deliver.discord import post_audio
+    from karyu_tech_news.mix.master import MasteringError, master_to_mp3
+    from karyu_tech_news.mix.mixer import find_bgm, mix_bgm
+    from karyu_tech_news.script.structure import Segment, StructuredScript
+    from karyu_tech_news.store.repo import (
+        create_db_engine,
+        get_latest_episode_draft,
+        insert_audio_version,
+    )
+    from karyu_tech_news.store.repo import init_db as init_database
+    from karyu_tech_news.store.schema import EpisodeDraft
+    from karyu_tech_news.tts.engine import TTSError, select_engine
+    from karyu_tech_news.tts.normalize import load_reading_dict, strip_markdown_structure
+    from karyu_tech_news.tts.synthesize import synthesize_script
+
+    settings = ctx.obj
+
+    # config/hal_persona.yaml の `tts` ブロックから primary_engine と reading_dict を読む。
+    # (構造は `tts: {primary_engine, reading_dict}`。Codex 指摘で `voice` 誤読を修正)
+    eng_name = engine_name
+    reading_path = Path("config/reading_dict.yaml")
+    if persona_file.exists():
+        try:
+            persona = yaml.safe_load(persona_file.read_text(encoding="utf-8")) or {}
+            tts_cfg = persona.get("tts") or {}
+            eng_name = eng_name or tts_cfg.get("primary_engine")
+            if tts_cfg.get("reading_dict"):
+                reading_path = Path(tts_cfg["reading_dict"])
+        except Exception as exc:  # noqa: BLE001
+            typer.secho(
+                f"WARN: persona 読み込み失敗 (既定で続行): {type(exc).__name__}",
+                fg=typer.colors.YELLOW,
+                err=True,
+            )
+    eng_name = eng_name or "kokoro"
+
+    db_engine = create_db_engine(db_path)
+    init_database(db_engine)
+    now = datetime.now(UTC)
+    with Session(db_engine) as session:
+        draft = (
+            session.get(EpisodeDraft, draft_id)
+            if draft_id is not None
+            else get_latest_episode_draft(session)
+        )
+        if draft is None:
+            typer.secho(
+                "ERROR: 対象の episode_draft がありません (先に draft を実行)",
+                fg=typer.colors.RED,
+                err=True,
+            )
+            raise typer.Exit(code=1)
+
+        # ORM 属性 (plain Column) を plain 値へ変換してから下流に渡す (mypy strict 境界)
+        draft_pk = int(draft.id)
+        variant = str(draft.variant)
+        markdown = str(draft.markdown)
+        title = str(draft.title)
+
+        # 保存済み markdown を 1 topic segment として構造化 (JudgedTopic は非永続のため、
+        # markdown 再パースの脆さを避け全体を 1 segment にする。文分割は synthesize 側)。
+        # 見出し (中国語原文タイトル) と生成メタは発話しない (要件 §9.6・editorial §1/§10)。
+        script = StructuredScript(
+            variant=variant,
+            generated_at=now,
+            segments=[
+                Segment(
+                    kind="topic",
+                    text=strip_markdown_structure(markdown),
+                    tone="neutral",
+                    bgm="neutral",
+                )
+            ],
+        )
+        reading_dict = load_reading_dict(reading_path) if reading_path.exists() else {}
+        try:
+            tts = select_engine(eng_name)
+        except TTSError as exc:
+            typer.secho(f"ERROR: {exc}", fg=typer.colors.RED, err=True)
+            raise typer.Exit(code=1) from exc
+
+        synth = synthesize_script(script, tts, reading_dict)
+        mixed = mix_bgm(synth.audio, bgm_path=find_bgm(bgm_dir))
+
+        out_path = out_dir / f"episode_{draft_pk}.mp3"
+        try:
+            result = master_to_mp3(mixed, out_path)
+        except MasteringError as exc:
+            typer.secho(f"ERROR: マスタリング失敗: {exc}", fg=typer.colors.RED, err=True)
+            raise typer.Exit(code=1) from exc
+
+        lufs = result.measured_lufs if math.isfinite(result.measured_lufs) else None
+        lufs_str = f"{lufs:.1f} LUFS" if lufs is not None else "無音 (fail-open)"
+        typer.echo(
+            f"完パケ: {out_path} ({result.duration_sec:.1f}s, "
+            f"{result.bitrate}/{result.sample_rate}Hz, {lufs_str}) engine={tts.name()}"
+        )
+        if dry_run:
+            typer.echo("[DRY RUN] DB 記録・Discord 投稿はスキップ")
+            return
+
+        insert_audio_version(
+            session,
+            draft_pk,
+            engine=tts.name(),
+            duration_sec=result.duration_sec,
+            lufs=lufs,
+            bitrate=result.bitrate,
+            sample_rate=result.sample_rate,
+            path=str(out_path),
+            now=now,
+        )
+        session.commit()
+        if post:
+            ok = post_audio(settings.discord_webhook_url, out_path, content=f"🎙️ {title}")
+            typer.echo("Discord 投稿: " + ("成功" if ok else "失敗 (fail-open)"))
+
+
 if __name__ == "__main__":
     app()

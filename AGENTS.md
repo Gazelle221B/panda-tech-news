@@ -18,10 +18,11 @@
 
 ## 2. 現在のフェーズ (随時更新は `docs/PROJECT_STATE.md`)
 
-- **Sprint 1A 完全終了** — T1〜T11 全チケット完了 (3日連続稼働 06-02〜04、Discord HTTP 204、main マージ済み)
-- **Sprint 1B インフラ完了・T22 3日観察完了 (06-12〜14)** — T12〜T21 実装済み・PR #10 マージ済み (main `b76f6c4`)・T13 (実 API 接続) 完了、variant A で本番配信中。**T22 でインフラ DoD 全達成 + 2 defects 捕捉 (writer 300字超過 / canonical URL 横断 dedup 欠落)。残: 2 defects の TDD 修正 → 修正後に「音声化する価値」再評価**
-- TTS/動画/YouTube は未実装 (Sprint 2 以降。計画ドラフトは [docs/IMPLEMENTATION_PLAN-2.md](docs/IMPLEMENTATION_PLAN-2.md)、着手は人間の Go 判断後)
-- 作業ブランチ: `agent/T22-impl` (観察 docs)。2 defects 修正は `agent/T22-fixes-impl`
+- **Sprint 1A 完全終了** — T1〜T11 全チケット完了 (3日連続稼働 06-02〜04、Discord HTTP 204、main マージ済み)。
+- **Sprint 1B 完全終了 (マージ済み)** — T12〜T22 完了 (PR #10/#11/#12)。実 LLM API (MiMo editor + DeepSeek writer) で variant A 本番配信中。T22 発見の 2 defects (writer 300字超過 / canonical URL 横断 dedup) は修正済み。
+- **Sprint 2 (音声化) ほぼ完了** — TTS 抽象化 (T23) / 構造化台本・読み仮名・絵文字・文単位合成 (T25-T28) / 実音声 Kokoro+Irodori アダプタ (T24) / ラウドネス -16LUFS・mp3 完パケ (T30) / BGM mixer 素材非依存 (T29) / produce 完パケ+`audio_versions` 永続化+Discord mp3 配信 (T31) を実装。実 produce で完パケ mp3 生成を実証 (draft→503〜643s/-16.3LUFS)。**残: T32 話速調整 (実音声の聴感判断 = 人間) / BGM 素材ライセンス / variant 既定確定**。
+- **⚠️ 運用上の既知事項 (2026-06-21)**: T29/T31 (旧 PR #18) はスタック PR の土台ブランチ未削除により **ベース誤り (`agent/T30-impl`) のままマージされ main に未到達**だった。最新 main から純差分を再ランディングする新 PR で是正中 (コードは Codex/QA PASS 済み・全ゲート緑)。詳細は [docs/PROJECT_STATE.md](docs/PROJECT_STATE.md) 改訂履歴。
+- 動画/YouTube は未実装 (Sprint 3 以降。着手は人間の Go 判断後)。
 
 ## 3. 絶対 NG (禁止事項) — 最優先
 

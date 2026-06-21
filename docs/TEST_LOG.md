@@ -986,3 +986,26 @@ libmp3lame assertion crash) → 修正 (上記 step 3) → 再レビューで実
 
 **ゲート (fresh 実行)**: `pytest` **324 passed** / `ruff check .` クリーン / `mypy src tests` strict
 **Success (64 files)**。生成 mp3/wav は `data/episodes/` (git 管理外)。
+
+---
+
+## Ticket T29 + T31 — 完パケ自律パイプライン (2026-06-18, autopilot インライン)
+
+人間の3決定 (#17 にスタック実装 / 配信=Discord 添付 / BGM=素材非依存) を受けて実装。
+
+**T29 `mix/mixer.py` (素材非依存)**:
+- `assets/bgm/` に素材があれば pydub で全編に -18dB BGM + 前後フェード、無ければ **passthrough**。
+- pydub 未導入・デコード失敗も fail-open (音声のみ返す)。素材ライセンス (人間ゲート §6) を待たずコードを通せる。
+
+**T31 produce / 永続化 / 配信**:
+- `audio_versions` テーブル (engine/duration/lufs/bitrate/sample_rate/path、lufs は無音時 NULL) + `insert_audio_version` / `get_latest_episode_draft`。
+- `deliver.post_audio`: mp3 を Discord に multipart 添付。25MB 超はメッセージに degrade。fail-open + 秘密非漏洩。
+- CLI `produce`: 保存済み台本 → 構造化 (markdown 1 segment) → 文単位合成 → BGMミックス → -16LUFS+mp3 → audio_versions 記録 → (Discord 添付)。`--engine`(既定=config tts.primary_engine) `--dry-run` `--out-dir` `--bgm-dir`。
+
+**⚠ 実 produce smoke で発見した回帰 (修正済)**: `synthesize_script` が声 ID を `"hal"` 固定 → kokoro (声=`jf_alpha`) で全文「Voice hal not found」と fail-open し **無音 mp3**。mock/irodori は `"hal"` を持つため決定的テストでは緑だった。→ エンジン既定声 (`engine.voices()[0].id`) フォールバックで修正・回帰テスト追加。
+
+**実 produce E2E smoke (kokoro, 実 draft id=5)**: 1838字 → **643秒 (10.7分) / 192k / 48kHz / -16.3 LUFS / 15.4MB** の実音声完パケ mp3 (Discord 25MB 内)。**⚠ T32 観察項目**: 10.7分は話速が遅い (`speed` 調整は聴感判断で別途)。
+
+**Codex 独立レビュー**: 初回 FAIL → High (produce が config primary_engine を `voice` 誤読、実構造は `tts` ブロック = FR-090 違反、常に kokoro fallback) + Medium (post_audio 秘密非漏洩テスト不足) → 修正 (tts ブロック読込 + config 駆動回帰テスト + caplog 秘密テスト) → 再レビュー **PASS**。**Antigravity QA PASS** (gates 再実行 + 差分レビュー 5 観点)。
+
+**ゲート (fresh)**: `pytest` **363 passed** / `ruff check .` クリーン / `mypy src tests` strict **Success (68 files)**。生成 mp3/wav は `data/episodes/` (git 管理外)。

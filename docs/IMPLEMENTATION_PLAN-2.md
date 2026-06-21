@@ -56,9 +56,9 @@ mix/master.py         # -16 LUFS 正規化 + mp3 192kbps/48kHz 出力
 | T26 | ✅ **実装済 (2026-06-14)** 読み仮名辞書 + テキスト正規化 (FR-092、最長一致1パス置換) | `tts/normalize.py` `config/reading_dict.yaml` | T25 |
 | T27 | ✅ **実装済 (2026-06-14)** 絵文字注釈レイヤー (tone→絵文字、capabilities 分岐、入力非破壊) | `tts/annotate.py` | T23, T25 |
 | T28 | ✅ **実装済 (2026-06-14)** 文単位合成 + 結合 (str 単位分割、失敗文 fail-open、wave 結合) | `tts/synthesize.py` | T23-T27 |
-| T29 | BGM/ジングル仮ミックス (素材は **§6 ブロッカー**。pydub + ffmpeg) | `mix/mixer.py` | T28, **§6** |
+| T29 | ✅ **実装済 (2026-06-18)** BGM 仮ミックス。**判断: 素材非依存設計** — `assets/bgm/` に素材があれば pydub で全編に低音量 BGM (-18dB) を敷き、無ければ素通し (passthrough)。pydub 未導入・デコード失敗も fail-open。素材ライセンス (§6 人間ゲート) を待たずコードを通せる (T30 を BGM から切り離したのと同手法)。pydub は optional extra `tts` | `mix/mixer.py` | T28 (素材は **§6**) |
 | T30 | ✅ **実装済 (2026-06-17)** ラウドネス正規化 -16 LUFS + mp3 192kbps/48kHz (FR-102/103)。ffmpeg `loudnorm` 2-pass (pass1 測定→pass2 線形補正→pass3 出力再測定で証跡化) を subprocess 実行。**判断: T29(BGM) に先行実装** — マスタリングは入力 wav 単体で完結し BGM 素材 (人間ゲート §6) に非依存なため「素の音声→完パケ mp3」のE2E経路を先行開通。**pydub は足さず ffmpeg 単体**で完結 (依存最小 §5)。実 smoke: 実エピソード wav -20.17→**-16.30 LUFS** / TP -1.71 dBTP / 73s=1.7MB | `mix/master.py` | **T28** (T29 とは独立) |
-| T31 | `audio_versions` 永続化 + CLI `produce` + Discord mp3 投稿 (25MB 超はリンク、§6) | `store/` `main.py` `deliver/discord.py` | T30 |
+| T31 | ✅ **実装済 (2026-06-18)** `audio_versions` 永続化 + CLI `produce` + Discord mp3 添付。produce: 保存済み台本→構造化→文単位合成→BGMミックス→-16LUFS mp3→記録→(Discord)、全段 fail-open。`post_audio` は 25MB 超でメッセージに degrade・秘密非漏洩。**配信=Discord 添付** (人間判断、実測1.7MB/73s が 25MB 内。R2/S3 は将来)。**実 produce: 実 draft→643s/192k/48kHz/-16.3 LUFS/15.4MB**。Codex PASS + QA PASS ([PR #18](https://github.com/Gazelle221B/panda-tech-news/pull/18)) | `store/` `main.py` `deliver/discord.py` `tts/synthesize.py` | T30, T29 |
 | T32 | 3日間の音声品質観察 (固有名詞読み/話速/BGM 音量/「配信する価値」評価) | `docs/TEST_LOG.md` | T31 |
 
 ## 5. テスト方針
