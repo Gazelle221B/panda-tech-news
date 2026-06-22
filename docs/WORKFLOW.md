@@ -335,7 +335,7 @@ opencode run "$(cat prompts/implement.md)"
 # 注: effort は省略しない (グローバル既定が xhigh の環境があり、未指定だと無自覚に xhigh で走る)。
 #     xhigh 自体は難所では適切な選択であり禁止ではない。タスクの難所に応じた選び方は
 #     ORCHESTRATION_RUNBOOK.md §3.3 を参照 (2026-06-22 実機確認)
-codex exec -c model_reasoning_effort=<effort> "$(cat prompts/review.md)"
+codex exec --sandbox workspace-write -c model_reasoning_effort=<effort> "$(cat prompts/review.md)"
 
 # Antigravity(QA/記憶/フロント): 対話起動
 agy

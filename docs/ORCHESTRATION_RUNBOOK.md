@@ -95,7 +95,7 @@ OpenCode のモデルカタログは継続的に拡大する (`opencode models -
 | タスク特性 | 推奨モデル | 理由 |
 |---|---|---|
 | 定型実装 (既存パターン踏襲、IMPLEMENTATION_PLAN.md の記述が具体的) | `opencode-go/deepseek-v4-flash` / `opencode-go/mimo-v2.5` | $0.14/$0.28 と最安格、1M context。SWE-bench Verified 79% 相当の報告あり |
-| 条件分岐・エッジケースが絡む実装 (fail-open, dedupe 等) | `opencode-go/deepseek-v4-flash --variant max` / `opencode-go/kimi-k2.7-code` / `opencode-go/minimax-m2.7` / `opencode-go/qwen3.7-plus` | 中価格帯。K2.7-Code は temperature 固定で再現性が高くコード特化との報告。M2.7 は使用量倍率の注記なし |
+| 条件分岐・エッジケースが絡む実装 (fail-open, dedupe 等) | `opencode-go/deepseek-v4-flash` (`--variant max` 指定) / `opencode-go/kimi-k2.7-code` / `opencode-go/minimax-m2.7` / `opencode-go/qwen3.7-plus` | 中価格帯。K2.7-Code は temperature 固定で再現性が高くコード特化との報告。M2.7 は使用量倍率の注記なし |
 | レビュー差し戻し後の修正・複数制約を同時に満たす実装 | `opencode-go/deepseek-v4-pro` / `opencode-go/mimo-v2.5-pro` | DeepSeek は SWE-bench Verified 80.6% (報告値)。コストは Flash 系の約12倍だが、差し戻し2往復より1回で通る方が結果的に安い |
 | 長時間・複数モジュール横断の自律実装 (T30/T31 規模、数百秒〜) | `opencode-go/kimi-k2.6` | 13時間・4000+ tool call 耐久の報告 (本モデルのみ 2026-06-13 に実タスクでも稼働確認済み)。単発の精度よりエンドツーエンド完走の信頼性を優先 |
 | 大規模コンテキストの調査・トレース (複数モジュール横断で挙動を追う) | `opencode-go/qwen3.6-plus` / `opencode-go/glm-5.2`、または無料の `opencode/nemotron-3-ultra-free` | いずれも 1M context。**GLM-5.2 は同価格の GLM-5.1 (202K context) を仕様上完全に上回るため 5.1 を使う理由はない** (両方 smoke test 済み)。Nemotron は無料で Go 枠を消費しない |
