@@ -30,7 +30,7 @@ Claude Code(アーキテクト) は最も希少な資源。登板は起点での
 
 OpenCode(実装主軸) は DESIGN.md と IMPLEMENTATION_PLAN.md に沿って実装と量作業を回す。低コストモデルを載せてスループットを担う。行き詰まったらOpusへエスカレーション。
 
-Codex(独立レビュアー) は実装ラインから完全分離。DESIGN.md を基準にOpenCodeの実装を検証し REVIEW_REPORT.md を出す。設定はcodex系のhigh reasoning(xhighはトークン過大で避ける)。このロールの選定根拠は、ベンチマーク上の強さ(Terminal-Bench 2.1首位)に加え、レビュアーとして指摘が厳格という運用観測の両方による。
+Codex(独立レビュアー) は実装ラインから完全分離。DESIGN.md を基準にOpenCodeの実装を検証し REVIEW_REPORT.md を出す。reasoning effort はタスクの難所に応じて選ぶ(xhighは禁止ではない。定型レビューに毎回使うとトークンを浪費するだけ。難所別の選び方は[ORCHESTRATION_RUNBOOK.md](ORCHESTRATION_RUNBOOK.md) §3.3 参照)。このロールの選定根拠は、ベンチマーク上の強さ(Terminal-Bench 2.1首位)に加え、レビュアーとして指摘が厳格という運用観測の両方による。
 
 Antigravity(テックリード/記憶装置) は大コンテキストでプロジェクト全体の状態・経緯を保持し、フロント実装と最終QA(QA_REPORT.md)を担う。新しいツールのため完全自動オーケストレーター扱いはせず、記憶・QA・フロント支援に用途を限定する。記憶は内部コンテキストに閉じ込めず PROJECT_STATE.md に永続化する。
 
@@ -84,6 +84,8 @@ Antigravity(テックリード/記憶装置) は大コンテキストでプロ�
 現時点で複数ハーネスを束ねる安定した既製オーケストレーション製品は存在しない。Vibe Kanbanはcoding agent本体ではなく、Claude Code/Codex/Gemini CLI/OpenCodeと連携して計画・差分・実行ログを人間が見るための運用UIであり、決定論的な完全パイプラインには不向き。ベンチSOTA上位ハーネスは実運用成熟度がいまいち。Antigravity CLI(agy)のサブエージェント・オーケストレーションは課金壁とバグの境界が曖昧で透明性に欠ける。
 
 当面は手動運用、または痛点一箇所の軽量スクリプト化に留める。本ドキュメントのロール・フロー・I/O契約は、ツール成熟時にそのままステップ定義へ変換できる形で設計してある。最優先ポイントは DESIGN.md を単一の真実の源として固め、実装とレビューが確実にそれを参照する受け渡し設計。
+
+> **追記 (2026-06-22): 「軽量スクリプト化」候補の登場 — agmsg**。本節が「存在しない」とした*複数ハーネスを束ねる軽量な連携手段*に該当するツール [agmsg](https://github.com/fujibee/agmsg) (bash+sqlite、daemon/MCP 無しのクロスエージェント・メッセージング) を導入し実通信を検証した (Claude Code/Codex/Antigravity/OpenCode/Copilot の 5 者が共有 SQLite 経由で相互送受信)。本節の方針通り*重量級オーケストレーターではなく軽量スクリプト*の範囲に留まり、§0 の「受け渡しは成果物ドキュメントで」原則とも両立する (agmsg は生成果物ではなくポインタ・通知を運び、REVIEW_REPORT.md 等は真実の源のまま)。**ロール配置 (§1) は不変** — agmsg は*伝送路*であって役割分担を変えない。導入は人間 (プロダクトオーナー) の明示指示による「文書統合」スコープ (新規自動化・常用強制はしない)。運用手順・呼び出し方・実機で踏んだ落とし穴は [ORCHESTRATION_RUNBOOK.md §3.6](ORCHESTRATION_RUNBOOK.md) に集約。
 
 ## 8. 運用成果物一覧
 
@@ -330,7 +332,10 @@ claude -p "$(cat prompts/architect.md)" < REQUIREMENTS.md
 opencode run "$(cat prompts/implement.md)"
 
 # Codex(レビュー): 独立レビューを非対話実行
-codex exec "$(cat prompts/review.md)"
+# 注: effort は省略しない (グローバル既定が xhigh の環境があり、未指定だと無自覚に xhigh で走る)。
+#     xhigh 自体は難所では適切な選択であり禁止ではない。タスクの難所に応じた選び方は
+#     ORCHESTRATION_RUNBOOK.md §3.3 を参照 (2026-06-22 実機確認)
+codex exec --sandbox workspace-write -c model_reasoning_effort=<effort> "$(cat prompts/review.md)"
 
 # Antigravity(QA/記憶/フロント): 対話起動
 agy
