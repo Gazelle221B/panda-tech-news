@@ -22,6 +22,7 @@
 - **Sprint 1B 完全終了 (マージ済み)** — T12〜T22 完了 (PR #10/#11/#12)。実 LLM API (MiMo editor + DeepSeek writer) で variant A 本番配信中。T22 発見の 2 defects (writer 300字超過 / canonical URL 横断 dedup) は修正済み。
 - **Sprint 2 (音声化) ほぼ完了** — TTS 抽象化 (T23) / 構造化台本・読み仮名・絵文字・文単位合成 (T25-T28) / 実音声 Kokoro+Irodori アダプタ (T24) / ラウドネス -16LUFS・mp3 完パケ (T30) / BGM mixer 素材非依存 (T29) / produce 完パケ+`audio_versions` 永続化+Discord mp3 配信 (T31) を実装。実 produce で完パケ mp3 生成を実証 (draft→503〜643s/-16.3LUFS)。**残: T32 話速調整 (実音声の聴感判断 = 人間) / BGM 素材ライセンス / variant 既定確定**。
 - **2026-06-21 ミスマージ解消確認**: T29/T31 (旧 PR #18) は新 PR #19 (`main` ベースで再ランディング) が人間マージ済み。`gh` の表示のみに頼らず `origin/main` の生ログで squash コミット (#19) の到達を直接検証済み。fresh 全ゲート再検証 (pytest 365 / ruff / mypy strict 68 files) 緑。旧土台ブランチ `agent/T30-impl` (remote) は内容の main 到達確認後に削除済み。詳細は [docs/PROJECT_STATE.md](docs/PROJECT_STATE.md) 改訂履歴。
+- **2026-06-24 — T33/T34 (日次自動配信 + 600M VoiceDesign 本採用)**: `collect→draft→produce→Discord` を launchd で平日朝に自動配信 (`scripts/daily_pipeline.sh`)。絵文字スタイル制御を produce に配線+公式語彙へ修正 (T33+)。Irodori **600M VoiceDesign + caption** をエンジン非依存で本採用 (T34)。[PR #22](https://github.com/Gazelle221B/panda-tech-news/pull/22) 人間 merge 待ち (Codex 独立レビュー PASS / Antigravity QA 合格、pytest 380 / ruff / mypy strict 68)。
 - 動画/YouTube は未実装 (Sprint 3 以降。着手は人間の Go 判断後)。
 
 ## 3. 絶対 NG (禁止事項) — 最優先
@@ -79,7 +80,7 @@ uv run python -m karyu_tech_news evaluate           # A/B/C 検証の定量サ�
 # または: uv run karyu collect --post
 
 # 品質ゲート (PR 前に必ず通す)
-uv run pytest                                       # ユニットテスト (現状 242 / pass)
+uv run pytest                                       # ユニットテスト (現状 380 / pass)
 uv run ruff check .                                 # Lint
 uv run mypy src tests                               # 型 (strict)
 
@@ -144,7 +145,7 @@ panda-tech-news/
 │   ├── llm/      (T12 で追加: profile / client)
 │   ├── edit/     (T14-T16, T20 で追加: prescore / judge / select / arc / abtest)
 │   └── script/   (T17-T18, T21 で追加: generate / fallback / runner)
-├── tests/                   # pytest (現状 242 / pass, 22 ファイル)
+├── tests/                   # pytest (現状 380 / pass)
 ├── scripts/                 # spike_curl_check.sh など検証スクリプト
 ├── data/                    # state.db 等 (.gitkeep 以外 git 管理外)
 └── assets/                  # bgm / jingles / voice_reference (素材本体は git 管理外)

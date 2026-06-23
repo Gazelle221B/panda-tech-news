@@ -396,3 +396,59 @@ QA の目的は **「受け入れ条件 (要件側) を満たしているか」*
 - **mp3 配信方法 (T31)**: 25MB 超の外部ストレージ接続および Discord 投稿は T31 以降。
 
 
+## Sprint 2 音声化・自動配信パイプライン (T33/T34) 最終 QA (検収日: 2026-06-24)
+
+### 総合判定: PASS
+
+### 最終動作確認 (要件 §15.3, §18 / IMPLEMENTATION_PLAN-2 DoD)
+
+- [x] 日次自動配信パイプライン (`daily_pipeline.sh`) の新設と E2E 完走 (DoD 3日連続定期稼働の初日ライブ実証成功)
+  - **証跡**: 6/23 09:48 ライブ実証にて `collect` / `draft` 成功、Discord への投稿を確認。さらに、実 produce (draft6, 600M + caption + 絵文字) が 22文合成・文欠落0・236.6s / -16.2 LUFS で完走し mp3 完パケ生成に成功。
+- [x] launchd スケジューリング (`com.karyu.daily-pipeline.plist`) による平日3日間 (6/24-26) 06:30 定期自動発火設定
+  - **証跡**: `scripts/launchd/com.karyu.daily-pipeline.plist` の `StartCalendarInterval` で 2026年6月24日、25日、26日の各 06:30 の Month+Day ピン留め設定が正常に記述されていることを確認。
+- [x] Irodori TTS 1文 ReadTimeout 欠落回避策の実装
+  - **証跡**: 参照音声を用いた長文 1文の合成が 120s を超えて欠落する問題に対し、既定 timeout ceiling を 300s に引き上げ。さらに `IRODORI_TIMEOUT` 環境変数による上書き機能（不正値は既定にフォールバックするバリデーション・エラーハンドリング付き）を `src/karyu_tech_news/tts/irodori.py` に実装し、ユニットテスト (`tests/test_tts_irodori.py`) にて検証。
+- [x] 絵文字スタイル制御の produce 配線と公式語彙リマップ (T33+)
+  - **証跡**: `synthesize_script` に `emoji_mapping` を追加して文単位で感情別絵文字を挿入するよう修正し、`main.py` の `produce` から配線。また `config/hal_persona.yaml` の感情注釈マッピングを Irodori 公式語彙 (`😊`, `😆`, `🤔`, `💪`, `😟`, `😠`, `📖`) のみにリマップした。テスト (`test_tts_synthesize.py`) にて Capabilities に基づく絵文字制御の有効/無効化を検証。
+- [x] 600M VoiceDesign モデル本採用とキャプション話法制御 (T34)
+  - **証跡**: Irodori 600M VoiceDesign への対応として、`IrodoriTTSEngine` および `synthesize_script` に `caption` (話法指示の自然文) を引き回す実装を追加。`config/hal_persona.yaml` にキャプション定義を追加し、`produce` 時に適用されることをユニットテストで検証。
+- [x] 品質ゲート合格
+  - **証跡**: `pytest` 380件のテストが 100% 通過、`ruff check` および `mypy --strict` (68 files) が警告なしでクリーンであることを確認。
+
+### 重点 QA 指摘
+
+#### 1. AGENTS.md §3 (絶対 NG) 抵触の有無: 抵触なし (合格)
+- **秘密情報の漏洩**: Webhook トークンや API キーのハードコード・ログ露出がないことを確認。`.env.example` は安全に管理されており、`.env` は追跡外。
+- **実在声優クローン禁止**: Booth 購入の許諾済み音声を参照音声として使用し、Irodori alias に割り当てているためクリア。
+- **1ソース失敗時のパイプライン完走 (fail-open)**: `daily_pipeline.sh` は `set -e` を指定せず、各段（`collect` / `draft` / `produce`）の成否に関わらず順次実行を継続する設計になっており、耐障害性を維持。
+- **タイムアウト未指定の HTTP 呼び出し**: `irodori.py` の `httpx.post` に `self._timeout` が設定されていることを確認。
+
+#### 2. ドキュメント drift (要改善・Low指摘)
+- **テスト数・ステータスの不一致**:
+  - `AGENTS.md` の主要コマンド内に `現状 242 / pass` という古いテスト数の記述が残存し、フェーズ節には `pytest 365` とある。
+  - `README.md` 内のステータスが `Sprint 1B インフラ完了・T22 3日観察完了` のまま。
+  - `README.md` のクイックスタートに `pytest` 242 pass とあり、`produce` コマンドが不足。
+  - **要求対応**: README.md と AGENTS.md を最新のスプリントフェーズ (Sprint 2 完了)・テスト数 (380 pass)・CLIコマンド構成 (produce含む) に同期すること。
+
+#### 3. 6/24 06:30 自動配信の content 課題の影響評価 (品質リスク)
+- **事象**: LLM (DeepSeek writer) が台本 markdown 生成時に中国語見出しをそのまま埋め込む既存問題があり、日本語 TTS (Irodori/Kokoro) がこれを読み上げると発話が崩れるか、不自然な文字誤読が発生する。
+- **影響評価**:
+  - インフラ面：文単位の fail-open (TTSError のハンドリング) により、1文の崩れや失敗でエピソード全体の合成が停止することはない。
+  - コンテンツ品質面：リスナーが聴いた際の違和感に直結し、一時的に番組の聞き取りやすさを低下させる。
+  - **推奨対策**: 6/24-26 の3日間配信においては fail-open により自動配信自体は完走するが、中長期的には LLM writer のプロンプトチューニング（見出し文字のカナ転記・併記の徹底）の改善を検討されたい。
+
+### 回帰
+
+- **既存機能への影響**: なし。`collect` / `draft` 処理のロジックに変更はなく、既存テスト 300件超を含む全 380件のテストが通過しているため、回帰的影響はないと判断。
+
+### 整合性確認
+
+- **DESIGN.md ↔ 実装差分**: 整合。タイムアウト設定、Irodori アダプタ仕様が設計通り。
+- **実装 ↔ テスト結果 (TEST_LOG.md)**: 整合。追加した `timeout` / `caption` / `emoji` 関連のユニットテストが正常に通過。
+
+### 未解決リスク
+
+- **Mac スリープ時の launchd 非発火**: macOS の仕様上、スリープ中は launchd が実行されず wake 時に遅れて発火するため、6/24-26 の 06:30 に確実に自動実行するには、人間が `pmset repeat wake` や `caffeinate` 等でマシンの起床状態を確保する必要がある。
+- **produce 失敗時の通知欠落**: produce が失敗（音声 mp3 生成エラー）した場合、Discord に音声が配信されないだけで終わり、エラーは `daily_*.log` または launchd ログでしか検知できない（エラー検知用の Discord 送信は未実装）。
+- **collect 0 件時の重複配信**: collect で新規アイテムが 0 件だった場合、`produce` は前日の直近 draft を流用して同じ内容を再配信してしまう仕様上の挙動（fail-open の含意）がある。
+- **launchd アンインストールの要実施**: 2026-06-26 (金) の最終配信完了後、人間が launchd plist をアンインストールしないと、 Month+Day ピン設定の含意により翌年 6/24-26 の 06:30 に再発火してしまう。

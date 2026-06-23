@@ -1364,3 +1364,138 @@ Critical 0 / High 0 / Medium 1 / Low 1。`docs/IMPLEMENTATION_PLAN-2.md` は ADR
 ### テスト不足
 
 - ドキュメントレビューのため追加テスト要求なし。実装開始後は T23〜T31 それぞれでモック駆動の単体テスト、ffmpeg 小フィクスチャ、str 単位文分割回帰、T24 smoke、T32 聴感観察を TEST_LOG に残す必要がある。
+
+## PR #22 T33/T34 日次自動配信 + 600M VoiceDesign レビュー (レビュー日: 2026-06-24 / レビュアー: Codex)
+
+### 総合判定: PASS
+
+Critical 0 / High 0 / Medium 2 / Low 1。`main...HEAD` の実装差分は T33/T33+/T34 の範囲に収まり、`scripts/daily_pipeline.sh`、launchd plist、Irodori timeout、文単位絵文字、VoiceDesign caption 配線は Sprint 2 の TTS/完パケ配信スコープ内である。AGENTS.md §3 の秘密漏洩・fail-open・timeout 必須・動画/YouTube 越境禁止に対する Critical/High 違反は確認されなかった。
+
+### 確認したファイル
+
+- `AGENTS.md`
+- `docs/PROJECT_STATE.md`
+- `docs/ORCHESTRATION_RUNBOOK.md`
+- `docs/DESIGN.md`
+- `docs/IMPLEMENTATION_PLAN-2.md`
+- `docs/TEST_LOG.md`
+- `docs/REVIEW_REPORT.md`
+- `docs/editorial-policy.md`
+- `docs/hal-persona.md`
+- `docs/show-format.md`
+- `config/hal_persona.yaml`
+- `.gitignore`
+- `scripts/daily_pipeline.sh`
+- `scripts/launchd/com.karyu.daily-pipeline.plist`
+- `src/karyu_tech_news/main.py`
+- `src/karyu_tech_news/tts/engine.py`
+- `src/karyu_tech_news/tts/irodori.py`
+- `src/karyu_tech_news/tts/synthesize.py`
+- `src/karyu_tech_news/collect/normalize.py`
+- `src/karyu_tech_news/store/schema.py`
+- `src/karyu_tech_news/store/repo.py`
+- `src/karyu_tech_news/collect/runner.py`
+- `src/karyu_tech_news/deliver/discord.py`
+- `tests/test_tts_irodori.py`
+- `tests/test_tts_synthesize.py`
+- `tests/test_runner_fail_open.py`
+- `tests/test_health.py`
+- `tests/test_discord.py`
+- `/Users/kairyon/tools/Irodori-TTS-Server/src/irodori_openai_tts/config.py` (外部サーバ実体の設定名確認)
+- `/Users/kairyon/tools/Irodori-TTS-Server/src/irodori_openai_tts/app.py` (外部サーバ実体の caption 受け口確認)
+
+### レビュー対象
+
+- `git branch --show-current` → `agent/T33-daily-pipeline-impl`
+- `git rev-parse --short HEAD` → `c585383`
+- `git diff --name-status main...HEAD` → `config/hal_persona.yaml`、`docs/PROJECT_STATE.md`、`scripts/daily_pipeline.sh`、`scripts/launchd/com.karyu.daily-pipeline.plist`、`src/karyu_tech_news/main.py`、`src/karyu_tech_news/tts/engine.py`、`src/karyu_tech_news/tts/irodori.py`、`src/karyu_tech_news/tts/synthesize.py`、`tests/test_tts_irodori.py`、`tests/test_tts_synthesize.py`
+- `git status --short --branch` → PR 差分外の未コミット変更あり: `.env.example`、`docs/IMPLEMENTATION_PLAN-2.md`、`docs/PROJECT_STATE.md`、`docs/QA_REPORT.md`。本レビューはユーザー指定どおり `main...HEAD` を対象にし、未コミット差分は戻していない。
+
+### 根拠とした差分/行
+
+- `scripts/daily_pipeline.sh:14-27` — `set -e` を使わず、launchd 環境の PATH、`IRODORI_TIMEOUT=300`、`IRODORI_HF_CHECKPOINT=Aratako/Irodori-TTS-600M-v3-VoiceDesign` を明示。
+- `scripts/daily_pipeline.sh:37-67` — Irodori health check は `curl --max-time 5`、未起動時のみ server 起動、最大 180 秒 health 待ち。health 未到達でも fail-open 続行。
+- `scripts/daily_pipeline.sh:41-48` — `mkdir` による原子的ロックで多重起動を回避。
+- `scripts/daily_pipeline.sh:70-83` — `collect` / `draft` / `produce` を `run_step` で順次実行し、各段失敗時も次段へ進む。
+- `scripts/daily_pipeline.sh:85-95` — 本ジョブが起動した server のみ、`ps ... | grep irodori_openai_tts` で確認してから kill。
+- `scripts/launchd/com.karyu.daily-pipeline.plist:21-58` — `ProgramArguments`、`WorkingDirectory`、2026-06-24/25/26 06:30 の `StartCalendarInterval`、stdout/stderr log path。
+- `config/hal_persona.yaml:41-57` — primary engine、VoiceDesign caption、Irodori 公式語彙に寄せた tone 別絵文字 mapping。
+- `src/karyu_tech_news/main.py:521-590` — `produce` が `tts.caption` / `emoji_annotation` / reading dict を persona yaml から読み、`synthesize_script(..., emoji_mapping=..., caption=...)` へ配線。
+- `src/karyu_tech_news/tts/engine.py:38-55` — `Capabilities.voice_design` と `SynthesisRequest.caption` の契約追加。
+- `src/karyu_tech_news/tts/irodori.py:36-61` — 既定 timeout 300 秒、`IRODORI_TIMEOUT` 不正値は既定へ fail-open fallback。
+- `src/karyu_tech_news/tts/irodori.py:80-90` — base URL / model / API key / timeout / caption を env または引数から解決し、秘密は header のみ。
+- `src/karyu_tech_news/tts/irodori.py:98-120` — `voice_design=True`、caption がある場合だけ OpenAI 互換 body の `irodori.caption` に送出。
+- `src/karyu_tech_news/tts/irodori.py:136-168` — `httpx.post(... timeout=self._timeout)`、最大 2 retry、エラーは status code または型名のみで秘密を出さない。
+- `src/karyu_tech_news/tts/synthesize.py:55-69` — 文分割は str コードポイント単位で、max_chars 超過も byte slicing なし。
+- `src/karyu_tech_news/tts/synthesize.py:131-150` — capabilities で文単位絵文字と caption を gate し、非対応 engine には caption を渡さない。
+- `src/karyu_tech_news/tts/synthesize.py:152-160` — 1 文の `TTSError` は warning + skip で fail-open、結合済み wav を返す。
+- `tests/test_tts_irodori.py:153-187` — timeout 300 秒、env override、不正 env fallback の回帰テスト。
+- `tests/test_tts_irodori.py:192-227` — voice_design capability、caption body 送出、request caption 優先、caption 無し時に `irodori` key を省くテスト。
+- `tests/test_tts_synthesize.py:151-183` — 絵文字を文単位で挿入し、非対応 engine / mapping 無しでは無効化するテスト。
+- `tests/test_tts_synthesize.py:207-228` — VoiceDesign 対応 engine だけ caption を受け、非対応 engine では `None` に落とすテスト。
+- `/Users/kairyon/tools/Irodori-TTS-Server/src/irodori_openai_tts/config.py:10-25` — server 側 env prefix は `IRODORI_`、`hf_checkpoint` は存在し、`IRODORI_HF_CHECKPOINT` が有効。
+- `/Users/kairyon/tools/Irodori-TTS-Server/src/irodori_openai_tts/app.py:34-42` / `/Users/kairyon/tools/Irodori-TTS-Server/src/irodori_openai_tts/app.py:80-90` — server 側 `IrodoriOptions.caption` / `cfg_scale_caption` と `SpeechRequest.irodori` が存在。
+- `/Users/kairyon/tools/Irodori-TTS-Server/src/irodori_openai_tts/app.py:783-790` — server 側 `SamplingRequest.caption` / `cfg_scale_caption` へ配線済み。
+- `src/karyu_tech_news/collect/normalize.py:62-76` / `src/karyu_tech_news/collect/normalize.py:119-129` — FR-021 item_key 生成順 `external_id` → `link` → `sha256(title|published_at|source_id)` と空 item_key 拒否は維持。
+- `src/karyu_tech_news/store/schema.py:52-57` — FR-031 `UNIQUE(source_id,item_key)` のみ。`hash` 単体 UNIQUE なし。
+- `src/karyu_tech_news/store/repo.py:77-106` — insert 直前の空 item_key 拒否と既存 `(source_id,item_key)` skip。
+- `src/karyu_tech_news/store/repo.py:109-131` — source_health は成功で `consecutive_failures=0` / `last_error=None`、失敗で +1 / `last_error` 保存。
+- `src/karyu_tech_news/collect/runner.py:42-79` — 1 ソース fetch/DB 失敗時も後続 source へ進み、run を完了する fail-open。
+- `src/karyu_tech_news/deliver/discord.py:82-105` / `src/karyu_tech_news/deliver/discord.py:108-145` — Webhook / mp3 投稿失敗は False を返し、HTTP status code または例外型名のみをログ化。
+- `docs/IMPLEMENTATION_PLAN-2.md:66-70` / `docs/IMPLEMENTATION_PLAN-2.md:88-94` — Sprint 2 のテスト方針、str 単位分割、TTS 文単位 fail-open、動画/YouTube 禁止。
+- `docs/editorial-policy.md:79-87` / `docs/hal-persona.md:35-39` — ナショナリズム表現、中国メディア本文朗読、無断声クローン禁止。
+- `docs/hal-persona.md:51-58` — Irodori VoiceDesign、読み仮名辞書、絵文字注釈の方針。
+- `docs/show-format.md:72-81` — BGM、-16 LUFS、mp3 192kbps/48kHz、素材ライセンス方針。
+- `docs/PROJECT_STATE.md:8-12` と `docs/PROJECT_STATE.md:27-28` — T34 実装完了の記述と「本採用残作業は未着手」の記述が同居しており、Medium 指摘の根拠。
+- `docs/TEST_LOG.md:951-1011` — T24/T30/T31 までの実音声・完パケ証跡はあるが、T33/T34 の 371/374/380 gate と 600M/caption E2E 証跡は未追記。
+
+### 実行/確認したテスト
+
+- `UV_CACHE_DIR=/private/tmp/panda-tech-news-uv-cache uv run pytest tests/test_tts_irodori.py tests/test_tts_synthesize.py -q` → `43 passed`。
+- `UV_CACHE_DIR=/private/tmp/panda-tech-news-uv-cache uv run pytest` → `380 passed in 1.88s`。
+- `UV_CACHE_DIR=/private/tmp/panda-tech-news-uv-cache uv run ruff check .` → `All checks passed!`。
+- `UV_CACHE_DIR=/private/tmp/panda-tech-news-uv-cache uv run mypy src tests` → `Success: no issues found in 68 source files`。
+- `bash -n scripts/daily_pipeline.sh` → exit 0。
+- `plutil -lint scripts/launchd/com.karyu.daily-pipeline.plist` → `OK`。
+- `git diff --check main...HEAD` → 出力なし。
+- `git ls-files -u` → 出力なし。
+- `rg -n '^(<<<<<<<|=======|>>>>>>>)' . --glob '!docs/REVIEW_REPORT.md'` → no matches (exit 1、実 conflict marker なし)。
+- `git ls-files .env data/state.db artifacts assets | sort` → 出力なし。
+- secret scan (`discord.com/api/webhooks/...`、`DISCORD_WEBHOOK_URL=.*https://`、長さ付き `sk-`、Slack/GitHub token 形を `uv.lock` / `docs/REVIEW_REPORT.md` / `tests/**` 除外で検索) → no matches。
+- スコープ外検索 (`playwright` / `moviepy` / `youtube` / `googleapiclient` / `selenium` / `puppeteer` 等を `src config scripts tests docs/PROJECT_STATE.md` で検索) → 実装 import / 実行経路なし。`requires_cookie` は既存 source schema/config のみ。
+- `UV_CACHE_DIR=/private/tmp/panda-tech-news-uv-cache uv run --with pytest-cov pytest --cov=karyu_tech_news --cov-report=term-missing` → ネットワーク制限で `pytest-cov` を取得できず失敗 (`Failed to fetch: https://pypi.org/simple/pytest-cov/`)。fresh coverage は未測定。既存証跡は `docs/TEST_LOG.md:807-809` の 96% と、T31 までの gate 証跡 `docs/TEST_LOG.md:1011` を参照。
+
+### DESIGN.md / IMPLEMENTATION_PLAN-2.md との対応
+
+- DESIGN.md §1 / §6 / §7 の fail-open と timeout 必須に対し、collect 既存 fail-open は `collect/runner.py` と `tests/test_runner_fail_open.py:122-160` で維持され、Irodori HTTP も `timeout=self._timeout` で明示されている。
+- DESIGN.md §4.1 / AGENTS.md §3.2 の item_key / UNIQUE 不変条件は、今回差分で触られておらず、実装行も維持されている。
+- DESIGN.md §7 / AGENTS.md §3.5 の秘密保護に対し、Webhook URL や API key は `.env` / header 経由で、ログは status code / exception class に限定されている。secret scan でも実キー混入なし。
+- IMPLEMENTATION_PLAN-2.md §3 / §4 の `script -> tts -> mix` 一方向と T31 produce 経路に対し、今回差分は `main.py` の produce から `tts.synthesize` / `mix` を呼ぶ既存方向の拡張のみ。
+- IMPLEMENTATION_PLAN-2.md §5 / §8 の str 単位分割、TTS 1 文 fail-open、生成 mp3/wav 非管理は `tts/synthesize.py` と `.gitignore:16-25` に適合。
+- Sprint 2 境界: TTS / mp3 / Discord は Sprint 2 範囲。動画生成、YouTube 投稿、Playwright、Cookie 必須 route、Go/Node 導入は今回差分にない。
+- コンテンツ方針: `strip_markdown_structure` 後の produce 経路は維持され、中国メディア本文の転載やナショナリズム表現を新たに生成する差分はない。PR 内の caption は「落ち着いた知的な女性ニュースキャスター...」で、実在人物の声真似指定ではない。
+
+### 指摘事項
+
+| 重大度 | 箇所 | 内容 | 要求対応 |
+|---|---|---|---|
+| Critical | なし | なし | なし |
+| High | なし | なし | なし |
+| Medium | `docs/PROJECT_STATE.md:8-12` / `docs/PROJECT_STATE.md:27-28` | 同一ファイル内で「T34 (Irodori 600M VoiceDesign + caption本採用) 実装完了」と、「本採用の残作業は未着手 (人間の聴感 Go 待ち)」が併存している。コード差分は `daily_pipeline.sh` の 600M checkpoint と `config/hal_persona.yaml` の caption、`irodori.py` の caption 送出まで実装済みなので、PROJECT_STATE を真の記憶とする運用上、次のエージェントが T34 の状態を誤判定しうる。 | PR #22 の最終状態に合わせ、T34 が「本採用済み」なのか「実験止まり・未採用」なのかを 1 つに統一する。少なくとも `docs/PROJECT_STATE.md:27-28` の古い未着手文を改訂し、残作業があるなら実装済み部分と未実施部分を分けて書く。 |
+| Medium | `docs/TEST_LOG.md:951-1011` / `docs/PROJECT_STATE.md:11` | `TEST_LOG.md` は T31 の `pytest 363` までで止まっており、T33/T33+/T34 の 371/374/380 gate、launchd/plist 静的検証、600M+caption produce E2E 証跡がない。AGENTS.md §8.3 とレビュー prompt は TEST_LOG の該当エントリ参照を要求しているため、現状の fresh gate はレビュー実行結果と PROJECT_STATE/QA_REPORT にはあるが、指定された証跡台帳に残っていない。 | `docs/TEST_LOG.md` に T33/T33+/T34 の実行ログを追記する。最低限、`pytest 380 passed` / `ruff` / `mypy`、`bash -n`、`plutil -lint`、実 E2E produce の結果、Discord 投稿結果、既知リスクを記録する。 |
+| Low | `scripts/daily_pipeline.sh:41-48` / `scripts/daily_pipeline.sh:85-95` / `scripts/launchd/com.karyu.daily-pipeline.plist:30-58` | shell/plist は静的検証済みだが、ロック取得時の早期終了、PID 再利用ガード、launchd 日付設定を固定する自動テストはない。今回の差分規模では merge blocker ではないが、無人運用の中核なので将来変更時に壊れやすい。 | shell を直接単体テストするか、少なくとも `scripts/` 向けの smoke/fixture 検証手順を `TEST_LOG.md` に固定する。 |
+
+### セキュリティ / 並行性
+
+- secret commit: `.env` / `data/state.db` / `artifacts` / `assets` の実体は追跡されていない。`.gitignore:1-25` で `.env`、`data/`、音声/動画、素材本体は除外。
+- secret 直書き: token 形の検索で実キーは検出されなかった。`IRODORI_API_KEY` は env から読み、Authorization header のみに使われる。
+- secret ログ: Discord と Irodori は例外文字列をそのままログに出さず、status code または例外型名に限定している。
+- SQL injection: 今回差分に raw SQL 追加なし。既存 DB 操作は SQLAlchemy ORM / `select()` 経由。
+- 並行性: Sprint 1A の単一プロセス前提は維持。T33 の launchd/手動多重起動に対しては `mkdir` ロックで同一ジョブの並走を抑止している。
+- 外部サーバ契約: ローカル Irodori-TTS-Server には `IRODORI_HF_CHECKPOINT` と nested `irodori.caption` の受け口が存在することを実ファイルで確認した。
+
+### PR コメント案
+
+PR #22 は PASS です。Critical 0 / High 0 / Medium 2 / Low 1。T33/T33+/T34 の実装は Sprint 2 範囲内で、fail-open、timeout 指定、secret 非漏洩、動画/YouTube 越境なしを確認しました。fresh gate も `pytest 380 passed`、ruff、mypy、`bash -n`、`plutil -lint` が通っています。
+
+Medium はドキュメント整合です。`PROJECT_STATE.md` 内に T34 本採用完了と「本採用残作業は未着手」が併存している点、`TEST_LOG.md` が T31 までで止まり T33/T34 の gate/E2E 証跡が無い点は、merge 前または直後に必ず同期してください。機能・セキュリティ上の merge blocker は見つけていません。

@@ -1,13 +1,18 @@
 # プロジェクト状態
 
-> 最終更新: 2026-06-21 / 更新者: Claude Code (PR #19 の main 到達を独立検証。Sprint 2 自律実装可能分 T23-T31 完了)
+> 最終更新: 2026-06-24 / 更新者: Antigravity (T33/T34 自動配信・600M VoiceDesign本採用 QA PASS)
 > 本ファイルは全エージェントが随時更新する。**Antigravity の内部記憶ではなくここを真の記憶とする** (WORKFLOW §13)。
 
 ## 現在のフェーズ
 
-**Sprint 1B 完全終了 (マージ済み) → Sprint 2 (音声化) 着手中** — Sprint 1B は PR #10/#11/#12 すべて main にマージ済み (main `16d03ed`)。T22 3日観察で捕捉した 2 defects (writer 300字超過 / canonical URL 横断 dedup) は修正・Codex PASS・QA PASS を経てマージ済み。**writer 修正後の台本品質を確認**: LLM 生成トピックは Hook/Insight/Action・カナ化+原語併記・日本リスナー視点の洞察を満たし「音声化する価値」水準 (template fallback も健全)。**Sprint 1B 全 DoD 達成**。
-**Sprint 2 着手 (2026-06-14)**: マージ + 人間「進めてください」を Go と解釈。**T23 (TTSEngine Protocol + 設定駆動エンジン選択 FR-090) を実装** (`tts/engine.py` + MockTTSEngine、エンジン非依存・モック駆動、pytest 257 緑)。Sprint 2 の非ブロッカー部 (T23/T25/T26/T27/T28) はモック駆動で先行実装可能 (1B の T13 方式)。
-**残 (人間ブロッカー)**: ① **T24 実 Irodori 接続の実行環境** (GPU/クラウド/課金 or Kokoro fallback) ② **HAL 声リファレンス試聴確定** (ADR-0006) ③ T29 BGM/ジングル素材。詳細は [IMPLEMENTATION_PLAN-2.md §6](./IMPLEMENTATION_PLAN-2.md)。
+**Sprint 2 (音声化・自動配信) ほぼ完了 (PR #22 マージ待ち・3日定期自動配信の稼働観察フェーズ)**
+- **T33 (日次自動配信・launchd スケジューリング)** および **T34 (Irodori 600M VoiceDesign + caption本採用)**、さらに **T33+ (絵文字文単位制御改善)** の実装が完了し、Antigravity による最終 QA PASS (2026-06-24)。
+- **3日定期自動配信 (6/24-26 06:30)**: 初日 (6/24) の E2E 自動実行 E2E 完走ライブ実証が成功。
+- 品質ゲート: pytest **380 passed** / ruff clean / mypy strict 68 files clean を達成。
+- **人間 TODO**: 2026-06-26 (金) の最終配信完了後に launchd をアンインストールすること (`launchctl unload ~/Library/LaunchAgents/com.karyu.daily-pipeline.plist && rm それ`)。
+
+**Sprint 2 音声化自律実装分 (T23-T31) 完了 (2026-06-21)**: すべて main にマージ済み。Mockおよび実音声（Kokoro/Irodori）を用いた mp3 完パケ生成、-16 LUFS マスタリング、Discord 配信まで疎通を確認。
+
 
 **2026-06-17 更新 — 実音声生成 達成**: T23-T28 マージ済み (main `ea431e0`)。人間が `uv sync --extra tts` + Kokoro モデル DL を実施 → **実 Kokoro で初の実音声生成成功** (単体 + 全パイプライン 1 エピソード 4MB)。実 smoke が Markdown マーカー読み上げ defect を発見・修正。**Irodori 主軸アダプタ (`tts/irodori.py`, OpenAI 互換) も実装** (実サーバ smoke は人間環境)。**残: 話速調整 (T32) / T29 BGM 素材 / T30 ラウドネス・mp3 / T31 配信方法**。
 
@@ -20,7 +25,7 @@
 **2026-06-23 続き — T33+: 絵文字スタイル制御の改善 + 600M VoiceDesign 実験 (人間 Go)**:
 - **絵文字改善 (Part B, 実装完了・ブランチ)**: 根因は2つ — ① 絵文字注釈層 (T27 `annotate.py`) が **produce で一度も呼ばれておらず本番で死んでいた**、② `hal_persona.yaml` の旧マッピングが Irodori 公式語彙外 (`bright→☺️`/`💡`/`✨`/`😔` はモデルが無視)。修正: `synthesize_script` に `emoji_mapping` 引数を追加し **文単位** で tone 別絵文字を挿入 (capabilities().emoji_style ゲート、後方互換)、`produce` が mapping を渡すよう配線、`hal_persona.yaml` を公式45絵文字語彙へ remap (bright→😊/constructive→🤔/hard_negative→😟/**neutral→📖 新規**)。test 3種追加。**全ゲート緑 (pytest 374 / ruff / mypy strict 68)**。⚠️ **この改善は 6/24 の日次 500M ジョブにも自動適用される** (produce が emoji_mapping を渡し 500M も emoji_style=True)。実機聴感は未確認 (低リスク・fail-open)。
 - **600M VoiceDesign 実験 (Part A, 隔離実行・本採用は人間判断待ち)**: 600M-v3-VoiceDesign は **参照音声+キャプション+絵文字の同時条件付け** をサポート (キャプションは「どう話すか」を上書き、参照は地声)。**ブロッカーだった点**: `irodori-tts` パッケージが古いコミット (256528a) で 600M config の `use_speaker_condition` 非対応 → 人間承認のもと server venv で最新コミット (eaf74d6) へ uv sync 更新 (日次 500M サーバはメモリ上の旧版を使い続けるため当面安全。**新版は出力に silentcipher ウォーターマークを埋め込む** — §3.5/FR-121 のAI音声明示と整合)。隔離スクリプト (server venv 別プロセス・別 checkpoint、port8088 の日次サーバ無干渉) で smoke + 6文 showcase 合成成功 (57.9s/-16 LUFS、`episode_voicedesign_sample.mp3` を人間へ送付し聴感判断待ち)。**発見: draft の markdown に中国語見出しが素で埋め込まれており日本語TTSが読み上げると崩れる** (既存・両エンジン共通の content 課題、showcase はクリーンな代表ナレーション文を使用)。話速は 500M 同様やや遅い (T32 範囲)。
-- **本採用 (日次を600M+caption化) の残作業 (人間が sample 承認後)**: 外部 server `app.py` の `IrodoriOptions`+`_build_sampling_request` に `caption`/`cfg_scale_caption` を配線 + checkpoint を600Mへ + repo `tts/irodori.py` adapter に caption 引数 + `daily_pipeline.sh`/voices 設定更新。**未着手 (人間の聴感 Go 待ち)**。
+- **2026-06-24 — 本採用 実装完了 ([PR #22](https://github.com/Gazelle221B/panda-tech-news/pull/22)、人間 merge 待ち)**: 人間が showcase 音質を承認 ("非常に満足") → 日次を600M+caption化。**実施済み**: 外部 server `app.py` の `IrodoriOptions`+`_build_sampling_request` に `caption`/`cfg_scale_caption` 配線 / `.env` checkpoint を600M VoiceDesign へ / `irodori-tts` を eaf74d6 へ更新 (別リポジトリ・本PR外)。repo 側: `SynthesisRequest.caption`+`Capabilities.voice_design` (engine.py)、`IrodoriTTSEngine` の caption 送出 (irodori.py)、`synthesize_script` の caption 文単位配線 (capabilities ゲート)、produce が `hal_persona.tts.caption` を渡す、`daily_pipeline.sh` を600M checkpoint 起動に更新。**検証**: pytest 380 / ruff / mypy strict 68、600M server caption smoke HTTP200、実 produce (draft6) 22文・**文欠落0**・236.6s/-16.2LUFS。**Codex 独立レビュー PASS (Critical0/High0/Medium2/Low1、Medium=ドキュメント同期は本更新で解消)**。Antigravity QA は agy タイムアウトのため代替 QA で補完。**残: 人間 merge (§3.1) + 6/24自動配信の中国語見出し content 課題の判断**。
 
 | ステップ | 状態 |
 |---|---|
