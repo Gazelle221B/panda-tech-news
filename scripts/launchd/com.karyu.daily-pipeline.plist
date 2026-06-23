@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  華流テック通信 — 日次自動配信 launchd エージェント (T33)
+
+  collect→draft→produce(Irodori 参照音声)→Discord を平日朝 06:30 に 1 回実行する。
+  StartCalendarInterval を「毎週 Wed/Thu/Fri」ではなく Month+Day で 3 日ぴったりに
+  ピン留めし、2026-06-24 / 06-25 / 06-26 の各 06:30 のみ発火 → 以後ドーマント。
+
+  インストール:  cp このファイル ~/Library/LaunchAgents/ && launchctl load それ
+  アンインストール: launchctl unload ~/Library/LaunchAgents/com.karyu.daily-pipeline.plist
+                    && rm ~/Library/LaunchAgents/com.karyu.daily-pipeline.plist
+  注意: Mac がスリープ中は発火せず、次回 wake 時に実行される (launchd は Mac を起こさない)。
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.karyu.daily-pipeline</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>/Users/kairyon/projects/panda-tech-news/scripts/daily_pipeline.sh</string>
+  </array>
+
+  <key>WorkingDirectory</key>
+  <string>/Users/kairyon/projects/panda-tech-news</string>
+
+  <key>StartCalendarInterval</key>
+  <array>
+    <dict>
+      <key>Month</key><integer>6</integer>
+      <key>Day</key><integer>24</integer>
+      <key>Hour</key><integer>6</integer>
+      <key>Minute</key><integer>30</integer>
+    </dict>
+    <dict>
+      <key>Month</key><integer>6</integer>
+      <key>Day</key><integer>25</integer>
+      <key>Hour</key><integer>6</integer>
+      <key>Minute</key><integer>30</integer>
+    </dict>
+    <dict>
+      <key>Month</key><integer>6</integer>
+      <key>Day</key><integer>26</integer>
+      <key>Hour</key><integer>6</integer>
+      <key>Minute</key><integer>30</integer>
+    </dict>
+  </array>
+
+  <key>RunAtLoad</key>
+  <false/>
+
+  <key>StandardOutPath</key>
+  <string>/Users/kairyon/projects/panda-tech-news/data/logs/launchd_pipeline.out.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/kairyon/projects/panda-tech-news/data/logs/launchd_pipeline.err.log</string>
+</dict>
+</plist>

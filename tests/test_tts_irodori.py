@@ -148,6 +148,85 @@ def test_irodori_retries_exhausted_raises() -> None:
     assert post.call_count == 3  # 初回 + 2 リトライ
 
 
+# ---------- timeout (T33: 参照音声で長文 1 文が >120s になる欠落対策) ----------
+
+def test_irodori_default_timeout_is_300(monkeypatch: pytest.MonkeyPatch) -> None:
+    # 既定 ceiling を 300s に引き上げ (参照音声の遅い 1 文を救う)
+    # env リークで偽陽性/偽陰性にならないよう IRODORI_TIMEOUT を明示的に外す (テスト分離)
+    monkeypatch.delenv("IRODORI_TIMEOUT", raising=False)
+    wav = _wav_bytes()
+    with patch(
+        "karyu_tech_news.tts.irodori.httpx.post", return_value=_mock_resp(wav)
+    ) as post:
+        IrodoriTTSEngine().synthesize(SynthesisRequest(text="x", voice_id="hal"))
+    assert post.call_args.kwargs["timeout"] == 300.0
+
+
+def test_irodori_env_timeout_override(monkeypatch: pytest.MonkeyPatch) -> None:
+    # IRODORI_TIMEOUT で上書き可 (base_url/model と同 idiom)
+    monkeypatch.setenv("IRODORI_TIMEOUT", "600")
+    wav = _wav_bytes()
+    with patch(
+        "karyu_tech_news.tts.irodori.httpx.post", return_value=_mock_resp(wav)
+    ) as post:
+        IrodoriTTSEngine().synthesize(SynthesisRequest(text="x", voice_id="hal"))
+    assert post.call_args.kwargs["timeout"] == 600.0
+
+
+@pytest.mark.parametrize("bad", ["abc", "0", "-5", ""])
+def test_irodori_invalid_env_timeout_falls_back(
+    monkeypatch: pytest.MonkeyPatch, bad: str
+) -> None:
+    # 不正な env 値は無人ジョブを落とさず既定にフォールバック (システム境界の入力検証)
+    monkeypatch.setenv("IRODORI_TIMEOUT", bad)
+    wav = _wav_bytes()
+    with patch(
+        "karyu_tech_news.tts.irodori.httpx.post", return_value=_mock_resp(wav)
+    ) as post:
+        IrodoriTTSEngine().synthesize(SynthesisRequest(text="x", voice_id="hal"))
+    assert post.call_args.kwargs["timeout"] == 300.0
+
+
+# ---------- caption / VoiceDesign (T34) ----------
+
+def test_irodori_capabilities_voice_design() -> None:
+    assert IrodoriTTSEngine().capabilities().voice_design is True
+
+
+def test_irodori_sends_engine_caption_in_body() -> None:
+    wav = _wav_bytes()
+    with patch(
+        "karyu_tech_news.tts.irodori.httpx.post", return_value=_mock_resp(wav)
+    ) as post:
+        IrodoriTTSEngine(caption="落ち着いた知的な声").synthesize(
+            SynthesisRequest(text="x", voice_id="hal")
+        )
+    body = post.call_args.kwargs["json"]
+    assert body["irodori"]["caption"] == "落ち着いた知的な声"
+
+
+def test_irodori_request_caption_overrides_engine() -> None:
+    # 文ごとの req.caption がエンジン既定より優先
+    wav = _wav_bytes()
+    with patch(
+        "karyu_tech_news.tts.irodori.httpx.post", return_value=_mock_resp(wav)
+    ) as post:
+        IrodoriTTSEngine(caption="既定").synthesize(
+            SynthesisRequest(text="x", voice_id="hal", caption="文ごと")
+        )
+    assert post.call_args.kwargs["json"]["irodori"]["caption"] == "文ごと"
+
+
+def test_irodori_no_caption_omits_irodori_key() -> None:
+    # caption 未指定なら irodori オプションを付けない (500M でも無害)
+    wav = _wav_bytes()
+    with patch(
+        "karyu_tech_news.tts.irodori.httpx.post", return_value=_mock_resp(wav)
+    ) as post:
+        IrodoriTTSEngine().synthesize(SynthesisRequest(text="x", voice_id="hal"))
+    assert "irodori" not in post.call_args.kwargs["json"]
+
+
 # ---------- select_engine 統合 (FR-090) ----------
 
 def test_select_engine_irodori_by_config_key() -> None:

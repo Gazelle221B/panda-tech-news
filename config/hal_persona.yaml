@@ -42,8 +42,16 @@ tts:
   primary_engine: irodori-tts-v3
   voice_strategy: voicedesign-then-speaker-inversion   # Sprint 2 検証項目 (確定仕様ではない)
   reading_dict: config/reading_dict.yaml               # FR-092 固有名詞読み辞書 (Sprint 2 で整備)
+  # VoiceDesign キャプション (T34): 参照音声(地声)に対し「どう話すか」を上書きする自然文。
+  # Irodori 600M VoiceDesign checkpoint でのみ有効 (500M は server が無視)。
+  caption: "落ち着いた知的な女性ニュースキャスター。明瞭で聞き取りやすく、信頼感のある一定したトーン。過度な感情を抑えた語り口。"
   emoji_annotation:                                    # tone別の感情注釈 (台本生成後に機械挿入)
-    hard_negative: ["😟", "😔"]
-    constructive: ["🤔", "💡"]
-    bright: ["☺️", "✨"]
+    # Irodori-TTS v3 公式の絵文字ボイス制御語彙 (EMOJI_ANNOTATIONS.md) のみ使用する。
+    # 語彙外の絵文字 (☺️ U+263A / 💡 / 😔 / ✨ 等) はモデルが認識せず無視されるため
+    # スタイル制御が効かない (T33+ 改善: 旧 bright の ☺️ が語彙外で「効きが薄い」主因だった)。
+    # annotate.py は先頭候補を採用。ニュース番組として過度な感情表現は避ける。
+    hard_negative: ["😟", "😠"]    # 😟 worriedly / 😠 angry, displeased
+    constructive: ["🤔", "💪"]     # 🤔 questioning, wondering / 💪 with effort
+    bright: ["😊", "😆"]           # 😊 cheerfully / 😆 joyfully  (旧 ☺️ は語彙外で無効だった)
+    neutral: ["📖"]               # 📖 narration, monologue — intro/中立トピックに語り口を付与 (従来は無注釈で素読み)
   fallback_engines: [style-bert-vits2, aivisspeech, cosyvoice2]

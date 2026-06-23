@@ -511,6 +511,7 @@ def produce(
     )
     from karyu_tech_news.store.repo import init_db as init_database
     from karyu_tech_news.store.schema import EpisodeDraft
+    from karyu_tech_news.tts.annotate import load_emoji_annotation
     from karyu_tech_news.tts.engine import TTSError, select_engine
     from karyu_tech_news.tts.normalize import load_reading_dict, strip_markdown_structure
     from karyu_tech_news.tts.synthesize import synthesize_script
@@ -521,6 +522,7 @@ def produce(
     # (構造は `tts: {primary_engine, reading_dict}`。Codex 指摘で `voice` 誤読を修正)
     eng_name = engine_name
     reading_path = Path("config/reading_dict.yaml")
+    caption: str | None = None  # VoiceDesign 話法キャプション (T34, 対応エンジンのみ使用)
     if persona_file.exists():
         try:
             persona = yaml.safe_load(persona_file.read_text(encoding="utf-8")) or {}
@@ -528,6 +530,7 @@ def produce(
             eng_name = eng_name or tts_cfg.get("primary_engine")
             if tts_cfg.get("reading_dict"):
                 reading_path = Path(tts_cfg["reading_dict"])
+            caption = tts_cfg.get("caption") or None
         except Exception as exc:  # noqa: BLE001
             typer.secho(
                 f"WARN: persona 読み込み失敗 (既定で続行): {type(exc).__name__}",
@@ -575,13 +578,17 @@ def produce(
             ],
         )
         reading_dict = load_reading_dict(reading_path) if reading_path.exists() else {}
+        # tone 別絵文字スタイル (T27/T33+): エンジンが対応する場合のみ synthesize 内で文単位適用
+        emoji_mapping = load_emoji_annotation(persona_file) if persona_file.exists() else None
         try:
             tts = select_engine(eng_name)
         except TTSError as exc:
             typer.secho(f"ERROR: {exc}", fg=typer.colors.RED, err=True)
             raise typer.Exit(code=1) from exc
 
-        synth = synthesize_script(script, tts, reading_dict)
+        synth = synthesize_script(
+            script, tts, reading_dict, emoji_mapping=emoji_mapping, caption=caption
+        )
         mixed = mix_bgm(synth.audio, bgm_path=find_bgm(bgm_dir))
 
         out_path = out_dir / f"episode_{draft_pk}.mp3"

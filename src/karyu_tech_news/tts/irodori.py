@@ -33,10 +33,32 @@ IRODORI_DEFAULT_VOICE = "hal"  # 声リファレンスは試聴で確定 (ADR-00
 # (IRODORI_CHECKPOINT) であって API の model 値ではない (Codex レビュー指摘)。
 IRODORI_MODEL = "irodori-tts"
 IRODORI_MAX_CHARS = 2000  # サーバ側も自動チャンクするが、T28 でも文単位分割する
-TIMEOUT_SECONDS = 120.0  # TTS 合成は LLM より遅い (要件 §3.3 タイムアウト必須)
+# 参照音声(ゼロショット声クローン)は話者 latent を毎リクエスト抽出するため、長文 1 文でも
+# >120s かかりうる (T33 実測: 1 文が 120s×3 リトライ全 ReadTimeout で欠落)。retry は同一の遅い
+# リクエストを再送するだけで遅延は救えないため、ceiling 自体を上げる。env IRODORI_TIMEOUT で上書き可。
+TIMEOUT_SECONDS = 300.0  # TTS 合成は LLM より遅い (要件 §3.3 タイムアウト必須)
 MAX_RETRIES = 2  # 一過性の 5xx/接続断を想定 (FR-013 / llm・fetcher と同値)
 
 logger = logging.getLogger(__name__)
+
+
+def _resolve_timeout(raw: str | None) -> float:
+    """IRODORI_TIMEOUT (秒) を解釈。未設定/不正値は既定にフォールバック (fail-open).
+
+    無人パイプラインで不正な env 値がジョブ全体を落とさないよう、>0 の float 以外は
+    既定 TIMEOUT_SECONDS を採用しログのみ残す (システム境界の入力検証)。
+    """
+    if not raw:
+        return TIMEOUT_SECONDS
+    try:
+        value = float(raw)
+    except ValueError:
+        logger.warning("IRODORI_TIMEOUT 不正値 (float でない), 既定 %ss を使用", TIMEOUT_SECONDS)
+        return TIMEOUT_SECONDS
+    if value <= 0:
+        logger.warning("IRODORI_TIMEOUT 不正値 (<=0), 既定 %ss を使用", TIMEOUT_SECONDS)
+        return TIMEOUT_SECONDS
+    return value
 
 
 class IrodoriTTSEngine:
@@ -52,6 +74,7 @@ class IrodoriTTSEngine:
         base_url: str | None = None,
         voice: str = IRODORI_DEFAULT_VOICE,
         model: str | None = None,
+        caption: str | None = None,
         api_key_env: str = "IRODORI_API_KEY",
     ) -> None:
         resolved = base_url or os.getenv("IRODORI_BASE_URL") or IRODORI_DEFAULT_BASE_URL
@@ -60,6 +83,11 @@ class IrodoriTTSEngine:
         # サーバの model_name と一致させる。env で上書き可 (server 設定を変えた場合)。
         self._model = model or os.getenv("IRODORI_MODEL") or IRODORI_MODEL
         self._api_key = os.getenv(api_key_env, "")
+        # 参照音声で長文 1 文が既定 ceiling を超える環境向けに env で上書き可 (base_url/model と同 idiom)。
+        self._timeout = _resolve_timeout(os.getenv("IRODORI_TIMEOUT"))
+        # VoiceDesign キャプション (話法指示): 引数 → env IRODORI_CAPTION → なし (T34)。
+        # 既定エンジン (500M) では server が無視。600M VoiceDesign checkpoint でのみ効く。
+        self._caption = caption or os.getenv("IRODORI_CAPTION") or None
 
     def name(self) -> str:
         return "irodori-tts-v3"
@@ -74,16 +102,22 @@ class IrodoriTTSEngine:
             voice_clone=True,
             streaming=False,
             max_chars=IRODORI_MAX_CHARS,
+            voice_design=True,  # 600M VoiceDesign checkpoint でキャプション話法制御 (T34)
         )
 
     def synthesize(self, req: SynthesisRequest) -> SynthesisResult:
-        body = {
+        body: dict[str, object] = {
             "model": self._model,
             "input": req.text,
             "voice": req.voice_id or self._voice,
             "response_format": "wav",
             "speed": req.speed,
         }
+        # VoiceDesign: 文ごとの caption (req) を優先、無ければエンジン既定。server の
+        # irodori オプション経由で SamplingRequest.caption に渡る (600M でのみ有効)。
+        caption = req.caption or self._caption
+        if caption:
+            body["irodori"] = {"caption": caption}
         headers = {}
         if self._api_key:  # キーは header のみ (URL/エラーに載せない)
             headers["Authorization"] = f"Bearer {self._api_key}"
@@ -110,7 +144,7 @@ class IrodoriTTSEngine:
         last_exc: httpx.HTTPError | None = None
         for attempt in range(MAX_RETRIES + 1):
             try:
-                resp = httpx.post(url, json=body, headers=headers, timeout=TIMEOUT_SECONDS)
+                resp = httpx.post(url, json=body, headers=headers, timeout=self._timeout)
                 resp.raise_for_status()
                 return resp
             except (httpx.HTTPError, httpx.TimeoutException) as exc:

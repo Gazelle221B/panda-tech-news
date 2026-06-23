@@ -125,6 +125,109 @@ def test_synthesize_script_applies_reading_dict() -> None:
     assert all("小米" not in t for t in received)
 
 
+def _recording_engine(received: list[str], *, emoji_style: bool):  # type: ignore[no-untyped-def]
+    class _Rec:
+        def name(self) -> str:
+            return "rec"
+
+        def voices(self) -> list[Voice]:
+            return [Voice(id="hal", name="HAL")]
+
+        def capabilities(self) -> Capabilities:
+            return Capabilities(
+                emoji_style=emoji_style, voice_clone=False, streaming=False, max_chars=100
+            )
+
+        def synthesize(self, req: SynthesisRequest) -> SynthesisResult:
+            received.append(req.text)
+            return MockTTSEngine().synthesize(req)
+
+    return _Rec()
+
+
+_EMOJI_MAP = {"neutral": ["📖"], "bright": ["😊"]}
+
+
+def test_synthesize_script_applies_emoji_per_sentence_when_supported() -> None:
+    # 絵文字対応エンジンでは tone 絵文字を **文単位** で句点直前に挿入する (T33+)
+    received: list[str] = []
+    synthesize_script(
+        _script(("一文目。二文目。", "neutral")),
+        _recording_engine(received, emoji_style=True),
+        {},
+        emoji_mapping=_EMOJI_MAP,
+    )
+    assert received == ["一文目📖。", "二文目📖。"]
+
+
+def test_synthesize_script_skips_emoji_when_engine_unsupported() -> None:
+    # 絵文字非対応エンジン (kokoro 等) では mapping を渡しても挿入しない (capabilities ゲート)
+    received: list[str] = []
+    synthesize_script(
+        _script(("一文目。", "bright")),
+        _recording_engine(received, emoji_style=False),
+        {},
+        emoji_mapping=_EMOJI_MAP,
+    )
+    assert received == ["一文目。"]
+
+
+def test_synthesize_script_no_emoji_without_mapping() -> None:
+    # mapping 未指定なら絵文字非適用 (後方互換: 既存呼び出し元は無変更で従来動作)
+    received: list[str] = []
+    synthesize_script(
+        _script(("一文目。", "neutral")),
+        _recording_engine(received, emoji_style=True),
+        {},
+    )
+    assert received == ["一文目。"]
+
+
+def _caption_recording_engine(captions: list[str | None], *, voice_design: bool):  # type: ignore[no-untyped-def]
+    class _Rec:
+        def name(self) -> str:
+            return "rec"
+
+        def voices(self) -> list[Voice]:
+            return [Voice(id="hal", name="HAL")]
+
+        def capabilities(self) -> Capabilities:
+            return Capabilities(
+                emoji_style=False, voice_clone=False, streaming=False,
+                max_chars=100, voice_design=voice_design,
+            )
+
+        def synthesize(self, req: SynthesisRequest) -> SynthesisResult:
+            captions.append(req.caption)
+            return MockTTSEngine().synthesize(req)
+
+    return _Rec()
+
+
+def test_synthesize_script_passes_caption_when_voice_design() -> None:
+    # VoiceDesign 対応エンジンには caption が各文の SynthesisRequest へ渡る (T34)
+    captions: list[str | None] = []
+    synthesize_script(
+        _script(("一文目。", "neutral")),
+        _caption_recording_engine(captions, voice_design=True),
+        {},
+        caption="落ち着いた知的な声",
+    )
+    assert captions == ["落ち着いた知的な声"]
+
+
+def test_synthesize_script_drops_caption_when_not_voice_design() -> None:
+    # 非対応エンジン (kokoro 等) には caption を渡さない (None 化, capabilities ゲート)
+    captions: list[str | None] = []
+    synthesize_script(
+        _script(("一文目。", "neutral")),
+        _caption_recording_engine(captions, voice_design=False),
+        {},
+        caption="落ち着いた知的な声",
+    )
+    assert captions == [None]
+
+
 def test_synthesize_script_fail_open_on_sentence_error() -> None:
     # 1 文の合成失敗で番組を止めない (他文の音声は出る)
     class _FlakyEngine:
