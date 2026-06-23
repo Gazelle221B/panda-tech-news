@@ -1026,3 +1026,5 @@ libmp3lame assertion crash) → 修正 (上記 step 3) → 再レビューで実
 **レビュー/QA**: **Codex 独立レビュー PASS** (Critical0/High0/Medium2/Low1、Medium=PROJECT_STATE/TEST_LOG 同期 → 本追記で解消)。**Antigravity QA 合格** (§3 NG 抵触なし・回帰なし・整合性 OK、Low=README/AGENTS テスト数 drift → 同期)。
 **⚠ shell/plist の自動テストは無し (Codex Low)**: `bash -n` + `shellcheck` + `plutil -lint` の静的検証で代替。将来変更時は本ログの手順を再実行する。
 **⚠ 既知の運用リスク (QA)**: Mac スリープ中 launchd 不発火 (`pmset repeat wake` で回避) / produce 失敗時の Discord 通知なし (ログのみ) / collect 0件日は前日 draft 再配信 / 6/26 後 launchd 撤去要 / **draft の中国語見出し埋め込みで TTS が崩す content 課題 (LLM writer プロンプト改善が中期対策)**。
+
+**Copilot PR レビュー対応 (6/24, fb7bef4)**: PR #22 上の 5 指摘を全対応・全 thread resolve 済み。(1) `_resolve_timeout` が `float(nan)/(inf)` を弾くよう `math.isfinite` ガード追加 (nan は `<=0` をすり抜け・inf は無限 timeout = 無人ジョブ安全性バグ)・test に nan/inf/-inf 追加 → **pytest 383 passed**。(2) サーバを `--host 127.0.0.1` バインド + `.env` `IRODORI_HOST=127.0.0.1` で LAN 露出回避 (サーバ再起動で localhost-only 確認)。(3) `daily_pipeline.sh` のパスを env 上書き可 + スクリプト位置/`$HOME`/`PATH` 解決でポータビリティ確保。(4) plist の `ProgramArguments` を `$HOME` 経由でユーザー名非依存化 + 編集要箇所明記。ruff / mypy strict 68 / bash -n + shellcheck / plutil 再確認済み。
