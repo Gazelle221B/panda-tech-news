@@ -173,7 +173,7 @@ def test_irodori_env_timeout_override(monkeypatch: pytest.MonkeyPatch) -> None:
     assert post.call_args.kwargs["timeout"] == 600.0
 
 
-@pytest.mark.parametrize("bad", ["abc", "0", "-5", ""])
+@pytest.mark.parametrize("bad", ["abc", "0", "-5", "", "nan", "inf", "-inf"])
 def test_irodori_invalid_env_timeout_falls_back(
     monkeypatch: pytest.MonkeyPatch, bad: str
 ) -> None:

@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import io
 import logging
+import math
 import os
 import wave
 
@@ -45,8 +46,9 @@ logger = logging.getLogger(__name__)
 def _resolve_timeout(raw: str | None) -> float:
     """IRODORI_TIMEOUT (秒) を解釈。未設定/不正値は既定にフォールバック (fail-open).
 
-    無人パイプラインで不正な env 値がジョブ全体を落とさないよう、>0 の float 以外は
+    無人パイプラインで不正な env 値がジョブ全体を落とさないよう、有限かつ >0 の float 以外は
     既定 TIMEOUT_SECONDS を採用しログのみ残す (システム境界の入力検証)。
+    nan は比較が常に False で <=0 をすり抜け、inf は無限 timeout になりうるため明示的に弾く。
     """
     if not raw:
         return TIMEOUT_SECONDS
@@ -55,8 +57,8 @@ def _resolve_timeout(raw: str | None) -> float:
     except ValueError:
         logger.warning("IRODORI_TIMEOUT 不正値 (float でない), 既定 %ss を使用", TIMEOUT_SECONDS)
         return TIMEOUT_SECONDS
-    if value <= 0:
-        logger.warning("IRODORI_TIMEOUT 不正値 (<=0), 既定 %ss を使用", TIMEOUT_SECONDS)
+    if not math.isfinite(value) or value <= 0:
+        logger.warning("IRODORI_TIMEOUT 不正値 (非有限 or <=0), 既定 %ss を使用", TIMEOUT_SECONDS)
         return TIMEOUT_SECONDS
     return value
 

@@ -13,14 +13,18 @@
 #   - launchd は最小環境で動くため PATH / cwd / 必要 env をすべて明示する。
 set -uo pipefail
 
-PROJECT_DIR="/Users/kairyon/projects/panda-tech-news"
-IRODORI_DIR="/Users/kairyon/tools/Irodori-TTS-Server"
-UV="/Users/kairyon/.local/bin/uv"
-HEALTH_URL="http://localhost:8088/health"
+# launchd の最小 PATH を先に補う (以降の command -v が解決できるように)
+export PATH="${HOME}/.local/bin:/usr/bin:/bin:/usr/sbin:/sbin:${PATH:-}"
 
-# launchd の最小 PATH を補う + 参照音声の遅い 1 文を救う timeout (irodori.py 既定と同値を明示)
-export PATH="/Users/kairyon/.local/bin:/usr/bin:/bin:/usr/sbin:/sbin:${PATH:-}"
-export IRODORI_TIMEOUT="${IRODORI_TIMEOUT:-300}"
+# パスは env で上書き可。既定はスクリプト位置 / $HOME / PATH から解決しポータビリティを確保する。
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_DIR="${KARYU_PROJECT_DIR:-$(cd "${SCRIPT_DIR}/.." && pwd)}"
+IRODORI_DIR="${KARYU_IRODORI_DIR:-${HOME}/tools/Irodori-TTS-Server}"
+UV="${KARYU_UV:-$(command -v uv || echo "${HOME}/.local/bin/uv")}"
+# サーバは localhost のみにバインドし LAN 露出を避ける (Copilot 指摘)。health も同 host。
+HEALTH_URL="${KARYU_HEALTH_URL:-http://127.0.0.1:8088/health}"
+
+export IRODORI_TIMEOUT="${IRODORI_TIMEOUT:-300}"  # 参照音声の遅い 1 文を救う (irodori.py 既定と同値)
 # T34: 本スクリプトが起動する Irodori サーバは 600M VoiceDesign checkpoint を使う
 # (caption 話法制御を有効化)。既存稼働サーバを health チェックで再利用する場合は、
 # そのサーバが 600M であることが前提 (人間が 500M を停止し 600M を起動済みのこと)。
@@ -55,7 +59,7 @@ if health_ok; then
   log "Irodori サーバ: 既に稼働中 (既存を利用)"
 else
   log "Irodori サーバ: 未起動 → 起動"
-  ( cd "$IRODORI_DIR" && nohup "$UV" run python -m irodori_openai_tts --host 0.0.0.0 --port 8088 \
+  ( cd "$IRODORI_DIR" && nohup "$UV" run python -m irodori_openai_tts --host 127.0.0.1 --port 8088 \
       >> "${LOG_DIR}/irodori_server_${STAMP}.log" 2>&1 & echo $! > "$PIDFILE" )
   STARTED_SERVER=1
   # 初回はモデルロードがあるため最大 180s 待つ

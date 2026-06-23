@@ -12,20 +12,27 @@
   アンインストール: launchctl unload ~/Library/LaunchAgents/com.karyu.daily-pipeline.plist
                     && rm ~/Library/LaunchAgents/com.karyu.daily-pipeline.plist
   注意: Mac がスリープ中は発火せず、次回 wake 時に実行される (launchd は Mac を起こさない)。
+
+  ポータビリティ (Copilot 指摘): ProgramArguments は $HOME 経由でユーザー名非依存にした。
+  ただし launchd は StandardOutPath / StandardErrorPath では $HOME を展開しないため絶対パス必須。
+  ⚠ 別ユーザー/別配置で使う場合は、下記 StandardOutPath / StandardErrorPath の 2 行と、
+  プロジェクトが ~/projects/panda-tech-news 以外にあるなら ProgramArguments のサブパスを編集すること。
 -->
+<!-- このファイルはテンプレート。現運用中の live copy (~/Library/LaunchAgents) は 6/24-26 の
+     実行を安定させるため絶対パス版のまま (起動する daily_pipeline.sh は同一ファイル)。 -->
 <plist version="1.0">
 <dict>
   <key>Label</key>
   <string>com.karyu.daily-pipeline</string>
 
   <key>ProgramArguments</key>
+  <!-- $HOME でユーザー名をハードコードしない (launchd user agent は $HOME を設定する)。
+       スクリプトが自身の位置から PROJECT_DIR を解決し cwd も自分で cd するため WorkingDirectory 不要。 -->
   <array>
     <string>/bin/bash</string>
-    <string>/Users/kairyon/projects/panda-tech-news/scripts/daily_pipeline.sh</string>
+    <string>-c</string>
+    <string>exec "$HOME/projects/panda-tech-news/scripts/daily_pipeline.sh"</string>
   </array>
-
-  <key>WorkingDirectory</key>
-  <string>/Users/kairyon/projects/panda-tech-news</string>
 
   <key>StartCalendarInterval</key>
   <array>
