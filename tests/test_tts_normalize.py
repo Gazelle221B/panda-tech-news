@@ -117,6 +117,7 @@ def test_load_reading_dict_excludes_null_and_blank(tmp_path: Path) -> None:
 
 def test_transliterate_chinese_title_in_quotes() -> None:
     # fallback Hook の「<中国語原題>」を pinyin に翻字、周囲の日本語は不変、Latin/数字は保持
+    pytest.importorskip("pypinyin")  # 翻字肯定系は pypinyin 必須 (runtime は tts extra)
     out = transliterate_chinese_titles("「三星电子HBM4」というニュース。")
     assert out == "「san xing dian zi HBM4」というニュース。"
 
@@ -134,6 +135,7 @@ def test_transliterate_leaves_plain_japanese_untouched() -> None:
 
 def test_transliterate_only_targets_chinese_span() -> None:
     # 同一文に中国語原題と日本語が混在しても、原題のみ翻字する
+    pytest.importorskip("pypinyin")
     out = transliterate_chinese_titles("今日は「豆包发布」を取り上げます。")
     assert out == "今日は「dou bao fa bu」を取り上げます。"
 
@@ -150,6 +152,7 @@ def test_transliterate_skips_japanese_kanji_only_quote(jp_quote: str) -> None:
 
 def test_transliterate_requires_simplified_char() -> None:
     # 簡体字を含む中国語原題は翻字される (簡体字必須条件の肯定側)
+    pytest.importorskip("pypinyin")
     assert transliterate_chinese_titles("「电子」") == "「dian zi」"
 
 

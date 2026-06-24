@@ -665,6 +665,7 @@ tts = [
 [package.dev-dependencies]
 dev = [
     { name = "mypy" },
+    { name = "pypinyin" },
     { name = "pytest" },
     { name = "ruff" },
     { name = "types-pyyaml" },
@@ -688,6 +689,7 @@ provides-extras = ["tts"]
 [package.metadata.requires-dev]
 dev = [
     { name = "mypy", specifier = ">=1.10.0" },
+    { name = "pypinyin", specifier = ">=0.55.0" },
     { name = "pytest", specifier = ">=8.1.1" },
     { name = "ruff", specifier = ">=0.5.0" },
     { name = "types-pyyaml", specifier = ">=6.0.12" },

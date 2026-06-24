@@ -33,6 +33,9 @@ dev = [
     "ruff>=0.5.0",
     "mypy>=1.10.0",
     "types-PyYAML>=6.0.12",
+    # pypinyin は runtime では optional extra `tts` だが、翻字の肯定系テストが
+    # 標準 `uv run pytest` (dev group) で常に通るよう dev にも入れる (Codex High 対応)。
+    "pypinyin>=0.55.0",
 ]
 
 [project.scripts]
