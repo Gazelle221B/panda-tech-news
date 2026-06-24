@@ -31,6 +31,7 @@ from karyu_tech_news.tts.normalize import (
     normalize_text,
     strip_ascii_gloss,
     strip_script_markup,
+    transliterate_chinese_titles,
 )
 
 logger = logging.getLogger(__name__)
@@ -138,6 +139,8 @@ def synthesize_script(
         # TTS 前処理: Markdown マーカー除去 → 原語グロス除去 → 読み仮名正規化
         cleaned = strip_ascii_gloss(strip_script_markup(seg.text))
         normalized = normalize_text(cleaned, reading_dict)
+        # fallback テンプレ Hook の「<中国語原題>」を pinyin に翻字 (日本語TTSの文字化け対策, T35)
+        normalized = transliterate_chinese_titles(normalized)
         for sentence in split_sentences(normalized, max_chars):
             # 絵文字は正規化後・文単位で挿入 (segment 単位だと 1 文しか効かないため, T33+)
             text = (

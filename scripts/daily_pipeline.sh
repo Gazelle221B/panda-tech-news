@@ -13,8 +13,10 @@
 #   - launchd は最小環境で動くため PATH / cwd / 必要 env をすべて明示する。
 set -uo pipefail
 
-# launchd の最小 PATH を先に補う (以降の command -v が解決できるように)
-export PATH="${HOME}/.local/bin:/usr/bin:/bin:/usr/sbin:/sbin:${PATH:-}"
+# launchd の最小 PATH を先に補う (以降の command -v が解決できるように)。
+# Homebrew (ffmpeg = T30 マスタリング必須) を含める: launchd は bare PATH のため
+# /opt/homebrew/bin (Apple Silicon) / /usr/local/bin (Intel) を明示しないと ffmpeg 不在で produce が rc=1。
+export PATH="${HOME}/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:${PATH:-}"
 
 # パスは env で上書き可。既定はスクリプト位置 / $HOME / PATH から解決しポータビリティを確保する。
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

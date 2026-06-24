@@ -7,11 +7,14 @@ ADR-0006: Irodori-TTS v3 は漢字読み精度が弱い (公式明記)。中国�
 """
 from __future__ import annotations
 
+import logging
 import re
 from pathlib import Path
 from typing import Any
 
 import yaml
+
+logger = logging.getLogger(__name__)
 
 
 def load_reading_dict(path: Path) -> dict[str, str]:
@@ -98,3 +101,43 @@ def normalize_text(text: str, reading_dict: dict[str, str]) -> str:
     terms = sorted(reading_dict, key=len, reverse=True)
     pattern = re.compile("|".join(re.escape(t) for t in terms))
     return pattern.sub(lambda m: reading_dict[m.group(0)], text)
+
+
+# 中国語原題の翻字 (T35): fallback テンプレの Hook は原題を「<中国語>」で埋め込む
+# (例: 「三星电子HBM4芯片推出四个月销售额突破10亿美元」というニュース...)。
+# 日本語特化 TTS (Irodori v3) は簡体字を誤読/崩す (文字化け) ため、漢字を pinyin に
+# 翻字して読めるようにする。見出し/ソース一覧は strip_markdown_structure で除去済みなので、
+# ここで対象になるのは本文の「」引用に残った原題のみ。
+# 検出: 「」内に漢字があり かつ 日本語かな(ひらがな/カタカナ)が無い span = 中国語原題。
+# 日本語ナレーション(かな混在)や日本語引用は対象外 → 誤翻字を避ける。
+_HAN_RE = re.compile(r"[㐀-䶿一-鿿]")
+_KANA_RE = re.compile(r"[぀-ヿ]")
+_QUOTED_RE = re.compile(r"「([^」]*)」")
+
+
+def _han_to_pinyin(text: str) -> str:
+    """漢字を声調なし pinyin (空白区切り) へ。非漢字 (Latin/数字/記号) はそのまま保持.
+
+    pypinyin 未導入時は fail-open で原文を返す (依存に含むが防御的に)。
+    """
+    try:
+        from pypinyin import Style, lazy_pinyin
+    except ImportError:  # pragma: no cover
+        logger.warning("pypinyin 未導入 — 中国語翻字をスキップ")
+        return text
+    return " ".join(lazy_pinyin(text, style=Style.NORMAL))
+
+
+def transliterate_chinese_titles(text: str) -> str:
+    """「」内が中国語 (漢字あり・かななし) の span を pinyin に翻字する (TTS 前処理).
+
+    日本語混在の引用やナレーションは対象外。Latin/数字/記号は保持。
+    """
+
+    def _repl(m: re.Match[str]) -> str:
+        inner = m.group(1)
+        if _HAN_RE.search(inner) and not _KANA_RE.search(inner):
+            return f"「{_han_to_pinyin(inner)}」"
+        return m.group(0)
+
+    return _QUOTED_RE.sub(_repl, text)

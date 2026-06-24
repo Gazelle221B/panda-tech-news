@@ -12,6 +12,7 @@ from karyu_tech_news.tts.normalize import (
     normalize_text,
     strip_ascii_gloss,
     strip_script_markup,
+    transliterate_chinese_titles,
 )
 
 DICT_PATH = Path("config/reading_dict.yaml")
@@ -107,3 +108,28 @@ def test_load_reading_dict_excludes_null_and_blank(tmp_path: Path) -> None:
         encoding="utf-8",
     )
     assert load_reading_dict(p) == {"小米": "シャオミ"}
+
+
+# ---------- 中国語原題の翻字 (T35) ----------
+
+def test_transliterate_chinese_title_in_quotes() -> None:
+    # fallback Hook の「<中国語原題>」を pinyin に翻字、周囲の日本語は不変、Latin/数字は保持
+    out = transliterate_chinese_titles("「三星电子HBM4」というニュース。")
+    assert out == "「san xing dian zi HBM4」というニュース。"
+
+
+def test_transliterate_skips_japanese_quote() -> None:
+    # かなを含む日本語引用は中国語でないので翻字しない (誤翻字回避)
+    assert transliterate_chinese_titles("「日本語の引用」が話題。") == "「日本語の引用」が話題。"
+
+
+def test_transliterate_leaves_plain_japanese_untouched() -> None:
+    # 「」の無い日本語ナレーション (漢字混在) は一切触らない
+    src = "清華大学が空間知能モデルをオープンソース化しました。"
+    assert transliterate_chinese_titles(src) == src
+
+
+def test_transliterate_only_targets_chinese_span() -> None:
+    # 同一文に中国語原題と日本語が混在しても、原題のみ翻字する
+    out = transliterate_chinese_titles("今日は「豆包发布」を取り上げます。")
+    assert out == "今日は「dou bao fa bu」を取り上げます。"
