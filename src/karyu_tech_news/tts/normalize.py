@@ -108,11 +108,21 @@ def normalize_text(text: str, reading_dict: dict[str, str]) -> str:
 # 日本語特化 TTS (Irodori v3) は簡体字を誤読/崩す (文字化け) ため、漢字を pinyin に
 # 翻字して読めるようにする。見出し/ソース一覧は strip_markdown_structure で除去済みなので、
 # ここで対象になるのは本文の「」引用に残った原題のみ。
-# 検出: 「」内に漢字があり かつ 日本語かな(ひらがな/カタカナ)が無い span = 中国語原題。
-# 日本語ナレーション(かな混在)や日本語引用は対象外 → 誤翻字を避ける。
+# 検出: 「」内に漢字があり・日本語かな無し・かつ**簡体字特有文字**を含む span = 中国語原題。
+# かな無しだけでは漢字のみの日本語引用 (生成AI / 東京大学 / 人工知能 等) も誤翻字するため
+# (Codex High 指摘)、日本語新字体/繁体字と字形が異なる簡体字を 1 つ以上含むことを必須にする。
+# precision 優先: 共有字のみの稀な中国語原題は取りこぼす (従来通り素のまま) が、正しい日本語は壊さない。
 _HAN_RE = re.compile(r"[㐀-䶿一-鿿]")
 _KANA_RE = re.compile(r"[぀-ヿ]")
 _QUOTED_RE = re.compile(r"「([^」]*)」")
+# 簡体字特有 (日本語新字体と字形が異なる) 高頻度文字。中国語原題の確証に使う。
+# 共有字 (国 学 会 体 来 万 数 医 区 等 = 日本語新字体と同形) は意図的に除外。
+_SIMPLIFIED_HAN = frozenset(
+    "电发东车书长门问题马龙风飞见现实战应产优传总处复币录据网罗联获营认让设证识护击损银难"
+    "验销额亿灵续闻监构该场选开关间时这过还进远边转较钟际团图价习张划评试语资业务员观规严"
+    "众货质购贸费软轻输载连运钱铁错队阶险顺顾频颗颜驱鸟鸡齐齿龟丰临举义乐乡买争亚仅从仓伟"
+    "伤伦伪侧侨偿厂历压县参双变叠号叶团圆园块坚执扩扫担拥据摆术机权条标树桥检欢残职"
+)
 
 
 def _han_to_pinyin(text: str) -> str:
@@ -136,7 +146,12 @@ def transliterate_chinese_titles(text: str) -> str:
 
     def _repl(m: re.Match[str]) -> str:
         inner = m.group(1)
-        if _HAN_RE.search(inner) and not _KANA_RE.search(inner):
+        is_chinese_title = (
+            _HAN_RE.search(inner) is not None
+            and _KANA_RE.search(inner) is None
+            and any(ch in _SIMPLIFIED_HAN for ch in inner)
+        )
+        if is_chinese_title:
             return f"「{_han_to_pinyin(inner)}」"
         return m.group(0)
 

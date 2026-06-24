@@ -16,7 +16,6 @@ dependencies = [
     "httpx>=0.27.0",
     "feedparser>=6.0.11",
     "sqlalchemy>=2.0.29",
-    "pypinyin>=0.55.0",
 ]
 
 # 音声化 (Sprint 2) は optional。コア (収集→台本) は依存最小のまま保つ (§5)。
@@ -25,6 +24,7 @@ dependencies = [
 tts = [
     "kokoro-onnx>=0.4.0",
     "pydub>=0.25.1",  # T29 BGM ミックス (ffmpeg ラッパー、素材があるときのみ使用)
+    "pypinyin>=0.55.0",  # T35 中国語原題の pinyin 翻字 (TTS 前処理、未導入時は fail-open)
 ]
 
 [dependency-groups]
@@ -71,6 +71,11 @@ ignore_missing_imports = true
 # pydub は型スタブ無し (optional extra `tts`, T29 BGM ミックスで遅延 import)。
 [[tool.mypy.overrides]]
 module = "pydub"
+ignore_missing_imports = true
+
+# pypinyin は optional extra `tts` (T35 中国語原題翻字、normalize.py で遅延 import)。
+[[tool.mypy.overrides]]
+module = "pypinyin"
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

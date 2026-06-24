@@ -5,7 +5,10 @@ fallback テンプレの原題や取りこぼしを TTS 前に機械的に読み
 """
 from __future__ import annotations
 
+import sys
 from pathlib import Path
+
+import pytest
 
 from karyu_tech_news.tts.normalize import (
     load_reading_dict,
@@ -133,3 +136,25 @@ def test_transliterate_only_targets_chinese_span() -> None:
     # 同一文に中国語原題と日本語が混在しても、原題のみ翻字する
     out = transliterate_chinese_titles("今日は「豆包发布」を取り上げます。")
     assert out == "今日は「dou bao fa bu」を取り上げます。"
+
+
+@pytest.mark.parametrize(
+    "jp_quote",
+    ["「生成AI」", "「東京大学」", "「人工知能」", "「半導体」", "「国際会議」", "「機械学習」", "「自動運転」"],
+)
+def test_transliterate_skips_japanese_kanji_only_quote(jp_quote: str) -> None:
+    # 漢字のみの日本語引用 (簡体字特有文字を含まない) は翻字しない (Codex High 回帰)。
+    # かな無し条件だけでは pinyin 化されていた → 簡体字必須条件で防ぐ。
+    assert transliterate_chinese_titles(jp_quote) == jp_quote
+
+
+def test_transliterate_requires_simplified_char() -> None:
+    # 簡体字を含む中国語原題は翻字される (簡体字必須条件の肯定側)
+    assert transliterate_chinese_titles("「电子」") == "「dian zi」"
+
+
+def test_transliterate_fail_open_without_pypinyin(monkeypatch: pytest.MonkeyPatch) -> None:
+    # pypinyin 未導入 (ImportError) なら原文のまま (fail-open, Codex Medium)
+    monkeypatch.setitem(sys.modules, "pypinyin", None)
+    src = "「三星电子HBM4」というニュース。"
+    assert transliterate_chinese_titles(src) == src
