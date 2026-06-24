@@ -1719,3 +1719,93 @@ PR #22 追加コミット `1fb38ed` / T35 再レビューは **FAIL** です。C
 新規 High は依存とテストゲートの不整合です。`pypinyin` は `tts` optional extra のみに移っていますが、標準の `uv run pytest` に含まれる `tests/test_tts_normalize.py` は pinyin 成功を必須にしています。現在の `.venv` には過去依存として `pypinyin` が残っているため緑ですが、import を遮断すると肯定ケースは fail-open で原文返却になり期待値を満たしません。core を増やさないなら `pypinyin` を dev dependency にも入れるか、positive pinyin テストを extra 依存として明示し、PR ゲートに extra 付き pytest を追加してください。
 
 Medium は証跡更新です。`docs/TEST_LOG.md` / `docs/PROJECT_STATE.md` が `c7182e5` 時点の旧 heuristic・`pytest 387` のままなので、`1fb38ed` の簡体字条件、optional extra 化、`pytest 396` を反映してください。
+
+## PR #22 追加コミット 009a54d / T35 R3 確認レビュー (レビュー日: 2026-06-24 / レビュアー: Codex)
+
+### 総合判定: PASS
+
+Critical 0 / High 0 / Medium 0 / Low 0。前回 R2 High の依存/ゲート不整合は、`pypinyin` を dev dependency group にも追加し、肯定系翻字テストへ `pytest.importorskip("pypinyin")` を付与したことで解消している。標準 `uv run pytest` 相当の dev gate で `396 passed` を確認した。R2 Medium の永続証跡更新も `docs/TEST_LOG.md` / `docs/PROJECT_STATE.md` に反映済み。
+
+### 確認したファイル
+
+- `AGENTS.md`
+- `docs/DESIGN.md`
+- `docs/PROJECT_STATE.md`
+- `docs/TEST_LOG.md`
+- `docs/REVIEW_REPORT.md`
+- `.gitignore`
+- `pyproject.toml`
+- `uv.lock`
+- `scripts/daily_pipeline.sh`
+- `src/karyu_tech_news/tts/normalize.py`
+- `tests/test_tts_normalize.py`
+
+### レビュー対象
+
+- `git status --short --branch` → `agent/T33-daily-pipeline-impl...origin/agent/T33-daily-pipeline-impl`。レビュー開始時点で未コミット変更なし。
+- `git show --stat --oneline --decorate --no-renames 009a54d` → `docs/PROJECT_STATE.md`, `docs/REVIEW_REPORT.md`, `docs/TEST_LOG.md`, `pyproject.toml`, `tests/test_tts_normalize.py`, `uv.lock` の 6 ファイル。
+- `git show --no-ext-diff --unified=80 --no-renames 009a54d` で R2 対応差分を確認。
+
+### 根拠とした差分/行
+
+- `pyproject.toml:23-28` — `pypinyin>=0.55.0` は runtime core ではなく optional extra `tts` に残っている。
+- `pyproject.toml:30-39` — dev dependency group に `pypinyin>=0.55.0` が追加され、標準 `uv run pytest` の dev 環境で肯定系翻字テストが依存不足にならない。
+- `pyproject.toml:79-82` — optional `pypinyin` の mypy missing import override は維持。
+- `tests/test_tts_normalize.py:118-122` — `三星电子HBM4` の肯定系テストは `pytest.importorskip("pypinyin")` 後に期待値を検証。
+- `tests/test_tts_normalize.py:136-140` — `豆包发布` の肯定系テストも `importorskip` 付き。
+- `tests/test_tts_normalize.py:153-156` — 簡体字条件の肯定側 `「电子」` も `importorskip` 付き。
+- `tests/test_tts_normalize.py:143-150` — `生成AI` / `東京大学` / `人工知能` など漢字のみ日本語引用の不変回帰テストは依存なしで実行される。
+- `tests/test_tts_normalize.py:159-163` — `pypinyin` 未導入時は原文返却する fail-open テスト。
+- `src/karyu_tech_news/tts/normalize.py:128-138` — `pypinyin` は遅延 import され、ImportError 時は warning + 原文返却。
+- `src/karyu_tech_news/tts/normalize.py:147-156` — 簡体字特有文字を含む引用 span のみ pinyin 化。
+- `docs/TEST_LOG.md:1034` — R1/R2 対応、dev group 追加、`pytest 396 passed`、実 produce 証跡が追記済み。
+- `docs/PROJECT_STATE.md:30-31` — T35 の旧 `c7182e5` 証跡に加え、R1/R2 レビュー反映の最終状態が追記済み。
+- `.gitignore:1-25` — `.env`, `data/`, 音声/動画生成物、素材本体は git 管理外。
+- `docs/DESIGN.md:14-19` — fail-open、Webhook 失敗非致命、外部依存最小化の基準。
+- `docs/DESIGN.md:139-147` — item_key 生成順と空 item_key 禁止。今回差分では未変更。
+- `docs/DESIGN.md:176-180` — `.env` commit 禁止など実装上の禁止事項。今回差分で抵触なし。
+
+### 実行/確認したテスト
+
+- `uv run pytest tests/test_tts_normalize.py` / `uv run ruff check .` 初回 → sandbox が `/Users/kairyon/.cache/uv` を読めず起動前失敗 (`Operation not permitted`)。環境制約のため repo 内 cache を指定して再実行。
+- `UV_CACHE_DIR=.uv_cache uv run pytest tests/test_tts_normalize.py` → `28 passed in 0.09s`。
+- `UV_CACHE_DIR=.uv_cache uv run pytest` → `396 passed in 2.06s`。
+- `UV_CACHE_DIR=.uv_cache uv run ruff check .` → `All checks passed!`。
+- `UV_CACHE_DIR=.uv_cache uv run mypy src tests` → `Success: no issues found in 68 source files`。
+- `bash -n scripts/daily_pipeline.sh && shellcheck scripts/daily_pipeline.sh` → exit 0。
+- `git ls-files .env 'data/*' 'artifacts/*' '*.mp3' '*.mp4' '*.wav' '*.m4a'` → 出力なし。
+- `git grep -n "https://discord.com/api/webhooks/[0-9]" -- ':!tests/test_discord_script.py' ':!tests/test_produce_pipeline.py' ':!docs/REVIEW_REPORT.md' || true` → 出力なし。
+- `UV_CACHE_DIR=.uv_cache uv run --no-dev --with pytest pytest tests/test_tts_normalize.py -k 'transliterate' -q` → `13 passed`。ただし既存 `.venv` に `pypinyin` が残っており、完全な依存なし隔離環境の証明ではない。標準 dev gate の R2 High 解消確認としては `pyproject.toml:30-39` と full pytest 実測を根拠にした。
+
+### DESIGN.md との対応
+
+- DESIGN.md §1 の「最小構成・fail-open・状態の外部永続化」に対し、`pypinyin` は runtime core ではなく `tts` extra + dev group に限定され、未導入時も `normalize.py:133-138` で原文返却する。
+- DESIGN.md §1 / §6 の Webhook 失敗非致命・ソース単位 fail-openは、今回差分で collect / deliver 層に変更がないため維持。
+- DESIGN.md §4.1 / §7 の item_key 生成順、`UNIQUE(source_id,item_key)`、空 item_key 禁止は今回差分で触っていない。
+- DESIGN.md §7 と AGENTS.md §3 の禁止事項について、`.env` / 生成音声 / Webhook URL 実値の commit は検出されず、動画/YouTube/Playwright/Cookie 必須 route/Go/Node 導入もなし。
+- ドキュメント整合は `docs/TEST_LOG.md:1034` と `docs/PROJECT_STATE.md:30-31` で R2 後の最終状態に同期されている。
+
+### 指摘事項
+
+| 重大度 | 箇所 | 内容 | 要求対応 |
+|---|---|---|---|
+| Critical | なし | なし | なし |
+| High | なし | R2 High は解消。標準 dev gate で `pypinyin` が供給され、肯定系テストも optional 依存であることを明示している。 | なし |
+| Medium | なし | R2 Medium の `TEST_LOG` / `PROJECT_STATE` 更新漏れも解消。 | なし |
+| Low | なし | なし | なし |
+
+### セキュリティ / 並行性 / スコープ
+
+- secret: `.env` / `data/` / `artifacts` / 音声動画生成物は追跡されていない。Webhook URL 実値の直書きは今回差分にない。
+- SQL injection: `009a54d` に SQL / raw SQL 追加なし。
+- 並行性: `009a54d` は依存・テスト・証跡更新のみで、launchd lock や DB 更新処理に変更なし。
+- Webhook fail-open: deliver 層に変更なし。既存の失敗非致命設計を壊していない。
+- スコープ外混入: 動画生成、YouTube 投稿、Playwright、Cookie 必須 route、Go/Node 導入なし。
+
+### PR コメント案
+
+PR #22 追加コミット `009a54d` / R3 確認レビューは **PASS** です。Critical 0 / High 0 / Medium 0 / Low 0。
+
+R2 High は解消しています。`pypinyin` は runtime core ではなく optional extra `tts` に残しつつ、dev dependency group にも追加されているため、標準 `uv run pytest` の dev 環境で肯定系翻字テストが依存不足になりません。肯定系 3 件には `pytest.importorskip("pypinyin")` が入り、`--no-dev` など依存を落とした環境では fail ではなく skip できる形になっています。未導入時の runtime fail-open テストも維持されています。
+
+fresh gate は `UV_CACHE_DIR=.uv_cache uv run pytest` が `396 passed`、ruff、mypy strict 68 files、`bash -n` + shellcheck がすべて通過。`docs/TEST_LOG.md` と `docs/PROJECT_STATE.md` も R2 後の最終状態に同期済みです。secret、生成音声、スコープ外実装の混入も確認できませんでした。
