@@ -61,6 +61,10 @@ mix/master.py         # -16 LUFS 正規化 + mp3 192kbps/48kHz 出力
 | T31 | ✅ **実装済 (2026-06-18)** `audio_versions` 永続化 + CLI `produce` + Discord mp3 添付。produce: 保存済み台本→構造化→文単位合成→BGMミックス→-16LUFS mp3→記録→(Discord)、全段 fail-open。`post_audio` は 25MB 超でメッセージに degrade・秘密非漏洩。**配信=Discord 添付** (人間判断、実測1.7MB/73s が 25MB 内。R2/S3 は将来)。**実 produce: 実 draft→643s/192k/48kHz/-16.3 LUFS/15.4MB**。Codex PASS + QA PASS ([PR #18](https://github.com/Gazelle221B/panda-tech-news/pull/18)) | `store/` `main.py` `deliver/discord.py` `tts/synthesize.py` | T30, T29 |
 | T32 | 3日間の音声品質観察 (固有名詞読み/話速/BGM 音量/「配信する価値」評価) | `docs/TEST_LOG.md` | T31 |
 
+> **運用メモ (Kokoro ローカル実行, T24)**: `tts/kokoro.py` のモデル/voices パスは環境変数 `KOKORO_MODEL_PATH` / `KOKORO_VOICES_PATH` で指定する設計 (未設定時はカレントディレクトリ相対の既定値を探すため、`uv run karyu produce --engine kokoro` がそのまま動かず fail-open=無音mp3 になりうる)。モデル本体は人間が `~/.cache/karyu-tts/kokoro-v1.0.onnx` / `voices-v1.0.bin` に DL 済み (2026-06-17)。ローカルで kokoro エンジンを動かす際は `.env.example` の該当項目をコピーして `.env` に設定すること。
+
+> **依存メモ (T35 中国語原題翻字)**: fallback テンプレ Hook の「<中国語原題>」を日本語特化 TTS が崩す問題に対し、`pypinyin` で pinyin (声調なし) へ翻字する (`tts/normalize.transliterate_chinese_titles`)。自前の CJK→pinyin 表は巨大・保守困難なため見送り `pypinyin` を採用。依存スコープは TTS 前処理に閉じるため **core ではなく optional extra `tts`** に置く (pydub と同様。未導入時は fail-open で原文返却)。**誤翻字防止**: 「」内に *簡体字特有文字* (日本語新字体と字形が異なる 电/问/选 等) を含む span のみ中国語原題と判定し、漢字のみの日本語引用 (生成AI/東京大学/人工知能 等) は不変とする。
+
 ## 5. テスト方針
 - TTS 呼び出しはモック (音声バイトのスタブ) で JSON/バイト契約を固定。実合成は T24 smoke と T32 観察のみ。
 - 決定的コード (segment 分割・正規化・読み辞書・注釈・時間軸配置) は実エンジン不要で完全テスト可能 — **ここを厚く** (1B と同方針)。
