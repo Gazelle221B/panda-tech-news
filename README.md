@@ -10,9 +10,9 @@
 
 ## ステータス
 
-- フェーズ: **Sprint 1B インフラ完了・T22 3日観察完了 (06-12〜14)** — T12〜T21 実装・PR #10 マージ済み (main `b76f6c4`)・T13 (実 API 接続) 完了、variant A で本番配信中。
-- 品質観察: **T22 完了** — インフラ DoD 全達成。観察が 2 defects を捕捉 (writer 300字超過 / canonical URL 横断 dedup 欠落) → 修正待ち。詳細は [docs/TEST_LOG.md](docs/TEST_LOG.md) T22 3日間総括
-- 次アクション: **① 2 defects 修正 (TDD) ② Sprint 2 (音声化) は人間 Go 判断後** ([docs/IMPLEMENTATION_PLAN-2.md](docs/IMPLEMENTATION_PLAN-2.md))
+- フェーズ: **Sprint 2 (音声化) 完了 → 日次自動配信 本採用中** — Sprint 1A/1B マージ済み。T23〜T31 (TTS 抽象化〜完パケ mp3 配信) main 到達。T33/T34 で `collect→draft→produce→Discord` を launchd 自動配信化 + Irodori **600M VoiceDesign + caption** + 絵文字スタイル制御を本採用 ([PR #22](https://github.com/Gazelle221B/panda-tech-news/pull/22) 人間 merge 待ち)。
+- 品質: pytest **380 pass** / ruff / mypy strict (68 files)。実 produce E2E (600M+caption) 文欠落0・-16.2 LUFS。Codex 独立レビュー PASS / Antigravity QA 合格。
+- 次アクション: **① PR #22 merge (人間) ② 6/24-26 自動配信観察 ③ 残課題: 中国語見出しの台本 content 改善 / T32 話速 / launchd 6/26 後撤去** ([docs/PROJECT_STATE.md](docs/PROJECT_STATE.md))
 
 ## ドキュメント地図
 
@@ -66,7 +66,7 @@ uv run python -m karyu_tech_news collect --post    # 収集 → SQLite → Disco
 uv run python -m karyu_tech_news draft --dry-run   # 台本候補の確認 (LLM 不使用)
 uv run python -m karyu_tech_news draft --post      # LLM 台本生成 → Discord (要 API キー)
 uv run python -m karyu_tech_news evaluate          # A/B/C 検証の定量サマリー
-uv run pytest                                      # テスト (242 pass)
+uv run pytest                                      # テスト (380 pass)
 ```
 
 ### CLI 進捗

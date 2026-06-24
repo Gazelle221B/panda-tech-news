@@ -5,13 +5,17 @@ fallback テンプレの原題や取りこぼしを TTS 前に機械的に読み
 """
 from __future__ import annotations
 
+import sys
 from pathlib import Path
+
+import pytest
 
 from karyu_tech_news.tts.normalize import (
     load_reading_dict,
     normalize_text,
     strip_ascii_gloss,
     strip_script_markup,
+    transliterate_chinese_titles,
 )
 
 DICT_PATH = Path("config/reading_dict.yaml")
@@ -107,3 +111,53 @@ def test_load_reading_dict_excludes_null_and_blank(tmp_path: Path) -> None:
         encoding="utf-8",
     )
     assert load_reading_dict(p) == {"小米": "シャオミ"}
+
+
+# ---------- 中国語原題の翻字 (T35) ----------
+
+def test_transliterate_chinese_title_in_quotes() -> None:
+    # fallback Hook の「<中国語原題>」を pinyin に翻字、周囲の日本語は不変、Latin/数字は保持
+    pytest.importorskip("pypinyin")  # 翻字肯定系は pypinyin 必須 (runtime は tts extra)
+    out = transliterate_chinese_titles("「三星电子HBM4」というニュース。")
+    assert out == "「san xing dian zi HBM4」というニュース。"
+
+
+def test_transliterate_skips_japanese_quote() -> None:
+    # かなを含む日本語引用は中国語でないので翻字しない (誤翻字回避)
+    assert transliterate_chinese_titles("「日本語の引用」が話題。") == "「日本語の引用」が話題。"
+
+
+def test_transliterate_leaves_plain_japanese_untouched() -> None:
+    # 「」の無い日本語ナレーション (漢字混在) は一切触らない
+    src = "清華大学が空間知能モデルをオープンソース化しました。"
+    assert transliterate_chinese_titles(src) == src
+
+
+def test_transliterate_only_targets_chinese_span() -> None:
+    # 同一文に中国語原題と日本語が混在しても、原題のみ翻字する
+    pytest.importorskip("pypinyin")
+    out = transliterate_chinese_titles("今日は「豆包发布」を取り上げます。")
+    assert out == "今日は「dou bao fa bu」を取り上げます。"
+
+
+@pytest.mark.parametrize(
+    "jp_quote",
+    ["「生成AI」", "「東京大学」", "「人工知能」", "「半導体」", "「国際会議」", "「機械学習」", "「自動運転」"],
+)
+def test_transliterate_skips_japanese_kanji_only_quote(jp_quote: str) -> None:
+    # 漢字のみの日本語引用 (簡体字特有文字を含まない) は翻字しない (Codex High 回帰)。
+    # かな無し条件だけでは pinyin 化されていた → 簡体字必須条件で防ぐ。
+    assert transliterate_chinese_titles(jp_quote) == jp_quote
+
+
+def test_transliterate_requires_simplified_char() -> None:
+    # 簡体字を含む中国語原題は翻字される (簡体字必須条件の肯定側)
+    pytest.importorskip("pypinyin")
+    assert transliterate_chinese_titles("「电子」") == "「dian zi」"
+
+
+def test_transliterate_fail_open_without_pypinyin(monkeypatch: pytest.MonkeyPatch) -> None:
+    # pypinyin 未導入 (ImportError) なら原文のまま (fail-open, Codex Medium)
+    monkeypatch.setitem(sys.modules, "pypinyin", None)
+    src = "「三星电子HBM4」というニュース。"
+    assert transliterate_chinese_titles(src) == src

@@ -1364,3 +1364,448 @@ Critical 0 / High 0 / Medium 1 / Low 1。`docs/IMPLEMENTATION_PLAN-2.md` は ADR
 ### テスト不足
 
 - ドキュメントレビューのため追加テスト要求なし。実装開始後は T23〜T31 それぞれでモック駆動の単体テスト、ffmpeg 小フィクスチャ、str 単位文分割回帰、T24 smoke、T32 聴感観察を TEST_LOG に残す必要がある。
+
+## PR #22 T33/T34 日次自動配信 + 600M VoiceDesign レビュー (レビュー日: 2026-06-24 / レビュアー: Codex)
+
+### 総合判定: PASS
+
+Critical 0 / High 0 / Medium 2 / Low 1。`main...HEAD` の実装差分は T33/T33+/T34 の範囲に収まり、`scripts/daily_pipeline.sh`、launchd plist、Irodori timeout、文単位絵文字、VoiceDesign caption 配線は Sprint 2 の TTS/完パケ配信スコープ内である。AGENTS.md §3 の秘密漏洩・fail-open・timeout 必須・動画/YouTube 越境禁止に対する Critical/High 違反は確認されなかった。
+
+### 確認したファイル
+
+- `AGENTS.md`
+- `docs/PROJECT_STATE.md`
+- `docs/ORCHESTRATION_RUNBOOK.md`
+- `docs/DESIGN.md`
+- `docs/IMPLEMENTATION_PLAN-2.md`
+- `docs/TEST_LOG.md`
+- `docs/REVIEW_REPORT.md`
+- `docs/editorial-policy.md`
+- `docs/hal-persona.md`
+- `docs/show-format.md`
+- `config/hal_persona.yaml`
+- `.gitignore`
+- `scripts/daily_pipeline.sh`
+- `scripts/launchd/com.karyu.daily-pipeline.plist`
+- `src/karyu_tech_news/main.py`
+- `src/karyu_tech_news/tts/engine.py`
+- `src/karyu_tech_news/tts/irodori.py`
+- `src/karyu_tech_news/tts/synthesize.py`
+- `src/karyu_tech_news/collect/normalize.py`
+- `src/karyu_tech_news/store/schema.py`
+- `src/karyu_tech_news/store/repo.py`
+- `src/karyu_tech_news/collect/runner.py`
+- `src/karyu_tech_news/deliver/discord.py`
+- `tests/test_tts_irodori.py`
+- `tests/test_tts_synthesize.py`
+- `tests/test_runner_fail_open.py`
+- `tests/test_health.py`
+- `tests/test_discord.py`
+- `/Users/kairyon/tools/Irodori-TTS-Server/src/irodori_openai_tts/config.py` (外部サーバ実体の設定名確認)
+- `/Users/kairyon/tools/Irodori-TTS-Server/src/irodori_openai_tts/app.py` (外部サーバ実体の caption 受け口確認)
+
+### レビュー対象
+
+- `git branch --show-current` → `agent/T33-daily-pipeline-impl`
+- `git rev-parse --short HEAD` → `c585383`
+- `git diff --name-status main...HEAD` → `config/hal_persona.yaml`、`docs/PROJECT_STATE.md`、`scripts/daily_pipeline.sh`、`scripts/launchd/com.karyu.daily-pipeline.plist`、`src/karyu_tech_news/main.py`、`src/karyu_tech_news/tts/engine.py`、`src/karyu_tech_news/tts/irodori.py`、`src/karyu_tech_news/tts/synthesize.py`、`tests/test_tts_irodori.py`、`tests/test_tts_synthesize.py`
+- `git status --short --branch` → PR 差分外の未コミット変更あり: `.env.example`、`docs/IMPLEMENTATION_PLAN-2.md`、`docs/PROJECT_STATE.md`、`docs/QA_REPORT.md`。本レビューはユーザー指定どおり `main...HEAD` を対象にし、未コミット差分は戻していない。
+
+### 根拠とした差分/行
+
+- `scripts/daily_pipeline.sh:14-27` — `set -e` を使わず、launchd 環境の PATH、`IRODORI_TIMEOUT=300`、`IRODORI_HF_CHECKPOINT=Aratako/Irodori-TTS-600M-v3-VoiceDesign` を明示。
+- `scripts/daily_pipeline.sh:37-67` — Irodori health check は `curl --max-time 5`、未起動時のみ server 起動、最大 180 秒 health 待ち。health 未到達でも fail-open 続行。
+- `scripts/daily_pipeline.sh:41-48` — `mkdir` による原子的ロックで多重起動を回避。
+- `scripts/daily_pipeline.sh:70-83` — `collect` / `draft` / `produce` を `run_step` で順次実行し、各段失敗時も次段へ進む。
+- `scripts/daily_pipeline.sh:85-95` — 本ジョブが起動した server のみ、`ps ... | grep irodori_openai_tts` で確認してから kill。
+- `scripts/launchd/com.karyu.daily-pipeline.plist:21-58` — `ProgramArguments`、`WorkingDirectory`、2026-06-24/25/26 06:30 の `StartCalendarInterval`、stdout/stderr log path。
+- `config/hal_persona.yaml:41-57` — primary engine、VoiceDesign caption、Irodori 公式語彙に寄せた tone 別絵文字 mapping。
+- `src/karyu_tech_news/main.py:521-590` — `produce` が `tts.caption` / `emoji_annotation` / reading dict を persona yaml から読み、`synthesize_script(..., emoji_mapping=..., caption=...)` へ配線。
+- `src/karyu_tech_news/tts/engine.py:38-55` — `Capabilities.voice_design` と `SynthesisRequest.caption` の契約追加。
+- `src/karyu_tech_news/tts/irodori.py:36-61` — 既定 timeout 300 秒、`IRODORI_TIMEOUT` 不正値は既定へ fail-open fallback。
+- `src/karyu_tech_news/tts/irodori.py:80-90` — base URL / model / API key / timeout / caption を env または引数から解決し、秘密は header のみ。
+- `src/karyu_tech_news/tts/irodori.py:98-120` — `voice_design=True`、caption がある場合だけ OpenAI 互換 body の `irodori.caption` に送出。
+- `src/karyu_tech_news/tts/irodori.py:136-168` — `httpx.post(... timeout=self._timeout)`、最大 2 retry、エラーは status code または型名のみで秘密を出さない。
+- `src/karyu_tech_news/tts/synthesize.py:55-69` — 文分割は str コードポイント単位で、max_chars 超過も byte slicing なし。
+- `src/karyu_tech_news/tts/synthesize.py:131-150` — capabilities で文単位絵文字と caption を gate し、非対応 engine には caption を渡さない。
+- `src/karyu_tech_news/tts/synthesize.py:152-160` — 1 文の `TTSError` は warning + skip で fail-open、結合済み wav を返す。
+- `tests/test_tts_irodori.py:153-187` — timeout 300 秒、env override、不正 env fallback の回帰テスト。
+- `tests/test_tts_irodori.py:192-227` — voice_design capability、caption body 送出、request caption 優先、caption 無し時に `irodori` key を省くテスト。
+- `tests/test_tts_synthesize.py:151-183` — 絵文字を文単位で挿入し、非対応 engine / mapping 無しでは無効化するテスト。
+- `tests/test_tts_synthesize.py:207-228` — VoiceDesign 対応 engine だけ caption を受け、非対応 engine では `None` に落とすテスト。
+- `/Users/kairyon/tools/Irodori-TTS-Server/src/irodori_openai_tts/config.py:10-25` — server 側 env prefix は `IRODORI_`、`hf_checkpoint` は存在し、`IRODORI_HF_CHECKPOINT` が有効。
+- `/Users/kairyon/tools/Irodori-TTS-Server/src/irodori_openai_tts/app.py:34-42` / `/Users/kairyon/tools/Irodori-TTS-Server/src/irodori_openai_tts/app.py:80-90` — server 側 `IrodoriOptions.caption` / `cfg_scale_caption` と `SpeechRequest.irodori` が存在。
+- `/Users/kairyon/tools/Irodori-TTS-Server/src/irodori_openai_tts/app.py:783-790` — server 側 `SamplingRequest.caption` / `cfg_scale_caption` へ配線済み。
+- `src/karyu_tech_news/collect/normalize.py:62-76` / `src/karyu_tech_news/collect/normalize.py:119-129` — FR-021 item_key 生成順 `external_id` → `link` → `sha256(title|published_at|source_id)` と空 item_key 拒否は維持。
+- `src/karyu_tech_news/store/schema.py:52-57` — FR-031 `UNIQUE(source_id,item_key)` のみ。`hash` 単体 UNIQUE なし。
+- `src/karyu_tech_news/store/repo.py:77-106` — insert 直前の空 item_key 拒否と既存 `(source_id,item_key)` skip。
+- `src/karyu_tech_news/store/repo.py:109-131` — source_health は成功で `consecutive_failures=0` / `last_error=None`、失敗で +1 / `last_error` 保存。
+- `src/karyu_tech_news/collect/runner.py:42-79` — 1 ソース fetch/DB 失敗時も後続 source へ進み、run を完了する fail-open。
+- `src/karyu_tech_news/deliver/discord.py:82-105` / `src/karyu_tech_news/deliver/discord.py:108-145` — Webhook / mp3 投稿失敗は False を返し、HTTP status code または例外型名のみをログ化。
+- `docs/IMPLEMENTATION_PLAN-2.md:66-70` / `docs/IMPLEMENTATION_PLAN-2.md:88-94` — Sprint 2 のテスト方針、str 単位分割、TTS 文単位 fail-open、動画/YouTube 禁止。
+- `docs/editorial-policy.md:79-87` / `docs/hal-persona.md:35-39` — ナショナリズム表現、中国メディア本文朗読、無断声クローン禁止。
+- `docs/hal-persona.md:51-58` — Irodori VoiceDesign、読み仮名辞書、絵文字注釈の方針。
+- `docs/show-format.md:72-81` — BGM、-16 LUFS、mp3 192kbps/48kHz、素材ライセンス方針。
+- `docs/PROJECT_STATE.md:8-12` と `docs/PROJECT_STATE.md:27-28` — T34 実装完了の記述と「本採用残作業は未着手」の記述が同居しており、Medium 指摘の根拠。
+- `docs/TEST_LOG.md:951-1011` — T24/T30/T31 までの実音声・完パケ証跡はあるが、T33/T34 の 371/374/380 gate と 600M/caption E2E 証跡は未追記。
+
+### 実行/確認したテスト
+
+- `UV_CACHE_DIR=/private/tmp/panda-tech-news-uv-cache uv run pytest tests/test_tts_irodori.py tests/test_tts_synthesize.py -q` → `43 passed`。
+- `UV_CACHE_DIR=/private/tmp/panda-tech-news-uv-cache uv run pytest` → `380 passed in 1.88s`。
+- `UV_CACHE_DIR=/private/tmp/panda-tech-news-uv-cache uv run ruff check .` → `All checks passed!`。
+- `UV_CACHE_DIR=/private/tmp/panda-tech-news-uv-cache uv run mypy src tests` → `Success: no issues found in 68 source files`。
+- `bash -n scripts/daily_pipeline.sh` → exit 0。
+- `plutil -lint scripts/launchd/com.karyu.daily-pipeline.plist` → `OK`。
+- `git diff --check main...HEAD` → 出力なし。
+- `git ls-files -u` → 出力なし。
+- `rg -n '^(<<<<<<<|=======|>>>>>>>)' . --glob '!docs/REVIEW_REPORT.md'` → no matches (exit 1、実 conflict marker なし)。
+- `git ls-files .env data/state.db artifacts assets | sort` → 出力なし。
+- secret scan (`discord.com/api/webhooks/...`、`DISCORD_WEBHOOK_URL=.*https://`、長さ付き `sk-`、Slack/GitHub token 形を `uv.lock` / `docs/REVIEW_REPORT.md` / `tests/**` 除外で検索) → no matches。
+- スコープ外検索 (`playwright` / `moviepy` / `youtube` / `googleapiclient` / `selenium` / `puppeteer` 等を `src config scripts tests docs/PROJECT_STATE.md` で検索) → 実装 import / 実行経路なし。`requires_cookie` は既存 source schema/config のみ。
+- `UV_CACHE_DIR=/private/tmp/panda-tech-news-uv-cache uv run --with pytest-cov pytest --cov=karyu_tech_news --cov-report=term-missing` → ネットワーク制限で `pytest-cov` を取得できず失敗 (`Failed to fetch: https://pypi.org/simple/pytest-cov/`)。fresh coverage は未測定。既存証跡は `docs/TEST_LOG.md:807-809` の 96% と、T31 までの gate 証跡 `docs/TEST_LOG.md:1011` を参照。
+
+### DESIGN.md / IMPLEMENTATION_PLAN-2.md との対応
+
+- DESIGN.md §1 / §6 / §7 の fail-open と timeout 必須に対し、collect 既存 fail-open は `collect/runner.py` と `tests/test_runner_fail_open.py:122-160` で維持され、Irodori HTTP も `timeout=self._timeout` で明示されている。
+- DESIGN.md §4.1 / AGENTS.md §3.2 の item_key / UNIQUE 不変条件は、今回差分で触られておらず、実装行も維持されている。
+- DESIGN.md §7 / AGENTS.md §3.5 の秘密保護に対し、Webhook URL や API key は `.env` / header 経由で、ログは status code / exception class に限定されている。secret scan でも実キー混入なし。
+- IMPLEMENTATION_PLAN-2.md §3 / §4 の `script -> tts -> mix` 一方向と T31 produce 経路に対し、今回差分は `main.py` の produce から `tts.synthesize` / `mix` を呼ぶ既存方向の拡張のみ。
+- IMPLEMENTATION_PLAN-2.md §5 / §8 の str 単位分割、TTS 1 文 fail-open、生成 mp3/wav 非管理は `tts/synthesize.py` と `.gitignore:16-25` に適合。
+- Sprint 2 境界: TTS / mp3 / Discord は Sprint 2 範囲。動画生成、YouTube 投稿、Playwright、Cookie 必須 route、Go/Node 導入は今回差分にない。
+- コンテンツ方針: `strip_markdown_structure` 後の produce 経路は維持され、中国メディア本文の転載やナショナリズム表現を新たに生成する差分はない。PR 内の caption は「落ち着いた知的な女性ニュースキャスター...」で、実在人物の声真似指定ではない。
+
+### 指摘事項
+
+| 重大度 | 箇所 | 内容 | 要求対応 |
+|---|---|---|---|
+| Critical | なし | なし | なし |
+| High | なし | なし | なし |
+| Medium | `docs/PROJECT_STATE.md:8-12` / `docs/PROJECT_STATE.md:27-28` | 同一ファイル内で「T34 (Irodori 600M VoiceDesign + caption本採用) 実装完了」と、「本採用の残作業は未着手 (人間の聴感 Go 待ち)」が併存している。コード差分は `daily_pipeline.sh` の 600M checkpoint と `config/hal_persona.yaml` の caption、`irodori.py` の caption 送出まで実装済みなので、PROJECT_STATE を真の記憶とする運用上、次のエージェントが T34 の状態を誤判定しうる。 | PR #22 の最終状態に合わせ、T34 が「本採用済み」なのか「実験止まり・未採用」なのかを 1 つに統一する。少なくとも `docs/PROJECT_STATE.md:27-28` の古い未着手文を改訂し、残作業があるなら実装済み部分と未実施部分を分けて書く。 |
+| Medium | `docs/TEST_LOG.md:951-1011` / `docs/PROJECT_STATE.md:11` | `TEST_LOG.md` は T31 の `pytest 363` までで止まっており、T33/T33+/T34 の 371/374/380 gate、launchd/plist 静的検証、600M+caption produce E2E 証跡がない。AGENTS.md §8.3 とレビュー prompt は TEST_LOG の該当エントリ参照を要求しているため、現状の fresh gate はレビュー実行結果と PROJECT_STATE/QA_REPORT にはあるが、指定された証跡台帳に残っていない。 | `docs/TEST_LOG.md` に T33/T33+/T34 の実行ログを追記する。最低限、`pytest 380 passed` / `ruff` / `mypy`、`bash -n`、`plutil -lint`、実 E2E produce の結果、Discord 投稿結果、既知リスクを記録する。 |
+| Low | `scripts/daily_pipeline.sh:41-48` / `scripts/daily_pipeline.sh:85-95` / `scripts/launchd/com.karyu.daily-pipeline.plist:30-58` | shell/plist は静的検証済みだが、ロック取得時の早期終了、PID 再利用ガード、launchd 日付設定を固定する自動テストはない。今回の差分規模では merge blocker ではないが、無人運用の中核なので将来変更時に壊れやすい。 | shell を直接単体テストするか、少なくとも `scripts/` 向けの smoke/fixture 検証手順を `TEST_LOG.md` に固定する。 |
+
+### セキュリティ / 並行性
+
+- secret commit: `.env` / `data/state.db` / `artifacts` / `assets` の実体は追跡されていない。`.gitignore:1-25` で `.env`、`data/`、音声/動画、素材本体は除外。
+- secret 直書き: token 形の検索で実キーは検出されなかった。`IRODORI_API_KEY` は env から読み、Authorization header のみに使われる。
+- secret ログ: Discord と Irodori は例外文字列をそのままログに出さず、status code または例外型名に限定している。
+- SQL injection: 今回差分に raw SQL 追加なし。既存 DB 操作は SQLAlchemy ORM / `select()` 経由。
+- 並行性: Sprint 1A の単一プロセス前提は維持。T33 の launchd/手動多重起動に対しては `mkdir` ロックで同一ジョブの並走を抑止している。
+- 外部サーバ契約: ローカル Irodori-TTS-Server には `IRODORI_HF_CHECKPOINT` と nested `irodori.caption` の受け口が存在することを実ファイルで確認した。
+
+### PR コメント案
+
+PR #22 は PASS です。Critical 0 / High 0 / Medium 2 / Low 1。T33/T33+/T34 の実装は Sprint 2 範囲内で、fail-open、timeout 指定、secret 非漏洩、動画/YouTube 越境なしを確認しました。fresh gate も `pytest 380 passed`、ruff、mypy、`bash -n`、`plutil -lint` が通っています。
+
+Medium はドキュメント整合です。`PROJECT_STATE.md` 内に T34 本採用完了と「本採用残作業は未着手」が併存している点、`TEST_LOG.md` が T31 までで止まり T33/T34 の gate/E2E 証跡が無い点は、merge 前または直後に必ず同期してください。機能・セキュリティ上の merge blocker は見つけていません。
+
+## PR #22 追加コミット c7182e5 / T35 レビュー (レビュー日: 2026-06-24 / レビュアー: Codex)
+
+### 総合判定: FAIL
+
+Critical 0 / High 1 / Medium 2 / Low 0。無音バグ修正は launchd の bare PATH 起因という根因に合っており、`ffmpeg` の PATH 解決にも効く。一方、T35 の重点である「日本語ナレーションの漢字や日本語引用を誤って pinyin 化しないか」に対し、漢字だけの日本語引用を中国語扱いして pinyin 化する High を確認したため、PASS 不可。
+
+### 確認したファイル
+
+- `AGENTS.md`
+- `docs/DESIGN.md`
+- `docs/IMPLEMENTATION_PLAN-2.md`
+- `docs/TEST_LOG.md`
+- `docs/editorial-policy.md`
+- `docs/hal-persona.md`
+- `docs/show-format.md`
+- `.gitignore`
+- `pyproject.toml`
+- `uv.lock`
+- `scripts/daily_pipeline.sh`
+- `src/karyu_tech_news/main.py`
+- `src/karyu_tech_news/mix/master.py`
+- `src/karyu_tech_news/script/fallback.py`
+- `src/karyu_tech_news/tts/normalize.py`
+- `src/karyu_tech_news/tts/synthesize.py`
+- `tests/test_tts_normalize.py`
+
+### レビュー対象
+
+- `git status --short --branch` → `agent/T33-daily-pipeline-impl...origin/agent/T33-daily-pipeline-impl`。レビュー開始時点で未コミット変更あり: `.env.example`, `docs/IMPLEMENTATION_PLAN-2.md`。レビュー対象外として未変更。
+- `git show --stat --oneline c7182e5` → T35 対象 6 ファイル: `pyproject.toml`, `scripts/daily_pipeline.sh`, `src/karyu_tech_news/tts/normalize.py`, `src/karyu_tech_news/tts/synthesize.py`, `tests/test_tts_normalize.py`, `uv.lock`。
+- `git diff --stat main...HEAD` → PR #22 全体 19 ファイル。T35 は追加コミット `c7182e5` を中心に確認し、PR 全体の secret / 生成物 / スコープ外混入も検索。
+
+### 根拠とした差分/行
+
+- `scripts/daily_pipeline.sh:16-19` — launchd の bare PATH に `/opt/homebrew/bin:/usr/local/bin` を追加。`master_to_mp3` は `shutil.which("ffmpeg")` で PATH 解決するため、無人実行の ffmpeg 不在には有効。
+- `scripts/daily_pipeline.sh:76-89` — `collect` / `draft` / `produce` は `run_step` で fail-open 実行され、produce 失敗はログに残して次へ進む既存設計。
+- `src/karyu_tech_news/mix/master.py:69-73` — `ffmpeg` 不在時は `MasteringError("ffmpeg が見つかりません...")`。今回の PATH 追加はこの探索経路を補正している。
+- `src/karyu_tech_news/tts/normalize.py:113-115` — 漢字検出 `_HAN_RE` とかな検出 `_KANA_RE`、対象範囲 `_QUOTED_RE`。
+- `src/karyu_tech_news/tts/normalize.py:118-128` — `pypinyin` import は遅延し、未導入時は warning + 原文返却で fail-open。
+- `src/karyu_tech_news/tts/normalize.py:131-143` — `「」` 内に漢字があり、かなが無ければ `_han_to_pinyin()` を適用する本体。
+- `src/karyu_tech_news/tts/synthesize.py:139-144` — Markdown/ASCII gloss/読み辞書正規化後、文分割前に `transliterate_chinese_titles` を配線。
+- `src/karyu_tech_news/script/fallback.py:32-36` / `src/karyu_tech_news/script/fallback.py:42-52` — fallback template は `「{title}」` で原題を引用するため、T35 の対象となる根拠。
+- `tests/test_tts_normalize.py:115-135` — 中国語タイトル、かなを含む日本語引用、引用なし日本語ナレーション、中国語 span 限定の 4 テスト。ただし漢字だけの日本語引用は未カバー。
+- `pyproject.toml:11-20` — `pypinyin>=0.55.0` を core dependency に追加。
+- `uv.lock:648-656` / `uv.lock:673-685` / `uv.lock:890-896` — `pypinyin` が project の通常依存に入り、lock された。
+- `docs/IMPLEMENTATION_PLAN-2.md:33-46` — Sprint 2 の新規依存は `ffmpeg` と optional `pydub` と記載され、「これ以外を足す場合は ADR」。
+- `docs/IMPLEMENTATION_PLAN-2.md:84-88` — Sprint 2 固有 NG: TTS 1 文 fail-open、バイト単位切り詰め禁止、生成 mp3/wav commit 禁止。
+- `docs/architecture-podcast-station.md:96-103` / `docs/hal-persona.md:51-58` / `docs/adr/ADR-0006-tts-irodori-abstraction.md:27-34` — Irodori の漢字読み弱点対策として読み仮名辞書・TTS 前処理を置く方針。
+- `docs/editorial-policy.md:79-87` / `docs/hal-persona.md:35-39` — ナショナリズム表現、中国メディア本文朗読、実在人物声真似禁止。T35 差分に新規違反なし。
+- `.gitignore:1-25` — `.env`, `data/`, 音声/動画生成物、素材本体を除外。
+- `docs/TEST_LOG.md:1032` — T35 の無音バグ根因、翻字 smoke、`pytest 387` / ruff / mypy / shell 静的検証、実 produce 証跡の記録。
+
+### 実行/確認したテスト
+
+- 初回 `uv run pytest` / `uv run ruff check .` / `uv run mypy src tests` → sandbox が `/Users/kairyon/.cache/uv` を読めず起動前失敗 (`Operation not permitted`)。環境制約として扱い、`UV_CACHE_DIR=/private/tmp/karyu-uv-cache` で再実行。
+- `UV_CACHE_DIR=/private/tmp/karyu-uv-cache uv run pytest` → `387 passed in 3.09s`。
+- `UV_CACHE_DIR=/private/tmp/karyu-uv-cache uv run ruff check .` → `All checks passed!`。
+- `UV_CACHE_DIR=/private/tmp/karyu-uv-cache uv run mypy src tests` → `Success: no issues found in 68 source files`。
+- `bash -n scripts/daily_pipeline.sh && shellcheck scripts/daily_pipeline.sh` → exit 0。
+- `git diff --check main...HEAD` → 出力なし。
+- `git ls-files -u` → 出力なし。
+- `rg -n '^(<<<<<<<|=======|>>>>>>>)' . --glob '!docs/REVIEW_REPORT.md'` → no matches (exit 1)。
+- `git ls-files | rg '(^|/)\.env$|^data/|^artifacts/|\.(mp3|mp4|wav|m4a)$' || true` → 出力なし。
+- `UV_CACHE_DIR=/private/tmp/karyu-uv-cache uv run pytest --cov=src/karyu_tech_news` → pytest-cov 未導入で `unrecognized arguments: --cov=src/karyu_tech_news`。fresh coverage は未測定。
+- 翻字挙動 smoke:
+  - `「三星电子HBM4」というニュース。` → `「san xing dian zi HBM4」というニュース。`
+  - `「日本語の引用」が話題。` → 不変
+  - `「生成AI」が話題です。` → `「sheng cheng AI」が話題です。`
+  - `「東京大学」が発表しました。` → `「dong jing da xue」が発表しました。`
+  - `「人工知能」は重要です。` → `「ren gong zhi neng」は重要です。`
+
+### DESIGN.md / IMPLEMENTATION_PLAN-2.md との対応
+
+- DESIGN.md §1 / §6 / §7 の fail-open と webhook 失敗非致命化は、T35 差分で破壊されていない。T35 の pypinyin import 失敗時も原文返却で fail-open。
+- DESIGN.md §4.1 / §7 の item_key 生成順と `UNIQUE(source_id,item_key)` は T35 差分で触られていない。
+- DESIGN.md §9 / IMPLEMENTATION_PLAN-2.md §3 の Sprint 境界では、T35 は Sprint 2 の TTS/音声前処理と日次 mp3 配信修正に収まる。動画/YouTube/Playwright/Cookie 必須ルートの実装追加なし。
+- IMPLEMENTATION_PLAN-2.md §3 の依存制約に対し、`pypinyin` は機能上は TTS 前処理のため妥当性があるが、計画上の「ffmpeg + pydub 以外は ADR」には未対応。
+- IMPLEMENTATION_PLAN-2.md §5 / §8 の str 単位処理は維持。T35 の翻字は文字列置換であり、バイト切り詰めはしていない。
+- ADR-0006 / architecture-podcast-station / hal-persona の「Irodori は日本語特化で漢字読みが弱い、読み辞書・前処理で補う」方針には沿う。ただし今回のかな有無 heuristic は日本語引用を守るには不足。
+
+### 指摘事項
+
+| 重大度 | 箇所 | 内容 | 要求対応 |
+|---|---|---|---|
+| Critical | なし | なし | なし |
+| High | `src/karyu_tech_news/tts/normalize.py:137-143` / `tests/test_tts_normalize.py:121-129` | 「漢字あり・かななし」のみで中国語原題と判定しているため、漢字だけの日本語引用を pinyin 化する。実測で `「生成AI」`、`「東京大学」`、`「人工知能」` がそれぞれ `sheng cheng AI` / `dong jing da xue` / `ren gong zhi neng` になった。T35 の重点である「日本語ナレーションの漢字や日本語引用を誤って pinyin 化しないか」に対し、かな判定は十分でない。 | 中国語原題である根拠をもう一段強める。例: fallback title 由来の span だけに metadata で印を付ける、簡体字特有文字の存在を条件にする、読み辞書/日本語 allowlist 後に除外する、または fallback template 側で中国語タイトル専用の前処理を呼ぶ。少なくとも漢字だけの日本語引用 (`生成AI`, `東京大学`, `人工知能` 等) を不変にする回帰テストを追加する。 |
+| Medium | `docs/IMPLEMENTATION_PLAN-2.md:33-46` / `pyproject.toml:11-20` / `uv.lock:648-656` | `pypinyin` は TTS の中国語原題対策として機能的には理解できるが、Sprint 2 計画は新規依存を `ffmpeg` + optional `pydub` に限定し、それ以外は ADR と明記している。さらに `pypinyin` は `tts` extra ではなく core dependency に入っており、収集・台本だけの利用者にも常時入る。 | ADR または IMPLEMENTATION_PLAN-2.md に `pypinyin` 採用理由・代替案・依存スコープを追記する。可能なら TTS 専用 extra へ寄せるか、core に置く理由を明記する。 |
+| Medium | `src/karyu_tech_news/tts/normalize.py:123-128` / `tests/test_tts_normalize.py:115-135` | pypinyin 未導入時の fail-open 実装はあるが、テストは通常 import 成功パスのみ。T35 の受け入れ観点に fail-open が含まれているため、ImportError 時に原文返却する回帰が固定されていない。 | `monkeypatch` で `pypinyin` import を失敗させる、または `_han_to_pinyin` の依存注入を切って、未導入時に原文が残るテストを追加する。 |
+| Low | なし | なし | なし |
+
+### セキュリティ / 並行性 / スコープ
+
+- secret: `.env` / `data/` / `artifacts` / 音声動画生成物は追跡されていない。Webhook URL の直書きは今回差分にない。
+- SQL injection: T35 差分に SQL / raw SQL 追加なし。
+- 並行性: T35 差分は既存 `mkdir` lock に変更なし。Sprint 1A の単一プロセス前提を壊していない。
+- Webhook fail-open: T35 差分は deliver 層に触っていない。既存 `post_audio` / `post_markdown` の失敗非致命化は維持。
+- スコープ外混入: 動画生成、YouTube 投稿、Playwright、Cookie 必須 route、Go/Node 導入はなし。
+- 無音バグ修正: PATH 追加は `master_to_mp3` の `ffmpeg` 探索に直接効くため根因修正として妥当。ただし produce が失敗した日の Discord 通知は既知リスクのまま。
+
+### PR コメント案
+
+PR #22 追加コミット `c7182e5` / T35 は **FAIL** です。Critical 0 / High 1 / Medium 2 / Low 0。
+
+無音バグ修正は妥当です。`daily_pipeline.sh` の PATH に `/opt/homebrew/bin:/usr/local/bin` を足す変更は、`master_to_mp3` が `shutil.which("ffmpeg")` で探索する実装と一致しており、launchd の bare PATH 起因の ffmpeg 不在に効きます。fresh gate も `pytest 387 passed`、ruff、mypy、`bash -n` + shellcheck が通りました。
+
+ただし翻字 heuristic が High です。`「」` 内の「漢字あり・かななし」を中国語原題とみなすため、漢字だけの日本語引用も pinyin 化します。実測で `「生成AI」` → `「sheng cheng AI」`、`「東京大学」` → `「dong jing da xue」`、`「人工知能」` → `「ren gong zhi neng」` になりました。T35 の重点である「日本語ナレーションの漢字や日本語引用を誤って pinyin 化しないか」に対し、かな判定だけでは不足です。
+
+修正方針は、fallback title 由来の span だけを対象にする、簡体字特有文字の存在を条件にする、日本語 allowlist / 読み辞書後の除外を入れる、などで中国語原題の根拠を強めてください。あわせて漢字だけの日本語引用を不変にする回帰テストと、pypinyin 未導入時 fail-open のテストを追加してください。`pypinyin` を core dependency に入れる点も、IMPLEMENTATION_PLAN-2.md の「ffmpeg + pydub 以外は ADR」とずれるため、ADR/計画追記または optional extra 化の判断を残す必要があります。
+
+## PR #22 追加コミット 1fb38ed / T35 再レビュー (レビュー日: 2026-06-24 / レビュアー: Codex)
+
+### 総合判定: FAIL
+
+Critical 0 / High 1 / Medium 1 / Low 0。前回 High の「漢字のみ日本語引用を pinyin 化する」問題は、簡体字特有文字を必須にする条件と回帰テストで解消を確認した。一方、`pypinyin` を optional extra `tts` へ移した結果、リポジトリ標準の通常テスト環境では pinyin 成功テストが必要依存なしで走りうるため、新規 High として FAIL 判定にする。
+
+### 確認したファイル
+
+- `AGENTS.md`
+- `docs/DESIGN.md`
+- `docs/IMPLEMENTATION_PLAN-2.md`
+- `docs/PROJECT_STATE.md`
+- `docs/TEST_LOG.md`
+- `docs/REVIEW_REPORT.md`
+- `docs/editorial-policy.md`
+- `docs/hal-persona.md`
+- `docs/show-format.md`
+- `.gitignore`
+- `pyproject.toml`
+- `uv.lock`
+- `scripts/daily_pipeline.sh`
+- `src/karyu_tech_news/mix/master.py`
+- `src/karyu_tech_news/script/fallback.py`
+- `src/karyu_tech_news/tts/normalize.py`
+- `src/karyu_tech_news/tts/synthesize.py`
+- `tests/test_tts_normalize.py`
+
+### レビュー対象
+
+- `git status --short --branch` → `agent/T33-daily-pipeline-impl...origin/agent/T33-daily-pipeline-impl`、作業ツリー未コミット変更は `docs/REVIEW_REPORT.md` のみ。
+- `git show --stat --oneline --decorate --no-renames 1fb38ed` → `pyproject.toml`、`src/karyu_tech_news/tts/normalize.py`、`tests/test_tts_normalize.py`、`uv.lock` の 4 ファイル。
+- `git diff --stat --no-renames main...HEAD` → PR #22 全体 21 ファイル。T35 再レビューは追加コミット `1fb38ed` と、依存/証跡整合のため `main...HEAD` を確認。
+
+### 根拠とした差分/行
+
+- `src/karyu_tech_news/tts/normalize.py:111-124` — 判定条件を「漢字あり・かな無し・簡体字特有文字あり」に強化し、日本語新字体と同形の共有字は除外。
+- `src/karyu_tech_news/tts/normalize.py:128-138` — `pypinyin` は遅延 import、未導入時は warning + 原文返却で fail-open。
+- `src/karyu_tech_news/tts/normalize.py:147-156` — `any(ch in _SIMPLIFIED_HAN for ch in inner)` を満たす引用 span のみ `_han_to_pinyin()` を適用。
+- `src/karyu_tech_news/tts/synthesize.py:139-144` — Markdown/ASCII gloss/読み辞書正規化後、文分割前に `transliterate_chinese_titles` を適用。
+- `tests/test_tts_normalize.py:118-138` — 中国語原題の肯定ケース、かな入り日本語引用、引用なし日本語ナレーション、中国語 span 限定のテスト。
+- `tests/test_tts_normalize.py:141-153` — `生成AI` / `東京大学` / `人工知能` / `国際会議` / `機械学習` / `半導体` / `自動運転` の不変テストと、簡体字肯定テスト。
+- `tests/test_tts_normalize.py:156-160` — `pypinyin` 未導入時の fail-open テスト。
+- `pyproject.toml:11-19` — core dependencies から `pypinyin` が除外されている。
+- `pyproject.toml:23-28` — `pypinyin>=0.55.0` は optional extra `tts` のみ。
+- `pyproject.toml:30-35` — dev dependency group に `pypinyin` は含まれていない。
+- `uv.lock:650-656` — project 通常依存に `pypinyin` は含まれていない。
+- `uv.lock:658-663` / `uv.lock:673-680` — `pypinyin` は `extra == 'tts'` marker 付き optional dependency。
+- `docs/IMPLEMENTATION_PLAN-2.md:44-46` — 新規依存は ffmpeg + pydub 以外は ADR としていた制約。
+- `docs/IMPLEMENTATION_PLAN-2.md:66` — T35 の `pypinyin` 採用理由、core ではなく optional extra `tts` に置く判断、簡体字特有文字条件を追記済み。
+- `docs/TEST_LOG.md:1032` / `docs/PROJECT_STATE.md:30` — T35 証跡が `c7182e5`、旧 heuristic、`pytest 387` のままで、`1fb38ed` / `pytest 396` / optional extra 化が未反映。
+- `docs/editorial-policy.md:79-87` / `docs/hal-persona.md:35-39` — ナショナリズム表現、中国メディア本文朗読、実在人物声真似禁止。T35 再差分に新規違反なし。
+
+### 実行/確認したテスト
+
+- `UV_CACHE_DIR=/private/tmp/karyu-uv-cache uv run pytest tests/test_tts_normalize.py -q` → `28 passed`。
+- 翻字 smoke:
+  - `「生成AI」が話題です。` → 不変
+  - `「東京大学」が発表しました。` → 不変
+  - `「人工知能」は重要です。` → 不変
+  - `「三星电子HBM4」というニュース。` → `「san xing dian zi HBM4」というニュース。`
+  - `今日は「豆包发布」を取り上げます。` → `今日は「dou bao fa bu」を取り上げます。`
+- `UV_CACHE_DIR=/private/tmp/karyu-uv-cache uv run pytest` → `396 passed in 1.86s`。
+- `UV_CACHE_DIR=/private/tmp/karyu-uv-cache uv run ruff check .` → `All checks passed!`。
+- `UV_CACHE_DIR=/private/tmp/karyu-uv-cache uv run mypy src tests` → `Success: no issues found in 68 source files`。
+- `bash -n scripts/daily_pipeline.sh && shellcheck scripts/daily_pipeline.sh` → exit 0。
+- `git diff --check main...HEAD` → 出力なし。
+- `git ls-files -u` → 出力なし。
+- `rg -n '^(<<<<<<<|=======|>>>>>>>)' . --glob '!docs/REVIEW_REPORT.md'` → no matches (exit 1)。
+- secret scan (`discord.com/api/webhooks/...`、`DISCORD_WEBHOOK_URL=.*https://`、`sk-...`、GitHub/Slack token 形を `uv.lock` / `docs/REVIEW_REPORT.md` / `tests/**` 除外で検索) → no matches。
+- スコープ外検索 (`playwright` / `moviepy` / `googleapiclient` / `selenium` / `puppeteer` / `youtube` を `src config scripts tests docs/PROJECT_STATE.md` で検索) → 実装 import / 実行経路なし。
+- `UV_CACHE_DIR=/private/tmp/karyu-uv-cache UV_PROJECT_ENVIRONMENT=/private/tmp/panda-review-noextra-venv uv run pytest tests/test_tts_normalize.py -q` → fresh 環境作成中にネットワーク制限で `python-dotenv` wheel 取得に失敗。クリーン default 環境の実測は未完了。
+- 代替確認: 現在環境では `pypinyin installed: True`。`builtins.__import__` で `pypinyin` import を遮断すると `transliterate_chinese_titles("「三星电子HBM4」というニュース。")` は原文返却となり、`tests/test_tts_normalize.py:118-121` / `tests/test_tts_normalize.py:151-153` の pinyin 成功期待値は満たせない。
+- fresh coverage: `pytest-cov` が標準 dev 依存に無いため未測定。既存の 80% 以上証跡は過去ログ参照に留まる。
+
+### DESIGN.md / IMPLEMENTATION_PLAN-2.md との対応
+
+- DESIGN.md §1 / §6 / §7 の fail-open と webhook 失敗非致命化は T35 再差分で破壊されていない。`pypinyin` 未導入時も原文返却で produce 自体は継続する。
+- DESIGN.md §4.1 / §7 の item_key 生成順と `UNIQUE(source_id,item_key)` は T35 再差分で触られていない。
+- DESIGN.md §9 / IMPLEMENTATION_PLAN-2.md §3 の Sprint 境界では、T35 は Sprint 2 の TTS 前処理と日次 mp3 配信修正に収まる。動画/YouTube/Playwright/Cookie 必須ルートの実装追加なし。
+- IMPLEMENTATION_PLAN-2.md §3 の依存制約に対し、`pypinyin` 採用理由と optional extra 化は `docs/IMPLEMENTATION_PLAN-2.md:66` で説明されたため、前回 Medium は解消。
+- IMPLEMENTATION_PLAN-2.md §5 / §8 の str 単位処理は維持。T35 の翻字は文字列置換であり、バイト切り詰めはしていない。
+- editorial-policy / hal-persona / show-format との矛盾は見当たらない。翻字は中国語原題の読み崩れ対策であり、本文転載や実在人物声真似を追加していない。
+
+### 指摘事項
+
+| 重大度 | 箇所 | 内容 | 要求対応 |
+|---|---|---|---|
+| Critical | なし | なし | なし |
+| High | `pyproject.toml:23-35` / `tests/test_tts_normalize.py:118-121` / `tests/test_tts_normalize.py:151-153` / `src/karyu_tech_news/tts/normalize.py:133-138` | `pypinyin` は optional extra `tts` のみに移ったが、通常の pytest suite には pinyin 成功を必須にするテストが常時含まれている。標準ゲートは AGENTS.md / TEST_LOG とも `uv run pytest` で、`uv run --extra tts pytest` ではない。現在の `.venv` では過去の core 依存時代の `pypinyin` が残っているため `396 passed` になっているが、import を遮断すると肯定ケースは fail-open で原文返却になり期待値を満たさない。クリーン default 環境では品質ゲートが赤になる、または T35 の肯定経路がテストされない構造。 | core を増やさない方針を維持するなら `pypinyin` を dev dependency group にも入れて標準 `uv run pytest` の依存にする、または positive pinyin テストを `pytest.importorskip("pypinyin")` 等で extra 依存テストとして明示し、PR ゲートに `uv run --extra tts pytest tests/test_tts_normalize.py` を追加する。 |
+| Medium | `docs/TEST_LOG.md:1032` / `docs/PROJECT_STATE.md:30` | 永続証跡が追加コミット `c7182e5` 時点のまま。旧 heuristic「漢字あり・かな無し」、`pytest 387`、test 4 種、`pypinyin` 依存追加という記述で、`1fb38ed` の簡体字条件、optional extra 化、`pytest 396`、回帰テスト追加が反映されていない。レビュー prompt は TEST_LOG の該当エントリ参照を要求しており、PROJECT_STATE は真の記憶なので、次のエージェントが古い状態を信じるリスクがある。 | `docs/TEST_LOG.md` と `docs/PROJECT_STATE.md` に `1fb38ed` の修正内容、最新 gate、依存スコープ判断、残リスクを追記/更新する。 |
+| Low | なし | なし | なし |
+
+### セキュリティ / 並行性 / スコープ
+
+- secret: `.env` / `data/` / `artifacts` / 音声動画生成物は追跡されていない。Webhook URL の直書きは今回差分にない。
+- SQL injection: T35 再差分に SQL / raw SQL 追加なし。
+- 並行性: T35 再差分は既存 `mkdir` lock に変更なし。Sprint 1A の単一プロセス前提を壊していない。
+- Webhook fail-open: T35 再差分は deliver 層に触っていない。既存 `post_audio` / `post_markdown` の失敗非致命化は維持。
+- スコープ外混入: 動画生成、YouTube 投稿、Playwright、Cookie 必須 route、Go/Node 導入はなし。
+- 依存 scope: `pypinyin` を runtime core から `tts` extra へ移した判断自体は妥当。ただしテスト環境への供給方法が未解決。
+
+### PR コメント案
+
+PR #22 追加コミット `1fb38ed` / T35 再レビューは **FAIL** です。Critical 0 / High 1 / Medium 1 / Low 0。
+
+前回 High の誤翻字は解消しています。`生成AI`、`東京大学`、`人工知能` は不変で、`三星电子HBM4` と `豆包发布` は pinyin 化されることを smoke と回帰テストで確認しました。`pytest 396 passed`、ruff、mypy、shellcheck、secret/scope 検索も現在環境では通っています。
+
+新規 High は依存とテストゲートの不整合です。`pypinyin` は `tts` optional extra のみに移っていますが、標準の `uv run pytest` に含まれる `tests/test_tts_normalize.py` は pinyin 成功を必須にしています。現在の `.venv` には過去依存として `pypinyin` が残っているため緑ですが、import を遮断すると肯定ケースは fail-open で原文返却になり期待値を満たしません。core を増やさないなら `pypinyin` を dev dependency にも入れるか、positive pinyin テストを extra 依存として明示し、PR ゲートに extra 付き pytest を追加してください。
+
+Medium は証跡更新です。`docs/TEST_LOG.md` / `docs/PROJECT_STATE.md` が `c7182e5` 時点の旧 heuristic・`pytest 387` のままなので、`1fb38ed` の簡体字条件、optional extra 化、`pytest 396` を反映してください。
+
+## PR #22 追加コミット 009a54d / T35 R3 確認レビュー (レビュー日: 2026-06-24 / レビュアー: Codex)
+
+### 総合判定: PASS
+
+Critical 0 / High 0 / Medium 0 / Low 0。前回 R2 High の依存/ゲート不整合は、`pypinyin` を dev dependency group にも追加し、肯定系翻字テストへ `pytest.importorskip("pypinyin")` を付与したことで解消している。標準 `uv run pytest` 相当の dev gate で `396 passed` を確認した。R2 Medium の永続証跡更新も `docs/TEST_LOG.md` / `docs/PROJECT_STATE.md` に反映済み。
+
+### 確認したファイル
+
+- `AGENTS.md`
+- `docs/DESIGN.md`
+- `docs/PROJECT_STATE.md`
+- `docs/TEST_LOG.md`
+- `docs/REVIEW_REPORT.md`
+- `.gitignore`
+- `pyproject.toml`
+- `uv.lock`
+- `scripts/daily_pipeline.sh`
+- `src/karyu_tech_news/tts/normalize.py`
+- `tests/test_tts_normalize.py`
+
+### レビュー対象
+
+- `git status --short --branch` → `agent/T33-daily-pipeline-impl...origin/agent/T33-daily-pipeline-impl`。レビュー開始時点で未コミット変更なし。
+- `git show --stat --oneline --decorate --no-renames 009a54d` → `docs/PROJECT_STATE.md`, `docs/REVIEW_REPORT.md`, `docs/TEST_LOG.md`, `pyproject.toml`, `tests/test_tts_normalize.py`, `uv.lock` の 6 ファイル。
+- `git show --no-ext-diff --unified=80 --no-renames 009a54d` で R2 対応差分を確認。
+
+### 根拠とした差分/行
+
+- `pyproject.toml:23-28` — `pypinyin>=0.55.0` は runtime core ではなく optional extra `tts` に残っている。
+- `pyproject.toml:30-39` — dev dependency group に `pypinyin>=0.55.0` が追加され、標準 `uv run pytest` の dev 環境で肯定系翻字テストが依存不足にならない。
+- `pyproject.toml:79-82` — optional `pypinyin` の mypy missing import override は維持。
+- `tests/test_tts_normalize.py:118-122` — `三星电子HBM4` の肯定系テストは `pytest.importorskip("pypinyin")` 後に期待値を検証。
+- `tests/test_tts_normalize.py:136-140` — `豆包发布` の肯定系テストも `importorskip` 付き。
+- `tests/test_tts_normalize.py:153-156` — 簡体字条件の肯定側 `「电子」` も `importorskip` 付き。
+- `tests/test_tts_normalize.py:143-150` — `生成AI` / `東京大学` / `人工知能` など漢字のみ日本語引用の不変回帰テストは依存なしで実行される。
+- `tests/test_tts_normalize.py:159-163` — `pypinyin` 未導入時は原文返却する fail-open テスト。
+- `src/karyu_tech_news/tts/normalize.py:128-138` — `pypinyin` は遅延 import され、ImportError 時は warning + 原文返却。
+- `src/karyu_tech_news/tts/normalize.py:147-156` — 簡体字特有文字を含む引用 span のみ pinyin 化。
+- `docs/TEST_LOG.md:1034` — R1/R2 対応、dev group 追加、`pytest 396 passed`、実 produce 証跡が追記済み。
+- `docs/PROJECT_STATE.md:30-31` — T35 の旧 `c7182e5` 証跡に加え、R1/R2 レビュー反映の最終状態が追記済み。
+- `.gitignore:1-25` — `.env`, `data/`, 音声/動画生成物、素材本体は git 管理外。
+- `docs/DESIGN.md:14-19` — fail-open、Webhook 失敗非致命、外部依存最小化の基準。
+- `docs/DESIGN.md:139-147` — item_key 生成順と空 item_key 禁止。今回差分では未変更。
+- `docs/DESIGN.md:176-180` — `.env` commit 禁止など実装上の禁止事項。今回差分で抵触なし。
+
+### 実行/確認したテスト
+
+- `uv run pytest tests/test_tts_normalize.py` / `uv run ruff check .` 初回 → sandbox が `/Users/kairyon/.cache/uv` を読めず起動前失敗 (`Operation not permitted`)。環境制約のため repo 内 cache を指定して再実行。
+- `UV_CACHE_DIR=.uv_cache uv run pytest tests/test_tts_normalize.py` → `28 passed in 0.09s`。
+- `UV_CACHE_DIR=.uv_cache uv run pytest` → `396 passed in 2.06s`。
+- `UV_CACHE_DIR=.uv_cache uv run ruff check .` → `All checks passed!`。
+- `UV_CACHE_DIR=.uv_cache uv run mypy src tests` → `Success: no issues found in 68 source files`。
+- `bash -n scripts/daily_pipeline.sh && shellcheck scripts/daily_pipeline.sh` → exit 0。
+- `git ls-files .env 'data/*' 'artifacts/*' '*.mp3' '*.mp4' '*.wav' '*.m4a'` → 出力なし。
+- `git grep -n "https://discord.com/api/webhooks/[0-9]" -- ':!tests/test_discord_script.py' ':!tests/test_produce_pipeline.py' ':!docs/REVIEW_REPORT.md' || true` → 出力なし。
+- `UV_CACHE_DIR=.uv_cache uv run --no-dev --with pytest pytest tests/test_tts_normalize.py -k 'transliterate' -q` → `13 passed`。ただし既存 `.venv` に `pypinyin` が残っており、完全な依存なし隔離環境の証明ではない。標準 dev gate の R2 High 解消確認としては `pyproject.toml:30-39` と full pytest 実測を根拠にした。
+
+### DESIGN.md との対応
+
+- DESIGN.md §1 の「最小構成・fail-open・状態の外部永続化」に対し、`pypinyin` は runtime core ではなく `tts` extra + dev group に限定され、未導入時も `normalize.py:133-138` で原文返却する。
+- DESIGN.md §1 / §6 の Webhook 失敗非致命・ソース単位 fail-openは、今回差分で collect / deliver 層に変更がないため維持。
+- DESIGN.md §4.1 / §7 の item_key 生成順、`UNIQUE(source_id,item_key)`、空 item_key 禁止は今回差分で触っていない。
+- DESIGN.md §7 と AGENTS.md §3 の禁止事項について、`.env` / 生成音声 / Webhook URL 実値の commit は検出されず、動画/YouTube/Playwright/Cookie 必須 route/Go/Node 導入もなし。
+- ドキュメント整合は `docs/TEST_LOG.md:1034` と `docs/PROJECT_STATE.md:30-31` で R2 後の最終状態に同期されている。
+
+### 指摘事項
+
+| 重大度 | 箇所 | 内容 | 要求対応 |
+|---|---|---|---|
+| Critical | なし | なし | なし |
+| High | なし | R2 High は解消。標準 dev gate で `pypinyin` が供給され、肯定系テストも optional 依存であることを明示している。 | なし |
+| Medium | なし | R2 Medium の `TEST_LOG` / `PROJECT_STATE` 更新漏れも解消。 | なし |
+| Low | なし | なし | なし |
+
+### セキュリティ / 並行性 / スコープ
+
+- secret: `.env` / `data/` / `artifacts` / 音声動画生成物は追跡されていない。Webhook URL 実値の直書きは今回差分にない。
+- SQL injection: `009a54d` に SQL / raw SQL 追加なし。
+- 並行性: `009a54d` は依存・テスト・証跡更新のみで、launchd lock や DB 更新処理に変更なし。
+- Webhook fail-open: deliver 層に変更なし。既存の失敗非致命設計を壊していない。
+- スコープ外混入: 動画生成、YouTube 投稿、Playwright、Cookie 必須 route、Go/Node 導入なし。
+
+### PR コメント案
+
+PR #22 追加コミット `009a54d` / R3 確認レビューは **PASS** です。Critical 0 / High 0 / Medium 0 / Low 0。
+
+R2 High は解消しています。`pypinyin` は runtime core ではなく optional extra `tts` に残しつつ、dev dependency group にも追加されているため、標準 `uv run pytest` の dev 環境で肯定系翻字テストが依存不足になりません。肯定系 3 件には `pytest.importorskip("pypinyin")` が入り、`--no-dev` など依存を落とした環境では fail ではなく skip できる形になっています。未導入時の runtime fail-open テストも維持されています。
+
+fresh gate は `UV_CACHE_DIR=.uv_cache uv run pytest` が `396 passed`、ruff、mypy strict 68 files、`bash -n` + shellcheck がすべて通過。`docs/TEST_LOG.md` と `docs/PROJECT_STATE.md` も R2 後の最終状態に同期済みです。secret、生成音声、スコープ外実装の混入も確認できませんでした。

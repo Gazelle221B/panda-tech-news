@@ -1009,3 +1009,26 @@ libmp3lame assertion crash) → 修正 (上記 step 3) → 再レビューで実
 **Codex 独立レビュー**: 初回 FAIL → High (produce が config primary_engine を `voice` 誤読、実構造は `tts` ブロック = FR-090 違反、常に kokoro fallback) + Medium (post_audio 秘密非漏洩テスト不足) → 修正 (tts ブロック読込 + config 駆動回帰テスト + caplog 秘密テスト) → 再レビュー **PASS**。**Antigravity QA PASS** (gates 再実行 + 差分レビュー 5 観点)。
 
 **ゲート (fresh)**: `pytest` **363 passed** / `ruff check .` クリーン / `mypy src tests` strict **Success (68 files)**。生成 mp3/wav は `data/episodes/` (git 管理外)。
+
+---
+
+## Ticket T33 / T33+ / T34 — 日次自動配信 + 絵文字制御 + 600M VoiceDesign 本採用 (2026-06-23〜24, autopilot インライン, PR #22)
+
+**T33 日次自動配信 + launchd**: `scripts/daily_pipeline.sh` (collect→draft→produce→Discord を fail-open 順次 + Irodori サーバ存命管理 + mkdir 原子ロック + PID 再利用ガード) + `scripts/launchd/com.karyu.daily-pipeline.plist` (2026-06-24/25/26 06:30 ピン)。`tts/irodori.py` timeout 120→300s + env `IRODORI_TIMEOUT` 上書き (参照音声の遅い1文の ReadTimeout 欠落対策、test 3種)。
+- ライブ実証 (6/23 09:48, 500M): collect 5s / draft 52s / produce 9分、3点 Discord 配信成功、文欠落0、episode_6 192.7s/-16.3LUFS。
+
+**T33+ 絵文字スタイル制御の修復**: 従来 annotate 層 (T27) が produce で未呼出=死コードだった根因を修正。`synthesize_script` に `emoji_mapping` を追加し**文単位**で tone 別絵文字挿入 (`capabilities.emoji_style` ゲート、後方互換、test 3種)。`hal_persona.yaml` を Irodori 公式45絵文字語彙へ remap (語彙外 `bright ☺️→😊` 等修正) + `neutral→📖`。
+
+**T34 600M VoiceDesign + caption (エンジン非依存)**: `SynthesisRequest.caption` + `Capabilities.voice_design` (engine.py)、`IrodoriTTSEngine` の caption 送出 (irodori.py、env `IRODORI_CAPTION` 上書き可、test 4種)、`synthesize_script` の caption 文単位配線 (voice_design ゲート、test 2種)、produce が `hal_persona.tts.caption` を渡す。外部 server (別リポジトリ): `app.py` caption plumbing / `.env` checkpoint 600M / `irodori-tts` eaf74d6 更新 (use_speaker_condition 対応、silentcipher ウォーターマーク付与)。
+
+**ゲート (fresh, 6/24)**: `pytest` **380 passed** / `ruff check .` クリーン / `mypy src tests` strict **Success (68 files)** / `bash -n scripts/daily_pipeline.sh` + `shellcheck` クリーン / `plutil -lint` plist **OK**。
+**実 E2E 証跡**: (1) 600M server caption smoke = HTTP 200 / 7.04s 音声 / valid 48kHz wav。(2) 実 produce (draft 6, 600M+caption+絵文字) = サーバ22文合成・**文欠落0**・236.6s/192k/48kHz/**-16.2 LUFS** 完パケ (audio_versions id=6)。
+**レビュー/QA**: **Codex 独立レビュー PASS** (Critical0/High0/Medium2/Low1、Medium=PROJECT_STATE/TEST_LOG 同期 → 本追記で解消)。**Antigravity QA 合格** (§3 NG 抵触なし・回帰なし・整合性 OK、Low=README/AGENTS テスト数 drift → 同期)。
+**⚠ shell/plist の自動テストは無し (Codex Low)**: `bash -n` + `shellcheck` + `plutil -lint` の静的検証で代替。将来変更時は本ログの手順を再実行する。
+**⚠ 既知の運用リスク (QA)**: Mac スリープ中 launchd 不発火 (`pmset repeat wake` で回避) / produce 失敗時の Discord 通知なし (ログのみ) / collect 0件日は前日 draft 再配信 / 6/26 後 launchd 撤去要 / **draft の中国語見出し埋め込みで TTS が崩す content 課題 (LLM writer プロンプト改善が中期対策)**。
+
+**Copilot PR レビュー対応 (6/24, fb7bef4)**: PR #22 上の 5 指摘を全対応・全 thread resolve 済み。(1) `_resolve_timeout` が `float(nan)/(inf)` を弾くよう `math.isfinite` ガード追加 (nan は `<=0` をすり抜け・inf は無限 timeout = 無人ジョブ安全性バグ)・test に nan/inf/-inf 追加 → **pytest 383 passed**。(2) サーバを `--host 127.0.0.1` バインド + `.env` `IRODORI_HOST=127.0.0.1` で LAN 露出回避 (サーバ再起動で localhost-only 確認)。(3) `daily_pipeline.sh` のパスを env 上書き可 + スクリプト位置/`$HOME`/`PATH` 解決でポータビリティ確保。(4) plist の `ProgramArguments` を `$HOME` 経由でユーザー名非依存化 + 編集要箇所明記。ruff / mypy strict 68 / bash -n + shellcheck / plutil 再確認済み。
+
+**T35 — 初の無人自動配信 (6/24 06:30) で発覚した 2 件を修正 (PR #22, `c7182e5`)**: ① **無音バグ**: launchd 実走ログ (`data/logs/launchd_pipeline.out.log` + `daily_20260624_063000.log`) で collect/draft 成功・**produce が rc=1 失敗 = 音声欠落**を確認。根因は launchd の bare PATH に Homebrew が無く `ffmpeg が見つかりません` でマスタリング失敗。対話実行は PATH に `/opt/homebrew/bin` があり常に成功していたため未検出 (= 無人実行特有の env バグ)。`daily_pipeline.sh` PATH に Homebrew 追加で修正。② **中国語翻字**: `transliterate_chinese_titles` を追加 (「」内が漢字あり・かな無し = 中国語原題のみ pinyin 化)。実 Hook smoke: `「三星电子HBM4芯片…」` → `「san xing dian zi HBM4 xin pian …」`、日本語引用/ナレーションは不変。**ゲート**: `pytest 387 passed` / ruff / mypy strict 68 files / bash -n + shellcheck OK。draft 7 再 produce で 600M+caption+翻字の実音声を確認 (DoD 証跡)。launchd 撤去は `/schedule` (`uninstall-daily-pipeline-launchd`, 6/27 07:00 JST) に登録。
+
+**T35 Codex 2 ラウンド独立レビュー対応 (`1fb38ed` 他)**: (R1 High) 翻字 heuristic が「漢字あり・かな無し」だけでは**漢字のみの日本語引用 (生成AI/東京大学/人工知能 等) も pinyin 化**する誤検出を、**簡体字特有文字 (`_SIMPLIFIED_HAN`: 电/问/选/发 等、日本語新字体と字形が異なる字) を含む span のみ翻字**へ強化して解消。誤翻字防止 7 ケース + fail-open テスト追加。(R1 Medium) `pypinyin` を core→optional extra `tts` へ移動 (+mypy override+plan 追記)。(R2 High) 「肯定系翻字テストが標準 `uv run pytest` で extra 非導入だと落ちる」依存/ゲート不整合を、`pypinyin` を **dev group にも追加** + 肯定系テストに `pytest.importorskip("pypinyin")` で解消 (runtime は extra のまま最小)。**最終ゲート: `pytest 396 passed` / ruff / mypy strict 68 files / bash -n + shellcheck**。draft 7 再 produce = 275.4s / -16.3 LUFS / 文欠落0 (audio_versions id=7)。

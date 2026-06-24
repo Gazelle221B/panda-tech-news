@@ -7,11 +7,14 @@ ADR-0006: Irodori-TTS v3 は漢字読み精度が弱い (公式明記)。中国�
 """
 from __future__ import annotations
 
+import logging
 import re
 from pathlib import Path
 from typing import Any
 
 import yaml
+
+logger = logging.getLogger(__name__)
 
 
 def load_reading_dict(path: Path) -> dict[str, str]:
@@ -98,3 +101,58 @@ def normalize_text(text: str, reading_dict: dict[str, str]) -> str:
     terms = sorted(reading_dict, key=len, reverse=True)
     pattern = re.compile("|".join(re.escape(t) for t in terms))
     return pattern.sub(lambda m: reading_dict[m.group(0)], text)
+
+
+# 中国語原題の翻字 (T35): fallback テンプレの Hook は原題を「<中国語>」で埋め込む
+# (例: 「三星电子HBM4芯片推出四个月销售额突破10亿美元」というニュース...)。
+# 日本語特化 TTS (Irodori v3) は簡体字を誤読/崩す (文字化け) ため、漢字を pinyin に
+# 翻字して読めるようにする。見出し/ソース一覧は strip_markdown_structure で除去済みなので、
+# ここで対象になるのは本文の「」引用に残った原題のみ。
+# 検出: 「」内に漢字があり・日本語かな無し・かつ**簡体字特有文字**を含む span = 中国語原題。
+# かな無しだけでは漢字のみの日本語引用 (生成AI / 東京大学 / 人工知能 等) も誤翻字するため
+# (Codex High 指摘)、日本語新字体/繁体字と字形が異なる簡体字を 1 つ以上含むことを必須にする。
+# precision 優先: 共有字のみの稀な中国語原題は取りこぼす (従来通り素のまま) が、正しい日本語は壊さない。
+_HAN_RE = re.compile(r"[㐀-䶿一-鿿]")
+_KANA_RE = re.compile(r"[぀-ヿ]")
+_QUOTED_RE = re.compile(r"「([^」]*)」")
+# 簡体字特有 (日本語新字体と字形が異なる) 高頻度文字。中国語原題の確証に使う。
+# 共有字 (国 学 会 体 来 万 数 医 区 等 = 日本語新字体と同形) は意図的に除外。
+_SIMPLIFIED_HAN = frozenset(
+    "电发东车书长门问题马龙风飞见现实战应产优传总处复币录据网罗联获营认让设证识护击损银难"
+    "验销额亿灵续闻监构该场选开关间时这过还进远边转较钟际团图价习张划评试语资业务员观规严"
+    "众货质购贸费软轻输载连运钱铁错队阶险顺顾频颗颜驱鸟鸡齐齿龟丰临举义乐乡买争亚仅从仓伟"
+    "伤伦伪侧侨偿厂历压县参双变叠号叶团圆园块坚执扩扫担拥据摆术机权条标树桥检欢残职"
+)
+
+
+def _han_to_pinyin(text: str) -> str:
+    """漢字を声調なし pinyin (空白区切り) へ。非漢字 (Latin/数字/記号) はそのまま保持.
+
+    pypinyin 未導入時は fail-open で原文を返す (依存に含むが防御的に)。
+    """
+    try:
+        from pypinyin import Style, lazy_pinyin
+    except ImportError:  # pragma: no cover
+        logger.warning("pypinyin 未導入 — 中国語翻字をスキップ")
+        return text
+    return " ".join(lazy_pinyin(text, style=Style.NORMAL))
+
+
+def transliterate_chinese_titles(text: str) -> str:
+    """「」内が中国語 (漢字あり・かななし) の span を pinyin に翻字する (TTS 前処理).
+
+    日本語混在の引用やナレーションは対象外。Latin/数字/記号は保持。
+    """
+
+    def _repl(m: re.Match[str]) -> str:
+        inner = m.group(1)
+        is_chinese_title = (
+            _HAN_RE.search(inner) is not None
+            and _KANA_RE.search(inner) is None
+            and any(ch in _SIMPLIFIED_HAN for ch in inner)
+        )
+        if is_chinese_title:
+            return f"「{_han_to_pinyin(inner)}」"
+        return m.group(0)
+
+    return _QUOTED_RE.sub(_repl, text)

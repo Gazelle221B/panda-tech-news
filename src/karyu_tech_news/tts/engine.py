@@ -42,6 +42,7 @@ class Capabilities(BaseModel):
     voice_clone: bool  # ゼロショット音声クローン
     streaming: bool
     max_chars: int  # 1 リクエストで安全に渡せる文字数の目安
+    voice_design: bool = False  # キャプション(自然文)による話法制御 (Irodori 600M VoiceDesign, T34)
 
 
 class SynthesisRequest(BaseModel):
@@ -50,6 +51,7 @@ class SynthesisRequest(BaseModel):
     text: str
     voice_id: str
     speed: float = 1.0
+    caption: str | None = None  # VoiceDesign: 話し方を指示する自然文. 非対応エンジンは無視 (T34)
 
     @field_validator("text")
     @classmethod
@@ -100,6 +102,7 @@ class MockTTSEngine:
             voice_clone=True,
             streaming=False,
             max_chars=MOCK_MAX_CHARS,
+            voice_design=True,
         )
 
     def synthesize(self, req: SynthesisRequest) -> SynthesisResult:
