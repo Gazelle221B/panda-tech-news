@@ -91,7 +91,7 @@
 **LLM はプレーンテキスト台本を出し、コード側でパースして JSON 化**する (LLM に JSON と日本語コピーを同時に書かせると片方崩れる)。「まずは、」「続いては、」「最後は、」等の既知マーカーで segment 境界を検出、tone は edit 層の判定結果から引く。[config/show_format.yaml](../config/show_format.yaml) がこの segment 構造の元。
 
 ### 絵文字注釈レイヤー (Irodori 固有)
-tc-newsflow の tone 判定 (hard_negative/constructive/bright) を Irodori-TTS の絵文字スタイル制御に変換する後処理層。台本生成段階では絵文字を入れず、**TTS 前処理で機械的に挿入** (各トピック1-2個、文末)。[hal_persona.yaml](../config/hal_persona.yaml) `tts.emoji_annotation` がマッピング。
+tc-newsflow の tone 判定 (hard_negative/constructive/bright) を Irodori-TTS の絵文字スタイル制御に変換する後処理層。台本生成段階では絵文字を入れず、TTS 前処理で機械的に挿入する設計。ただし T36 ASR QA で異物読みと尺伸長を確認したため、production 既定では無効。[hal_persona.yaml](../config/hal_persona.yaml) `tts.emoji_annotation_enabled: true` を明示した persona だけ `tts.emoji_annotation` マッピングを使う。
 
 ## 5. TTS 戦略 (Irodori-TTS v3 主軸 + 抽象化)
 

@@ -5,7 +5,9 @@ TTS は mock エンジン、Discord は httpx モック。ffmpeg 依存の produ
 from __future__ import annotations
 
 import io
+import os
 import shutil
+import subprocess
 import wave
 from datetime import UTC, datetime
 from pathlib import Path
@@ -37,6 +39,28 @@ def _wav_bytes(n_frames: int = 100, sample_rate: int = 48000) -> bytes:
         w.setsampwidth(2)
         w.setframerate(sample_rate)
         w.writeframes(b"\x01\x00" * n_frames)
+    return buf.getvalue()
+
+
+def _silent_wav_bytes(n_frames: int = 100, sample_rate: int = 48000) -> bytes:
+    buf = io.BytesIO()
+    with wave.open(buf, "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(sample_rate)
+        w.writeframes(b"\x00\x00" * n_frames)
+    return buf.getvalue()
+
+
+def _wav_with_silence_gap(gap_sec: float = 4.5, sample_rate: int = 48000) -> bytes:
+    buf = io.BytesIO()
+    with wave.open(buf, "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(sample_rate)
+        w.writeframes(b"\xff\x7f" * sample_rate)
+        w.writeframes(b"\x00\x00" * int(sample_rate * gap_sec))
+        w.writeframes(b"\xff\x7f" * sample_rate)
     return buf.getvalue()
 
 
@@ -126,7 +150,7 @@ def test_insert_audio_version_accepts_null_lufs(tmp_path: Path) -> None:
             draft_id,
             engine="mock",
             duration_sec=0.3,
-            lufs=None,  # 無音 fail-open は測定不能 → NULL
+            lufs=None,  # post-encode LUFS 測定不能 → NULL
             bitrate="192k",
             sample_rate=48000,
             path="x.mp3",
@@ -275,6 +299,367 @@ def test_produce_no_draft_exits_1(tmp_path: Path) -> None:
     assert "episode_draft がありません" in result.output
 
 
+def test_produce_all_zero_frame_synthesis_exits_without_mp3(tmp_path: Path) -> None:
+    from karyu_tech_news.tts.engine import Capabilities, SynthesisRequest, SynthesisResult, Voice
+
+    db = tmp_path / "state.db"
+    _seed_draft(db)
+
+    class _ZeroFrameEngine:
+        def name(self) -> str:
+            return "zero"
+
+        def voices(self) -> list[Voice]:
+            return [Voice(id="hal", name="HAL")]
+
+        def capabilities(self) -> Capabilities:
+            return Capabilities(emoji_style=False, voice_clone=False, streaming=False, max_chars=100)
+
+        def synthesize(self, req: SynthesisRequest) -> SynthesisResult:
+            return SynthesisResult(audio=_wav_bytes(0), sample_rate=48000)
+
+    out_dir = tmp_path / "episodes"
+    with patch("karyu_tech_news.tts.engine.select_engine", return_value=_ZeroFrameEngine()):
+        result = runner.invoke(
+            app,
+            [
+                "produce",
+                "--engine",
+                "zero",
+                "--db-path",
+                str(db),
+                "--bgm-dir",
+                str(tmp_path / "nobgm"),
+                "--out-dir",
+                str(out_dir),
+            ],
+    )
+    assert result.exit_code == 1
+    assert "TTS 合成で欠落文があります 2/2 文" in result.output
+    assert not list(out_dir.glob("*.mp3"))
+
+
+def test_produce_all_silent_synthesis_exits_without_mp3(tmp_path: Path) -> None:
+    from karyu_tech_news.tts.engine import Capabilities, SynthesisRequest, SynthesisResult, Voice
+
+    db = tmp_path / "state.db"
+    _seed_draft(db)
+
+    class _SilentEngine:
+        def name(self) -> str:
+            return "silent"
+
+        def voices(self) -> list[Voice]:
+            return [Voice(id="hal", name="HAL")]
+
+        def capabilities(self) -> Capabilities:
+            return Capabilities(emoji_style=False, voice_clone=False, streaming=False, max_chars=100)
+
+        def synthesize(self, req: SynthesisRequest) -> SynthesisResult:
+            return SynthesisResult(audio=_silent_wav_bytes(100), sample_rate=48000)
+
+    out_dir = tmp_path / "episodes"
+    with patch("karyu_tech_news.tts.engine.select_engine", return_value=_SilentEngine()):
+        result = runner.invoke(
+            app,
+            [
+                "produce",
+                "--engine",
+                "silent",
+                "--db-path",
+                str(db),
+                "--bgm-dir",
+                str(tmp_path / "nobgm"),
+                "--out-dir",
+                str(out_dir),
+            ],
+    )
+    assert result.exit_code == 1
+    assert "TTS 合成で欠落文があります 2/2 文" in result.output
+    assert not list(out_dir.glob("*.mp3"))
+
+
+def test_produce_partial_synthesis_exits_without_mp3(tmp_path: Path) -> None:
+    from karyu_tech_news.tts.engine import Capabilities, SynthesisRequest, SynthesisResult, Voice
+
+    db = tmp_path / "state.db"
+    _seed_draft(db)
+
+    class _PartialEngine:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def name(self) -> str:
+            return "partial"
+
+        def voices(self) -> list[Voice]:
+            return [Voice(id="hal", name="HAL")]
+
+        def capabilities(self) -> Capabilities:
+            return Capabilities(emoji_style=False, voice_clone=False, streaming=False, max_chars=100)
+
+        def synthesize(self, req: SynthesisRequest) -> SynthesisResult:
+            self.calls += 1
+            audio = _silent_wav_bytes(48000) if self.calls == 2 else _wav_with_silence_gap(0.0)
+            return SynthesisResult(audio=audio, sample_rate=48000)
+
+    out_dir = tmp_path / "episodes"
+    with patch("karyu_tech_news.tts.engine.select_engine", return_value=_PartialEngine()):
+        result = runner.invoke(
+            app,
+            [
+                "produce",
+                "--engine",
+                "partial",
+                "--db-path",
+                str(db),
+                "--bgm-dir",
+                str(tmp_path / "nobgm"),
+                "--out-dir",
+                str(out_dir),
+            ],
+        )
+    assert result.exit_code == 1
+    assert "TTS 合成で欠落文があります 1/2 文" in result.output
+    assert not list(out_dir.glob("*.mp3"))
+
+
+def test_produce_long_silence_gap_exits_without_mp3(tmp_path: Path) -> None:
+    from karyu_tech_news.tts.engine import Capabilities, SynthesisRequest, SynthesisResult, Voice
+
+    db = tmp_path / "state.db"
+    _seed_draft(db)
+
+    class _GapEngine:
+        def name(self) -> str:
+            return "gap"
+
+        def voices(self) -> list[Voice]:
+            return [Voice(id="hal", name="HAL")]
+
+        def capabilities(self) -> Capabilities:
+            return Capabilities(emoji_style=False, voice_clone=False, streaming=False, max_chars=100)
+
+        def synthesize(self, req: SynthesisRequest) -> SynthesisResult:
+            return SynthesisResult(audio=_wav_with_silence_gap(3.0), sample_rate=48000)
+
+    out_dir = tmp_path / "episodes"
+    with patch("karyu_tech_news.tts.engine.select_engine", return_value=_GapEngine()):
+        result = runner.invoke(
+            app,
+            [
+                "produce",
+                "--engine",
+                "gap",
+                "--db-path",
+                str(db),
+                "--bgm-dir",
+                str(tmp_path / "nobgm"),
+                "--out-dir",
+                str(out_dir),
+            ],
+        )
+    assert result.exit_code == 1
+    assert "無音区間" in result.output
+    assert not list(out_dir.glob("*.mp3"))
+
+
+def test_produce_allows_subthreshold_silence_gap(tmp_path: Path) -> None:
+    from karyu_tech_news.mix.master import MasteringResult
+    from karyu_tech_news.tts.engine import Capabilities, SynthesisRequest, SynthesisResult, Voice
+
+    db = tmp_path / "state.db"
+    _seed_draft(db)
+
+    class _GapEngine:
+        def name(self) -> str:
+            return "gap"
+
+        def voices(self) -> list[Voice]:
+            return [Voice(id="hal", name="HAL")]
+
+        def capabilities(self) -> Capabilities:
+            return Capabilities(emoji_style=False, voice_clone=False, streaming=False, max_chars=100)
+
+        def synthesize(self, req: SynthesisRequest) -> SynthesisResult:
+            return SynthesisResult(audio=_wav_with_silence_gap(2.5), sample_rate=48000)
+
+    def _fake_master_to_mp3(audio_wav: bytes, output_path: Path) -> MasteringResult:
+        out = Path(output_path)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_bytes(b"id3")
+        return MasteringResult(
+            path=str(out),
+            target_lufs=-16.0,
+            measured_lufs=-16.0,
+            true_peak_dbtp=-1.0,
+            duration_sec=5.5,
+            bitrate="192k",
+            sample_rate=48000,
+        )
+
+    with (
+        patch("karyu_tech_news.tts.engine.select_engine", return_value=_GapEngine()),
+        patch("karyu_tech_news.mix.master.master_to_mp3", side_effect=_fake_master_to_mp3),
+    ):
+        result = runner.invoke(
+            app,
+            [
+                "produce",
+                "--dry-run",
+                "--engine",
+                "gap",
+                "--db-path",
+                str(db),
+                "--bgm-dir",
+                str(tmp_path / "nobgm"),
+                "--out-dir",
+                str(tmp_path / "episodes"),
+            ],
+        )
+    assert result.exit_code == 0, result.output
+    assert "tp=-1.0 dBTP" in result.output
+    assert "max_silence=2.5s" in result.output
+    assert "DRY RUN" in result.output
+
+
+def test_produce_long_audio_with_unmeasurable_lufs_exits_without_mp3(tmp_path: Path) -> None:
+    from karyu_tech_news.mix.master import MasteringResult
+
+    db = tmp_path / "state.db"
+    _seed_draft(db)
+
+    def _fake_master_to_mp3(audio_wav: bytes, output_path: Path) -> MasteringResult:
+        out = Path(output_path)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_bytes(b"id3")
+        return MasteringResult(
+            path=str(out),
+            target_lufs=-16.0,
+            measured_lufs=float("-inf"),
+            true_peak_dbtp=float("-inf"),
+            duration_sec=5.0,
+            bitrate="192k",
+            sample_rate=48000,
+        )
+
+    out_dir = tmp_path / "episodes"
+    with patch("karyu_tech_news.mix.master.master_to_mp3", side_effect=_fake_master_to_mp3):
+        result = runner.invoke(
+            app,
+            [
+                "produce",
+                "--engine",
+                "mock",
+                "--db-path",
+                str(db),
+                "--bgm-dir",
+                str(tmp_path / "nobgm"),
+                "--out-dir",
+                str(out_dir),
+            ],
+        )
+    assert result.exit_code == 1
+    assert "LUFS を測定できません" in result.output
+    assert not list(out_dir.glob("*.mp3"))
+
+    engine = create_db_engine(db)
+    with Session(engine) as s:
+        assert s.query(AudioVersion).all() == []
+
+
+def test_produce_long_audio_with_high_true_peak_exits_without_mp3(tmp_path: Path) -> None:
+    from karyu_tech_news.mix.master import MasteringResult
+
+    db = tmp_path / "state.db"
+    _seed_draft(db)
+
+    def _fake_master_to_mp3(audio_wav: bytes, output_path: Path) -> MasteringResult:
+        out = Path(output_path)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_bytes(b"id3")
+        return MasteringResult(
+            path=str(out),
+            target_lufs=-16.0,
+            measured_lufs=-16.0,
+            true_peak_dbtp=-0.4,
+            duration_sec=5.0,
+            bitrate="192k",
+            sample_rate=48000,
+        )
+
+    out_dir = tmp_path / "episodes"
+    with patch("karyu_tech_news.mix.master.master_to_mp3", side_effect=_fake_master_to_mp3):
+        result = runner.invoke(
+            app,
+            [
+                "produce",
+                "--engine",
+                "mock",
+                "--db-path",
+                str(db),
+                "--bgm-dir",
+                str(tmp_path / "nobgm"),
+                "--out-dir",
+                str(out_dir),
+            ],
+        )
+    assert result.exit_code == 1
+    assert "true peak が高すぎます" in result.output
+    assert not list(out_dir.glob("*.mp3"))
+
+    engine = create_db_engine(db)
+    with Session(engine) as s:
+        assert s.query(AudioVersion).all() == []
+
+
+def test_produce_long_audio_with_unmeasurable_true_peak_exits_without_mp3(
+    tmp_path: Path,
+) -> None:
+    from karyu_tech_news.mix.master import MasteringResult
+
+    db = tmp_path / "state.db"
+    _seed_draft(db)
+
+    def _fake_master_to_mp3(audio_wav: bytes, output_path: Path) -> MasteringResult:
+        out = Path(output_path)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_bytes(b"id3")
+        return MasteringResult(
+            path=str(out),
+            target_lufs=-16.0,
+            measured_lufs=-16.0,
+            true_peak_dbtp=float("nan"),
+            duration_sec=5.0,
+            bitrate="192k",
+            sample_rate=48000,
+        )
+
+    out_dir = tmp_path / "episodes"
+    with patch("karyu_tech_news.mix.master.master_to_mp3", side_effect=_fake_master_to_mp3):
+        result = runner.invoke(
+            app,
+            [
+                "produce",
+                "--engine",
+                "mock",
+                "--db-path",
+                str(db),
+                "--bgm-dir",
+                str(tmp_path / "nobgm"),
+                "--out-dir",
+                str(out_dir),
+            ],
+        )
+    assert result.exit_code == 1
+    assert "true peak を測定できません" in result.output
+    assert not list(out_dir.glob("*.mp3"))
+
+    engine = create_db_engine(db)
+    with Session(engine) as s:
+        assert s.query(AudioVersion).all() == []
+
+
 @pytest.mark.skipif(not _HAS_FFMPEG, reason="ffmpeg 不在")
 def test_produce_dry_run_generates_mp3(tmp_path: Path) -> None:
     db = tmp_path / "state.db"
@@ -297,7 +682,7 @@ def test_produce_dry_run_generates_mp3(tmp_path: Path) -> None:
     assert result.exit_code == 0, result.output
     assert "完パケ" in result.output
     assert "DRY RUN" in result.output
-    assert (tmp_path / "episodes" / "episode_1.mp3").exists()
+    assert len(list((tmp_path / "episodes").glob("episode_1_*.mp3"))) == 1
 
 
 @pytest.mark.skipif(not _HAS_FFMPEG, reason="ffmpeg 不在")
@@ -325,6 +710,37 @@ def test_produce_persists_audio_version(tmp_path: Path) -> None:
         assert len(rows) == 1
         assert rows[0].engine == "mock"
         assert rows[0].sample_rate == 48000
+        assert Path(str(rows[0].path)).name.startswith("episode_1_")
+        assert Path(str(rows[0].path)).suffix == ".mp3"
+
+
+@pytest.mark.skipif(not _HAS_FFMPEG, reason="ffmpeg 不在")
+def test_produce_repeated_runs_do_not_overwrite_audio_path(tmp_path: Path) -> None:
+    db = tmp_path / "state.db"
+    _seed_draft(db)
+    args = [
+        "produce",
+        "--engine",
+        "mock",
+        "--db-path",
+        str(db),
+        "--bgm-dir",
+        str(tmp_path / "nobgm"),
+        "--out-dir",
+        str(tmp_path / "episodes"),
+    ]
+    first = runner.invoke(app, args)
+    second = runner.invoke(app, args)
+    assert first.exit_code == 0, first.output
+    assert second.exit_code == 0, second.output
+
+    engine = create_db_engine(db)
+    with Session(engine) as s:
+        rows = s.query(AudioVersion).order_by(AudioVersion.id).all()
+        paths = [str(row.path) for row in rows]
+    assert len(paths) == 2
+    assert len(set(paths)) == 2
+    assert all(Path(path).exists() for path in paths)
 
 
 @pytest.mark.skipif(not _HAS_FFMPEG, reason="ffmpeg 不在")
@@ -429,3 +845,54 @@ def test_strip_markdown_structure_drops_headers_and_meta() -> None:
     assert not out.lstrip().startswith("#")
     assert "本日のHAL Daily Briefingです" in out  # 日本語ナレーションは残る
     assert "コード生成特化モデルを公開します" in out
+
+
+@pytest.mark.skipif(
+    shutil.which("bash") is None or shutil.which("curl") is None,
+    reason="daily_pipeline smoke requires bash and curl",
+)
+def test_daily_pipeline_returns_nonzero_when_produce_fails_after_alert(tmp_path: Path) -> None:
+    fake_uv = tmp_path / "uv"
+    fake_uv.write_text(
+        """#!/usr/bin/env bash
+echo "UV:$*" >&2
+case "$*" in
+  *"karyu_tech_news collect --post"*) exit 0 ;;
+  *"karyu_tech_news draft --variant A --post"*) exit 0 ;;
+  *"karyu_tech_news produce --engine irodori-tts-v3 --post"*) exit 7 ;;
+  run\\ python\\ -\\ *) cat >/dev/null; echo "Discord failure alert: sent"; exit 0 ;;
+  *) exit 0 ;;
+esac
+""",
+        encoding="utf-8",
+    )
+    fake_uv.chmod(0o755)
+    health = tmp_path / "health.txt"
+    health.write_text("ok", encoding="utf-8")
+
+    root = Path(__file__).resolve().parents[1]
+    env = os.environ.copy()
+    env.update(
+        {
+            "KARYU_PROJECT_DIR": str(tmp_path),
+            "KARYU_UV": str(fake_uv),
+            "KARYU_HEALTH_URL": health.as_uri(),
+            "KARYU_IRODORI_DIR": str(tmp_path),
+        }
+    )
+    result = subprocess.run(
+        ["bash", str(root / "scripts/daily_pipeline.sh")],
+        cwd=root,
+        env=env,
+        text=True,
+        capture_output=True,
+        timeout=30,
+        check=False,
+    )
+    assert result.returncode == 7
+    logs = sorted((tmp_path / "data" / "logs").glob("daily_*.log"))
+    assert logs
+    log_text = logs[-1].read_text(encoding="utf-8")
+    assert "WARNING: produce 失敗 (rc=7)" in log_text
+    assert "produce 失敗通知: 処理完了" in log_text
+    assert "日次パイプライン終了 (rc=7" in log_text

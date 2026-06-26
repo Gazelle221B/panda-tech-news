@@ -85,9 +85,12 @@ def test_fallback_random_selection_is_valid() -> None:
     assert validate_topic_script(body) == []
 
 
-def test_fallback_truncates_long_title() -> None:
-    body = fallback_topic_script(_topic(title="超" * 500), pattern_index=0)
+def test_fallback_does_not_embed_raw_title_in_spoken_body() -> None:
+    title = "刚刚，Claude Code大升级！卡帕西：LLM第三次变革"
+    body = fallback_topic_script(_topic(title=title), pattern_index=0)
     assert validate_topic_script(body) == []
+    assert title not in body
+    assert "刚刚" not in body
 
 
 # ---------- generate_with_fallback ----------

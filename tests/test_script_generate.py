@@ -147,6 +147,12 @@ def test_validate_flags_url_in_body() -> None:
     assert any("URL" in v for v in violations)
 
 
+def test_validate_flags_replacement_character() -> None:
+    body = VALID_BODY.replace("発表しました", "返り�きました")
+    violations = validate_topic_script(body)
+    assert any("置換文字" in v for v in violations)
+
+
 def test_validate_flags_forbidden_phrases() -> None:
     body = (
         "**Hook:** 中国すごいという話題です。\n**Insight:** い\n**Action:** う"

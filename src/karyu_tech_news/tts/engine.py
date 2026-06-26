@@ -62,11 +62,19 @@ class SynthesisRequest(BaseModel):
 
 
 class SynthesisResult(BaseModel):
-    """1 合成単位の出力. audio は wav バイト列 (結合・ミックスは mix/ で行う)."""
+    """合成結果. audio は wav バイト列 (結合・ミックスは mix/ で行う).
+
+    個別エンジンの `synthesize()` は 1 合成単位として既定値 (1/1/0) を返す。
+    `synthesize_script()` は文単位の集約結果として counters をエピソード全体の
+    attempted/synthesized/skipped 文数へ上書きする。
+    """
 
     audio: bytes
     sample_rate: int
     audio_format: str = "wav"
+    attempted_sentences: int = 1
+    synthesized_sentences: int = 1
+    skipped_sentences: int = 0
 
 
 @runtime_checkable

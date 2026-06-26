@@ -58,12 +58,18 @@ mix/master.py         # -16 LUFS 正規化 + mp3 192kbps/48kHz 出力
 | T28 | ✅ **実装済 (2026-06-14)** 文単位合成 + 結合 (str 単位分割、失敗文 fail-open、wave 結合) | `tts/synthesize.py` | T23-T27 |
 | T29 | ✅ **実装済 (2026-06-18)** BGM 仮ミックス。**判断: 素材非依存設計** — `assets/bgm/` に素材があれば pydub で全編に低音量 BGM (-18dB) を敷き、無ければ素通し (passthrough)。pydub 未導入・デコード失敗も fail-open。素材ライセンス (§6 人間ゲート) を待たずコードを通せる (T30 を BGM から切り離したのと同手法)。pydub は optional extra `tts` | `mix/mixer.py` | T28 (素材は **§6**) |
 | T30 | ✅ **実装済 (2026-06-17)** ラウドネス正規化 -16 LUFS + mp3 192kbps/48kHz (FR-102/103)。ffmpeg `loudnorm` 2-pass (pass1 測定→pass2 線形補正→pass3 出力再測定で証跡化) を subprocess 実行。**判断: T29(BGM) に先行実装** — マスタリングは入力 wav 単体で完結し BGM 素材 (人間ゲート §6) に非依存なため「素の音声→完パケ mp3」のE2E経路を先行開通。**pydub は足さず ffmpeg 単体**で完結 (依存最小 §5)。実 smoke: 実エピソード wav -20.17→**-16.30 LUFS** / TP -1.71 dBTP / 73s=1.7MB | `mix/master.py` | **T28** (T29 とは独立) |
-| T31 | ✅ **実装済 (2026-06-18)** `audio_versions` 永続化 + CLI `produce` + Discord mp3 添付。produce: 保存済み台本→構造化→文単位合成→BGMミックス→-16LUFS mp3→記録→(Discord)、全段 fail-open。`post_audio` は 25MB 超でメッセージに degrade・秘密非漏洩。**配信=Discord 添付** (人間判断、実測1.7MB/73s が 25MB 内。R2/S3 は将来)。**実 produce: 実 draft→643s/192k/48kHz/-16.3 LUFS/15.4MB**。Codex PASS + QA PASS ([PR #18](https://github.com/Gazelle221B/panda-tech-news/pull/18)) | `store/` `main.py` `deliver/discord.py` `tts/synthesize.py` | T30, T29 |
+| T31 | ✅ **実装済 (2026-06-18)** `audio_versions` 永続化 + CLI `produce` + Discord mp3 添付。produce: 保存済み台本→構造化→文単位合成→BGMミックス→-16LUFS mp3→記録→(Discord)。**T36 契約更新**: 文単位の合成失敗は `synthesize_script` 内では fail-open で最後まで試し欠落数を集計するが、produce 境界では `skipped_sentences > 0` を不完全音声として fail-fast し、mp3 生成・DB 記録・Discord 投稿を行わない。BGM無し・Discord失敗は fail-open で続行。文単位で無音/実質無音/低有音率 chunk を落とし、concat 後に有効音声が 0 文、TTS 合成 wav が実質無音/長時間無音、または実運用尺 (>=5s) で post-encode LUFS/true peak が測定不能・true peak が -1.0 dBTP 超なら mp3 を成功扱いせず fail-fast。`post_audio` は 25MB 超でメッセージに degrade・秘密非漏洩。**配信=Discord 添付** (人間判断、実測1.7MB/73s が 25MB 内。R2/S3 は将来)。**実 produce: 実 draft→643s/192k/48kHz/-16.3 LUFS/15.4MB**。Codex PASS + QA PASS ([PR #18](https://github.com/Gazelle221B/panda-tech-news/pull/18)) | `store/` `main.py` `deliver/discord.py` `tts/synthesize.py` | T30, T29 |
 | T32 | 3日間の音声品質観察 (固有名詞読み/話速/BGM 音量/「配信する価値」評価) | `docs/TEST_LOG.md` | T31 |
 
-> **運用メモ (Kokoro ローカル実行, T24)**: `tts/kokoro.py` のモデル/voices パスは環境変数 `KOKORO_MODEL_PATH` / `KOKORO_VOICES_PATH` で指定する設計 (未設定時はカレントディレクトリ相対の既定値を探すため、`uv run karyu produce --engine kokoro` がそのまま動かず fail-open=無音mp3 になりうる)。モデル本体は人間が `~/.cache/karyu-tts/kokoro-v1.0.onnx` / `voices-v1.0.bin` に DL 済み (2026-06-17)。ローカルで kokoro エンジンを動かす際は `.env.example` の該当項目をコピーして `.env` に設定すること。
+> **運用メモ (Kokoro ローカル実行, T24)**: `tts/kokoro.py` のモデル/voices パスは環境変数 `KOKORO_MODEL_PATH` / `KOKORO_VOICES_PATH` で指定する設計 (未設定時はカレントディレクトリ相対の既定値を探すため、`uv run karyu produce --engine kokoro` は T36 以降、無音 mp3 を残さず非 0 終了しうる)。モデル本体は人間が `~/.cache/karyu-tts/kokoro-v1.0.onnx` / `voices-v1.0.bin` に DL 済み (2026-06-17)。ローカルで kokoro エンジンを動かす際は `.env.example` の該当項目をコピーして `.env` に設定すること。
 
-> **依存メモ (T35 中国語原題翻字)**: fallback テンプレ Hook の「<中国語原題>」を日本語特化 TTS が崩す問題に対し、`pypinyin` で pinyin (声調なし) へ翻字する (`tts/normalize.transliterate_chinese_titles`)。自前の CJK→pinyin 表は巨大・保守困難なため見送り `pypinyin` を採用。依存スコープは TTS 前処理に閉じるため **core ではなく optional extra `tts`** に置く (pydub と同様。未導入時は fail-open で原文返却)。**誤翻字防止**: 「」内に *簡体字特有文字* (日本語新字体と字形が異なる 电/问/选 等) を含む span のみ中国語原題と判定し、漢字のみの日本語引用 (生成AI/東京大学/人工知能 等) は不変とする。
+> **依存メモ (T35→T36 中国語原題の発話退避)**: T35 では fallback テンプレ Hook の「<中国語原題>」を `pypinyin` で pinyin (声調なし) へ翻字していたが、T36 ASR QA で長い pinyin 羅列そのものが異物読みになることを確認したため廃止。現在の `tts/normalize.transliterate_chinese_titles` は後方互換名で、実体は中国語原題 quote を `この話題` へ退避する。読み辞書に完全一致する短い固有名詞 (`灵晟` など) だけカナ読みを残す。これにより `pypinyin` 依存は `pyproject.toml` / `uv.lock` から削除済み。
+
+> **T36 音声入力 QA メモ**: TTS 前処理は inline Markdown link / bare URL を読ませず、`原語（カナ読み）` はカナ読みだけを残す。実運用で検出した `灵晟（リンション）` / `「ling cheng」` は読み辞書で `リンション` に統一する。長い中国語原題 quote は pinyin 化せず `この話題` へ退避する。
+
+> **T36 音声出力 QA メモ**: BGM 前の TTS wav で最大連続無音秒数を測り、3.0 秒以上なら fail-fast。文単位 chunk は 0フレーム/壊れた wav/デジタル無音/実質無音に加え、0.2 秒以上で有音 window が 10% 未満かつ有音時間が 0.15 秒未満の低有音率 chunk も skipped として扱う。短い実発話に長めの前後無音が付いた chunk は、絶対有音時間で誤 skip を避ける。
+
+> **T36 ASR QA メモ**: Irodori の絵文字スタイル注釈は、実音声 ASR で異物句と尺伸長を誘発したため production 既定では無効 (`tts.emoji_annotation_enabled: false`)。再採用は明示 opt-in とし、ASR + 人間聴感で再検証してから行う。
 
 ## 5. テスト方針
 - TTS 呼び出しはモック (音声バイトのスタブ) で JSON/バイト契約を固定。実合成は T24 smoke と T32 観察のみ。
@@ -91,7 +97,7 @@ mix/master.py         # -16 LUFS 正規化 + mp3 192kbps/48kHz 出力
 - **実在人物の無断声真似・声クローン禁止** (要件 §9.6 / Irodori モデルカード)。声は VoiceDesign 生成のオリジナルのみ。
 - **動画生成・YouTube 投稿はまだ書かない** (Sprint 3。AGENTS §3.4 の精神を継続)。
 - **LLM に構造化 JSON と日本語台本を同時に書かせない** (1B §8 と同一。segment 化はコード側)。
-- **TTS 1 文の失敗で番組全体を止めない** (fail-open: 失敗文スキップ記録 or 台本テキスト配信に degrade)。
+- **文単位合成は最後まで試す** (fail-open: 失敗文を記録し残りの合成を継続)。ただし produce 境界では欠落文がある完パケを成功扱いせず、mp3 生成・DB 記録・Discord 投稿前に fail-fast する。
 - **バイト単位の文字列切り詰め禁止** (str 単位、design-inheritance §6)。
 - **生成 mp3/wav を git にコミットしない** (`data/` `assets/` は管理外)。
 

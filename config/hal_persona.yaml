@@ -45,6 +45,9 @@ tts:
   # VoiceDesign キャプション (T34): 参照音声(地声)に対し「どう話すか」を上書きする自然文。
   # Irodori 600M VoiceDesign checkpoint でのみ有効 (500M は server が無視)。
   caption: "落ち着いた知的な女性ニュースキャスター。明瞭で聞き取りやすく、信頼感のある一定したトーン。過度な感情を抑えた語り口。"
+  # T36 ASR QA: 絵文字スタイル注釈は Irodori で異物読み/音声の伸長を誘発したため、
+  # production 既定では無効。再採用する場合のみ true にして、ASR + 聴感で再検証する。
+  emoji_annotation_enabled: false
   emoji_annotation:                                    # tone別の感情注釈 (台本生成後に機械挿入)
     # Irodori-TTS v3 公式の絵文字ボイス制御語彙 (EMOJI_ANNOTATIONS.md) のみ使用する。
     # 語彙外の絵文字 (☺️ U+263A / 💡 / 😔 / ✨ 等) はモデルが認識せず無視されるため

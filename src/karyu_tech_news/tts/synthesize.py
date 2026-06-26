@@ -18,6 +18,7 @@ import io
 import logging
 import re
 import wave
+from dataclasses import dataclass
 
 from karyu_tech_news.script.structure import StructuredScript
 from karyu_tech_news.tts.annotate import annotate_text
@@ -27,19 +28,26 @@ from karyu_tech_news.tts.engine import (
     TTSEngine,
     TTSError,
 )
-from karyu_tech_news.tts.normalize import (
-    normalize_text,
-    strip_ascii_gloss,
-    strip_script_markup,
-    transliterate_chinese_titles,
-)
+from karyu_tech_news.tts.normalize import prepare_tts_text
+from karyu_tech_news.tts.quality import analyze_wav_signal
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_SAMPLE_RATE = 48000  # 空結合時の無音 wav 用 (要件 §17.6)
+MIN_SENTENCE_ACTIVE_RATIO = 0.1
+MIN_SENTENCE_ACTIVE_SEC = 0.15
+MIN_ACTIVE_RATIO_DURATION_SEC = 0.2
 
 # 句点・感嘆・疑問で文を切る (区切り文字は前文に残す)。改行は区切り扱い。
 _SENTENCE_RE = re.compile(r"[^。！？\n]*[。！？]|[^。！？\n]+")
+
+
+@dataclass(frozen=True)
+class _ConcatStats:
+    audio: bytes
+    sample_rate: int
+    kept_chunks: int
+    dropped_chunks: int
 
 
 def _silent_wav(sample_rate: int = DEFAULT_SAMPLE_RATE) -> bytes:
@@ -70,8 +78,8 @@ def split_sentences(text: str, max_chars: int) -> list[str]:
     return sentences
 
 
-def concat_wav(chunks: list[bytes]) -> bytes:
-    """複数の wav バイト列を 1 本に結合する (先頭チャンクのパラメータに揃える).
+def _concat_wav_with_stats(chunks: list[bytes]) -> _ConcatStats:
+    """複数の wav バイト列を 1 本に結合し、保持/破棄 chunk 数も返す.
 
     - 空入力でも**有効な無音 wav** を返す (下流が wave.open で落ちないように)。
     - 2 本目以降でパラメータ (ch/幅/sample rate) が先頭と異なる chunk はログ付きで
@@ -80,22 +88,35 @@ def concat_wav(chunks: list[bytes]) -> bytes:
     """
     params: tuple[int, int, int] | None = None
     parsed: list[bytes] = []
+    dropped_chunks = 0
     for chunk in chunks:
         try:
             with wave.open(io.BytesIO(chunk), "rb") as reader:
                 cur = (reader.getnchannels(), reader.getsampwidth(), reader.getframerate())
+                nframes = reader.getnframes()
                 frames = reader.readframes(reader.getnframes())
         except (wave.Error, EOFError) as exc:
             logger.warning("壊れた wav chunk を skip (fail-open): %s", exc)
+            dropped_chunks += 1
+            continue
+        if nframes == 0:
+            logger.warning("0フレーム wav chunk を skip (fail-open)")
+            dropped_chunks += 1
             continue
         if params is None:
             params = cur
         elif cur != params:
             logger.warning("wav パラメータ不一致 %s != %s, skip (fail-open)", cur, params)
+            dropped_chunks += 1
             continue
         parsed.append(frames)
     if params is None:  # 有効 chunk ゼロ (空入力 or 全破損) → 有効な無音 wav
-        return _silent_wav()
+        return _ConcatStats(
+            audio=_silent_wav(),
+            sample_rate=DEFAULT_SAMPLE_RATE,
+            kept_chunks=0,
+            dropped_chunks=dropped_chunks,
+        )
     out = io.BytesIO()
     with wave.open(out, "wb") as writer:
         writer.setnchannels(params[0])
@@ -103,7 +124,17 @@ def concat_wav(chunks: list[bytes]) -> bytes:
         writer.setframerate(params[2])
         for frames in parsed:
             writer.writeframes(frames)
-    return out.getvalue()
+    return _ConcatStats(
+        audio=out.getvalue(),
+        sample_rate=params[2],
+        kept_chunks=len(parsed),
+        dropped_chunks=dropped_chunks,
+    )
+
+
+def concat_wav(chunks: list[bytes]) -> bytes:
+    """複数の wav バイト列を 1 本に結合する (公開互換 API)."""
+    return _concat_wav_with_stats(chunks).audio
 
 
 def synthesize_script(
@@ -135,13 +166,14 @@ def synthesize_script(
     # caption は VoiceDesign 対応エンジンのみ渡す (非対応エンジンは無視するが明示的に None 化)
     effective_caption = caption if caps.voice_design else None
     chunks: list[bytes] = []
+    attempted_sentences = 0
+    skipped_sentences = 0
     for seg in script.segments:
-        # TTS 前処理: Markdown マーカー除去 → 原語グロス除去 → 読み仮名正規化
-        cleaned = strip_ascii_gloss(strip_script_markup(seg.text))
-        normalized = normalize_text(cleaned, reading_dict)
-        # fallback テンプレ Hook の「<中国語原題>」を pinyin に翻字 (日本語TTSの文字化け対策, T35)
-        normalized = transliterate_chinese_titles(normalized)
+        # TTS 前処理: Markdown マーカー除去 → 中国語原題翻字 → 読み仮名正規化。
+        # 翻字を読み辞書より先に行い、辞書由来のカナ混入で中国語判定が潰れるのを防ぐ。
+        normalized = prepare_tts_text(seg.text, reading_dict)
         for sentence in split_sentences(normalized, max_chars):
+            attempted_sentences += 1
             # 絵文字は正規化後・文単位で挿入 (segment 単位だと 1 文しか効かないため, T33+)
             text = (
                 annotate_text(sentence, seg.tone, emoji_mapping)
@@ -154,10 +186,39 @@ def synthesize_script(
                 )
             except TTSError as exc:
                 logger.warning("synth failed (fail-open), skipped: %s", exc)
+                skipped_sentences += 1
+                continue
+            signal = analyze_wav_signal(res.audio)
+            if not signal.valid_wav:
+                logger.warning("不正な wav chunk を skip (fail-open)")
+                skipped_sentences += 1
+                continue
+            if not signal.has_pcm_signal:
+                logger.warning("無音 wav chunk を skip (fail-open)")
+                skipped_sentences += 1
+                continue
+            if signal.duration_sec > 0 and signal.max_silence_sec >= signal.duration_sec - 1e-6:
+                logger.warning("実質無音 wav chunk を skip (fail-open)")
+                skipped_sentences += 1
+                continue
+            if (
+                signal.duration_sec >= MIN_ACTIVE_RATIO_DURATION_SEC
+                and signal.active_ratio < MIN_SENTENCE_ACTIVE_RATIO
+                and signal.active_ratio * signal.duration_sec < MIN_SENTENCE_ACTIVE_SEC
+            ):
+                logger.warning(
+                    "有音率の低い wav chunk を skip (active_ratio=%.3f, fail-open)",
+                    signal.active_ratio,
+                )
+                skipped_sentences += 1
                 continue
             chunks.append(res.audio)
-    combined = concat_wav(chunks)
-    # sample_rate は結合済み wav のヘッダから読む (chunk skip 時もメタデータが実値と一致)
-    with wave.open(io.BytesIO(combined), "rb") as r:
-        sample_rate = r.getframerate()
-    return SynthesisResult(audio=combined, sample_rate=sample_rate, audio_format="wav")
+    concat = _concat_wav_with_stats(chunks)
+    return SynthesisResult(
+        audio=concat.audio,
+        sample_rate=concat.sample_rate,
+        audio_format="wav",
+        attempted_sentences=attempted_sentences,
+        synthesized_sentences=concat.kept_chunks,
+        skipped_sentences=skipped_sentences + concat.dropped_chunks,
+    )
