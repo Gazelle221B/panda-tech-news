@@ -169,8 +169,8 @@ def synthesize_script(
     attempted_sentences = 0
     skipped_sentences = 0
     for seg in script.segments:
-        # TTS 前処理: Markdown マーカー除去 → 中国語原題翻字 → 読み仮名正規化。
-        # 翻字を読み辞書より先に行い、辞書由来のカナ混入で中国語判定が潰れるのを防ぐ。
+        # TTS 前処理: Markdown/URL/原語読みを整理し、中国語原題 quote は発話退避する。
+        # quote 退避を読み辞書より先に行い、辞書由来のカナ混入で中国語判定が潰れるのを防ぐ。
         normalized = prepare_tts_text(seg.text, reading_dict)
         for sentence in split_sentences(normalized, max_chars):
             attempted_sentences += 1
