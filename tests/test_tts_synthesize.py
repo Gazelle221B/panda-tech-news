@@ -125,6 +125,26 @@ def test_synthesize_script_applies_reading_dict() -> None:
     assert all("小米" not in t for t in received)
 
 
+def test_synthesize_sanitizes_chinese_title_before_reading_dict() -> None:
+    # T35 回帰: 読み辞書を先に当てると `豆包` -> `ドウバオ` のカナ混入で
+    # quoted title が日本語扱いされ、中国語原題が TTS に残っていた。
+    # T36 ASR 回帰: pinyin 羅列も「変な読み」になるため、日本語参照へ退避する。
+    received: list[str] = []
+    synthesize_script(
+        _script(("今日は「刚刚，豆包2.1发布」を取り上げます。", "neutral")),
+        _recording_engine(received, emoji_style=False),
+        {"豆包": "ドウバオ"},
+    )
+    joined = "".join(received)
+    assert "この話題" in joined
+    assert "gang gang" not in joined
+    assert "dou bao" not in joined
+    assert "fa bu" not in joined
+    assert "刚刚" not in joined
+    assert "发布" not in joined
+    assert "ドウバオ" not in joined
+
+
 def _recording_engine(received: list[str], *, emoji_style: bool):  # type: ignore[no-untyped-def]
     class _Rec:
         def name(self) -> str:
@@ -247,6 +267,9 @@ def test_synthesize_script_fail_open_on_sentence_error() -> None:
 
     res = synthesize_script(_script(("正常。BOOM。", "neutral")), _FlakyEngine(), {})
     assert _nframes(res.audio) > 0  # 「正常。」の音声は残る
+    assert res.attempted_sentences == 2
+    assert res.synthesized_sentences == 1
+    assert res.skipped_sentences == 1
 
 
 def test_synthesize_result_sample_rate_matches_wav_header() -> None:
@@ -257,7 +280,7 @@ def test_synthesize_result_sample_rate_matches_wav_header() -> None:
             w.setnchannels(1)
             w.setsampwidth(2)
             w.setframerate(rate)
-            w.writeframes(b"\x00\x00" * 10)
+            w.writeframes(b"\xff\x7f" * 10)
         return buf.getvalue()
 
     class _MixedRateEngine:
@@ -281,6 +304,138 @@ def test_synthesize_result_sample_rate_matches_wav_header() -> None:
     res = synthesize_script(_script(("一文目。二文目。", "neutral")), _MixedRateEngine(), {})
     with wave.open(io.BytesIO(res.audio), "rb") as r:
         assert res.sample_rate == r.getframerate() == 48000  # 先頭 chunk に揃う
+    assert res.attempted_sentences == 2
+    assert res.synthesized_sentences == 1
+    assert res.skipped_sentences == 1
+
+
+def test_synthesize_script_counts_zero_frame_chunk_as_skipped() -> None:
+    class _ZeroFrameEngine:
+        def name(self) -> str:
+            return "zero"
+
+        def voices(self) -> list[Voice]:
+            return [Voice(id="hal", name="HAL")]
+
+        def capabilities(self) -> Capabilities:
+            return Capabilities(emoji_style=False, voice_clone=False, streaming=False, max_chars=100)
+
+        def synthesize(self, req: SynthesisRequest) -> SynthesisResult:
+            return SynthesisResult(audio=concat_wav([]), sample_rate=48000)
+
+    res = synthesize_script(_script(("文。", "neutral")), _ZeroFrameEngine(), {})
+    assert _nframes(res.audio) == 0
+    assert res.attempted_sentences == 1
+    assert res.synthesized_sentences == 0
+    assert res.skipped_sentences == 1
+
+
+def test_synthesize_script_counts_silent_chunk_as_skipped() -> None:
+    def _wav(*, silent: bool) -> bytes:
+        buf = io.BytesIO()
+        with wave.open(buf, "wb") as w:
+            w.setnchannels(1)
+            w.setsampwidth(2)
+            w.setframerate(48000)
+            w.writeframes((b"\x00\x00" if silent else b"\xff\x7f") * 100)
+        return buf.getvalue()
+
+    class _OneSilentEngine:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def name(self) -> str:
+            return "one-silent"
+
+        def voices(self) -> list[Voice]:
+            return [Voice(id="hal", name="HAL")]
+
+        def capabilities(self) -> Capabilities:
+            return Capabilities(emoji_style=False, voice_clone=False, streaming=False, max_chars=100)
+
+        def synthesize(self, req: SynthesisRequest) -> SynthesisResult:
+            self.calls += 1
+            return SynthesisResult(audio=_wav(silent=self.calls == 2), sample_rate=48000)
+
+    res = synthesize_script(_script(("読める文。無音になる文。", "neutral")), _OneSilentEngine(), {})
+    assert _nframes(res.audio) == 100
+    assert res.attempted_sentences == 2
+    assert res.synthesized_sentences == 1
+    assert res.skipped_sentences == 1
+
+
+def test_synthesize_script_counts_sparse_click_chunk_as_skipped() -> None:
+    def _wav(*, click_only: bool) -> bytes:
+        buf = io.BytesIO()
+        with wave.open(buf, "wb") as w:
+            w.setnchannels(1)
+            w.setsampwidth(2)
+            w.setframerate(1000)
+            if click_only:
+                w.writeframes(b"\xff\x7f" + (b"\x00\x00" * 999))
+            else:
+                w.writeframes(b"\xff\x7f" * 1000)
+        return buf.getvalue()
+
+    class _OneClickEngine:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def name(self) -> str:
+            return "one-click"
+
+        def voices(self) -> list[Voice]:
+            return [Voice(id="hal", name="HAL")]
+
+        def capabilities(self) -> Capabilities:
+            return Capabilities(emoji_style=False, voice_clone=False, streaming=False, max_chars=100)
+
+        def synthesize(self, req: SynthesisRequest) -> SynthesisResult:
+            self.calls += 1
+            return SynthesisResult(audio=_wav(click_only=self.calls == 2), sample_rate=1000)
+
+    res = synthesize_script(_script(("読める文。クリックだけ。", "neutral")), _OneClickEngine(), {})
+    assert _nframes(res.audio) == 1000
+    assert res.attempted_sentences == 2
+    assert res.synthesized_sentences == 1
+    assert res.skipped_sentences == 1
+
+
+def test_synthesize_script_keeps_short_speech_with_padding() -> None:
+    def _wav(*, padded_short_speech: bool) -> bytes:
+        buf = io.BytesIO()
+        with wave.open(buf, "wb") as w:
+            w.setnchannels(1)
+            w.setsampwidth(2)
+            w.setframerate(1000)
+            if padded_short_speech:
+                w.writeframes((b"\x00\x00" * 1400) + (b"\xff\x7f" * 200) + (b"\x00\x00" * 1400))
+            else:
+                w.writeframes(b"\xff\x7f" * 1000)
+        return buf.getvalue()
+
+    class _OnePaddedShortSpeechEngine:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def name(self) -> str:
+            return "one-padded-short-speech"
+
+        def voices(self) -> list[Voice]:
+            return [Voice(id="hal", name="HAL")]
+
+        def capabilities(self) -> Capabilities:
+            return Capabilities(emoji_style=False, voice_clone=False, streaming=False, max_chars=100)
+
+        def synthesize(self, req: SynthesisRequest) -> SynthesisResult:
+            self.calls += 1
+            return SynthesisResult(audio=_wav(padded_short_speech=self.calls == 2), sample_rate=1000)
+
+    res = synthesize_script(_script(("通常の文。短い実発話。", "neutral")), _OnePaddedShortSpeechEngine(), {})
+    assert _nframes(res.audio) == 4000
+    assert res.attempted_sentences == 2
+    assert res.synthesized_sentences == 2
+    assert res.skipped_sentences == 0
 
 
 def test_synthesize_script_all_fail_returns_empty_audio() -> None:
@@ -300,6 +455,9 @@ def test_synthesize_script_all_fail_returns_empty_audio() -> None:
     res = synthesize_script(_script(("文。", "neutral")), _DeadEngine(), {})
     # 全滅でも例外を投げず、有効な無音 wav (0フレーム) を返す (下流が wave.open 可能)
     assert _nframes(res.audio) == 0
+    assert res.attempted_sentences == 1
+    assert res.synthesized_sentences == 0
+    assert res.skipped_sentences == 1
 
 
 def test_synthesize_strips_markdown_markers_before_synth() -> None:
@@ -349,3 +507,17 @@ def test_synthesize_strips_ascii_gloss_before_synth() -> None:
     joined = "".join(received)
     assert "(" not in joined and "DeepSeek" not in joined  # グロス除去
     assert "ディープシーク" in joined
+
+
+def test_synthesize_strips_links_and_keeps_pronunciation_before_synth() -> None:
+    received: list[str] = []
+    synthesize_script(
+        _script(("詳しくは[公式資料](https://example.com/a)。灵晟（リンション）が首位。", "neutral")),
+        _recording_engine(received, emoji_style=False),
+        {},
+    )
+    joined = "".join(received)
+    assert "https://" not in joined
+    assert "](" not in joined
+    assert "灵晟" not in joined
+    assert "リンション" in joined

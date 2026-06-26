@@ -7,6 +7,7 @@
 # 設計方針:
 #   - 各 CLI は内部で fail-open (1 ソース失敗で止めない / Discord 失敗で collect を fail させない)。
 #     本スクリプトはその思想を引き継ぎ、1 段が失敗しても次段へ進む (set -e は使わない)。
+#     ただし最終 produce の品質ゲート失敗は、通知と cleanup 後に非 0 終了して外部監視へ伝える。
 #   - 段間は SQLite で疎結合 (collect→store←deliver)。draft が失敗しても produce は直近 draft を使える。
 #   - Irodori サーバ (ローカル) は produce に必須。未起動なら起動し health を待ち、本ジョブが
 #     起動した場合のみ終了時に停止する (外部起動分は残す)。
@@ -78,15 +79,61 @@ run_step() {
   log "--- ${label} 開始 ---"
   if "$@" >> "$LOG" 2>&1; then
     log "--- ${label} 成功 ---"
+    return 0
   else
     local rc=$?
     log "WARNING: ${label} 失敗 (rc=${rc}) — fail-open で次段へ"
+    return "$rc"
+  fi
+}
+
+notify_failure() {
+  local label="$1"
+  local rc="$2"
+  local log_path="$3"
+
+  if "$UV" run python - "$label" "$rc" "$log_path" >> "$LOG" 2>&1 <<'PY'
+from __future__ import annotations
+
+import sys
+from pathlib import Path
+
+from karyu_tech_news.config import load_settings
+from karyu_tech_news.deliver.discord import post_summary
+
+label, rc, log_path = sys.argv[1], sys.argv[2], sys.argv[3]
+settings = load_settings(Path.cwd() / ".env")
+webhook_url = settings.discord_error_webhook_url or settings.discord_webhook_url
+if not webhook_url:
+    print("WARNING: Discord failure alert skipped (webhook not set)")
+    raise SystemExit(0)
+
+content = (
+    "⚠️ 華流テック通信 daily_pipeline 失敗通知\n"
+    f"- step: {label}\n"
+    f"- rc: {rc}\n"
+    f"- log: {log_path}\n"
+    "音声配信がスキップされた可能性があります。"
+)
+ok = post_summary(webhook_url, content)
+print("Discord failure alert: " + ("sent" if ok else "failed"))
+PY
+  then
+    log "produce 失敗通知: 処理完了"
+  else
+    log "WARNING: produce 失敗通知コマンドが失敗"
   fi
 }
 
 run_step "collect" "$UV" run python -m karyu_tech_news collect --post
 run_step "draft"   "$UV" run python -m karyu_tech_news draft --variant A --post
 run_step "produce" "$UV" run python -m karyu_tech_news produce --engine irodori-tts-v3 --post
+PRODUCE_RC=$?
+FINAL_RC=0
+if [ "$PRODUCE_RC" -ne 0 ]; then
+  notify_failure "produce" "$PRODUCE_RC" "$LOG"
+  FINAL_RC="$PRODUCE_RC"
+fi
 
 # --- 本ジョブが起動したサーバのみ停止 (外部起動分は温存) ---
 if [ "$STARTED_SERVER" = "1" ] && [ -f "$PIDFILE" ]; then
@@ -100,4 +147,5 @@ if [ "$STARTED_SERVER" = "1" ] && [ -f "$PIDFILE" ]; then
   rm -f "$PIDFILE"
 fi
 
-log "=== 日次パイプライン終了 (log: ${LOG}) ==="
+log "=== 日次パイプライン終了 (rc=${FINAL_RC}, log: ${LOG}) ==="
+exit "$FINAL_RC"

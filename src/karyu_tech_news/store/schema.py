@@ -192,7 +192,7 @@ class AudioVersion(Base):
     created_at = Column(DateTime, nullable=False)
     engine = Column(String, nullable=False)  # tts エンジン名 (mock/kokoro/irodori-tts-v3)
     duration_sec = Column(Float, nullable=False)
-    lufs = Column(Float, nullable=True)  # 無音 fail-open 時は測定不能 (-inf) → NULL 記録
+    lufs = Column(Float, nullable=True)  # post-encode LUFS 測定不能時は NULL 記録
     bitrate = Column(String, nullable=False)
     sample_rate = Column(Integer, nullable=False)
     path = Column(String, nullable=False)

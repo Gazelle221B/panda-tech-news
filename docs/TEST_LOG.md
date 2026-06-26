@@ -1025,10 +1025,129 @@ libmp3lame assertion crash) → 修正 (上記 step 3) → 再レビューで実
 **実 E2E 証跡**: (1) 600M server caption smoke = HTTP 200 / 7.04s 音声 / valid 48kHz wav。(2) 実 produce (draft 6, 600M+caption+絵文字) = サーバ22文合成・**文欠落0**・236.6s/192k/48kHz/**-16.2 LUFS** 完パケ (audio_versions id=6)。
 **レビュー/QA**: **Codex 独立レビュー PASS** (Critical0/High0/Medium2/Low1、Medium=PROJECT_STATE/TEST_LOG 同期 → 本追記で解消)。**Antigravity QA 合格** (§3 NG 抵触なし・回帰なし・整合性 OK、Low=README/AGENTS テスト数 drift → 同期)。
 **⚠ shell/plist の自動テストは無し (Codex Low)**: `bash -n` + `shellcheck` + `plutil -lint` の静的検証で代替。将来変更時は本ログの手順を再実行する。
-**⚠ 既知の運用リスク (QA)**: Mac スリープ中 launchd 不発火 (`pmset repeat wake` で回避) / produce 失敗時の Discord 通知なし (ログのみ) / collect 0件日は前日 draft 再配信 / 6/26 後 launchd 撤去要 / **draft の中国語見出し埋め込みで TTS が崩す content 課題 (LLM writer プロンプト改善が中期対策)**。
+**⚠ 既知の運用リスク (QA)**: Mac スリープ中 launchd 不発火 (`pmset repeat wake` で回避) / produce 失敗時の Discord 通知なし (ログのみ、T36 で解消) / collect 0件日は前日 draft 再配信 / 6/26 後 launchd 撤去要 / **draft の中国語見出し埋め込みで TTS が崩す content 課題 (LLM writer プロンプト改善が中期対策)**。
 
 **Copilot PR レビュー対応 (6/24, fb7bef4)**: PR #22 上の 5 指摘を全対応・全 thread resolve 済み。(1) `_resolve_timeout` が `float(nan)/(inf)` を弾くよう `math.isfinite` ガード追加 (nan は `<=0` をすり抜け・inf は無限 timeout = 無人ジョブ安全性バグ)・test に nan/inf/-inf 追加 → **pytest 383 passed**。(2) サーバを `--host 127.0.0.1` バインド + `.env` `IRODORI_HOST=127.0.0.1` で LAN 露出回避 (サーバ再起動で localhost-only 確認)。(3) `daily_pipeline.sh` のパスを env 上書き可 + スクリプト位置/`$HOME`/`PATH` 解決でポータビリティ確保。(4) plist の `ProgramArguments` を `$HOME` 経由でユーザー名非依存化 + 編集要箇所明記。ruff / mypy strict 68 / bash -n + shellcheck / plutil 再確認済み。
 
 **T35 — 初の無人自動配信 (6/24 06:30) で発覚した 2 件を修正 (PR #22, `c7182e5`)**: ① **無音バグ**: launchd 実走ログ (`data/logs/launchd_pipeline.out.log` + `daily_20260624_063000.log`) で collect/draft 成功・**produce が rc=1 失敗 = 音声欠落**を確認。根因は launchd の bare PATH に Homebrew が無く `ffmpeg が見つかりません` でマスタリング失敗。対話実行は PATH に `/opt/homebrew/bin` があり常に成功していたため未検出 (= 無人実行特有の env バグ)。`daily_pipeline.sh` PATH に Homebrew 追加で修正。② **中国語翻字**: `transliterate_chinese_titles` を追加 (「」内が漢字あり・かな無し = 中国語原題のみ pinyin 化)。実 Hook smoke: `「三星电子HBM4芯片…」` → `「san xing dian zi HBM4 xin pian …」`、日本語引用/ナレーションは不変。**ゲート**: `pytest 387 passed` / ruff / mypy strict 68 files / bash -n + shellcheck OK。draft 7 再 produce で 600M+caption+翻字の実音声を確認 (DoD 証跡)。launchd 撤去は `/schedule` (`uninstall-daily-pipeline-launchd`, 6/27 07:00 JST) に登録。
 
 **T35 Codex 2 ラウンド独立レビュー対応 (`1fb38ed` 他)**: (R1 High) 翻字 heuristic が「漢字あり・かな無し」だけでは**漢字のみの日本語引用 (生成AI/東京大学/人工知能 等) も pinyin 化**する誤検出を、**簡体字特有文字 (`_SIMPLIFIED_HAN`: 电/问/选/发 等、日本語新字体と字形が異なる字) を含む span のみ翻字**へ強化して解消。誤翻字防止 7 ケース + fail-open テスト追加。(R1 Medium) `pypinyin` を core→optional extra `tts` へ移動 (+mypy override+plan 追記)。(R2 High) 「肯定系翻字テストが標準 `uv run pytest` で extra 非導入だと落ちる」依存/ゲート不整合を、`pypinyin` を **dev group にも追加** + 肯定系テストに `pytest.importorskip("pypinyin")` で解消 (runtime は extra のまま最小)。**最終ゲート: `pytest 396 passed` / ruff / mypy strict 68 files / bash -n + shellcheck**。draft 7 再 produce = 275.4s / -16.3 LUFS / 文欠落0 (audio_versions id=7)。
+
+---
+
+## Ticket T36 — 音声品質ハードニング (2026-06-24, autopilot / branch `agent/T36-audio-quality-impl`)
+
+ユーザー報告「途中で途切れる・読めていない・変な読み」を受け、実生成ログ/DB/音声ファイルを再調査。
+
+**根因 1: 中国語 quote 処理と読み辞書の順序バグ**:
+- T35 では `transliterate_chinese_titles` を入れたが、`synthesize_script` が先に `normalize_text(reading_dict)` を実行していた。
+- 例: `「刚刚，豆包2.1发布！...」` に読み辞書が `豆包→ドウバオ` を混ぜる → quote 内にカナが入る → 後段の「かな有りなら日本語」ガードが働き、中国語原題の大半が TTS に残る。
+- 修正: `prepare_tts_text` を追加し、`strip_script_markup`/`strip_ascii_gloss` → **中国語 quote 発話退避** → 読み辞書 → 残存 quote 発話退避の順に統一。
+- 追加修正: 当初は pinyin へ翻字したが、実音声 ASR で長い pinyin 羅列そのものが異物読みになることを確認。長い中国語原題 quote は `この話題` へ退避し、読み辞書に完全一致する短い固有名詞 (`灵晟` など) だけカナ読みを残す。これにより `pypinyin` 依存を削除。
+- 実DB draft #11 再構成: `今日は「刚刚，豆包2.1发布！...」を取り上げます。` 系の長い中国語 quote は `今日はこの話題を取り上げます。` へ退避し、raw `刚刚`/`发布` と pinyin 羅列は残らない。
+
+**根因 2: 合成欠落が produce から見えない**:
+- 既存 `synthesize_script` は文単位 TTSError を warning で skip して完走するが、戻り値に skip 数がなく、produce は文欠落を成功と区別できなかった。
+- 修正: `SynthesisResult` に `attempted_sentences` / `synthesized_sentences` / `skipped_sentences` を追加。`synthesize_script` は文単位では fail-open で最後まで試すが、produce 境界では `skipped_sentences > 0` を不完全音声として fail-fast し、mp3 生成・DB 記録・Discord 投稿を中止する。合成成功文が 0 件、TTS 合成 wav が実質無音、または実運用尺 (>=5s) で post-encode LUFS が測定不能な場合も同様に中止する。
+
+**根因 3: repeated produce が過去 mp3 証跡を上書き**:
+- 既存 output path は `data/episodes/episode_<draft_id>.mp3` 固定で、同一 draft 再 produce が過去ファイルを上書きして `audio_versions` の複数行が同じ現物を指していた。
+- 修正: `episode_<draft_id>_<UTC timestamp>.mp3` に変更し、各 produce 実行のファイル証跡を分離。
+
+**根因 4: 原語 + カナ読み / URL が TTS 入力に残りうる**:
+- 実DB draft #8/#9 で `灵晟（リンション）` が TTS 入力に残り、原語とカナ読みを二重に読む可能性を確認。
+- 修正: `strip_pronunciation_parentheticals` で `原語（カナ読み）` をカナ読みだけに整理し、`strip_link_markup` で inline Markdown link と bare URL を TTS 入力から除去。誤置換防止として、置換対象は ASCII/数字または簡体字特有文字を含む headword に限定し、日本語説明括弧 (`自動運転（レベル4）`) は残す。`生成AI（エーアイ）` は `生成エーアイ` として前置の日本語を削らない。Code review High 3件 (bare URL が後続日本語まで削る / `中国企業灵晟（リンション）` の前置語を削る / `Tesla FSD（エフエスディー）` の前置語を削る) は、句読点を越えない URL regex と headword 末尾置換で修正。
+- 追加辞書: `灵晟` / `ling cheng` → `リンション`。実DB再構成で raw `灵晟` / pinyin `ling cheng` が残らず `リンション` に揃うことを確認。
+
+**根因 5: TTS wav の途中無音を BGM が覆い隠しうる**:
+- 「途中で途切れる」系の不良は、BGM ミックス後や mp3 化後だけ見ると検出しにくい。
+- 修正: `tts/quality.py` に `analyze_wav_signal` を追加し、BGM ミックス前の TTS wav でデジタル無音と最大連続無音秒数を計測。produce は 3.0 秒以上の無音区間を検出したら mp3 生成前に fail-fast。
+- Architect WATCH 対応: 当初の 3.5 秒許容 / 4.0 秒 fail 境界を実データ再確認後に締め、2.5 秒ギャップは通し、3.0 秒ギャップは fail-fast する境界テストへ更新。成功時の CLI 出力に `max_silence=<秒>` を含め、T32/日次観察で実データを記録できるようにした。
+- 追加修正: 全体では 3.0 秒未満でも、1 文だけ短い無音 wav を返すと「読めていない」まま通り得るため、`synthesize_script` が各文の返却 wav を `analyze_wav_signal` で確認するようにした。0フレーム/壊れた wav/デジタル無音/実質無音 chunk は結合前に skip し、`skipped_sentences` に加算する。
+- 追加修正 2: クリック音や単発ノイズだけの chunk は `has_pcm_signal=True` になり得るため、`analyze_wav_signal` に `active_ratio` を追加。0.2 秒以上の文 chunk で有音 window が 10% 未満、かつ有音時間も 0.15 秒未満なら「有音率の低い wav」として skip し、短いノイズを「読めた音声」と誤判定しない。有音率だけでは長い前後無音を含む短い実発話も落とし得るため、絶対有音時間を併用する。
+
+**根因 6: writer 出力に Unicode replacement character (`�`) が混入しうる**:
+- 2026-06-25 実運用 draft #10 で `返り�きました` を確認。日本語TTSが置換文字を記号として読むと「変なの読んだ」音声になる。
+- 修正: `validate_topic_script` が `�` を本文契約違反として検出し、将来の writer 出力は再生成/fallback に回る。既存 draft の produce では `prepare_tts_text` が観測済み `返り�き` を `返り咲き` に補修し、残存 `�` は除去して読ませない。
+
+**根因 7: post-encode clipping 余裕を produce が gate していない**:
+- `master_to_mp3` は true peak を測定しているが、produce は LUFS 測定不能だけを fail-fast にしていた。mp3 の true peak が高すぎると、配信側再エンコードや再生環境でクリップ/歪みの原因になる。
+- 修正: 実運用尺 (>=5s) の完パケで true peak が測定不能、または -1.0 dBTP を超える場合、mp3 を削除して DB/Discord へ進めない。成功出力には `tp=<dBTP>` を含める。
+
+**根因 8: 品質ゲート fail-fast を日次運用で見逃しうる**:
+- `produce` が品質ゲートで fail-fast しても `daily_pipeline.sh` は fail-open でログだけ残し、最終 exit 0 で終わる。Architect delta review で「音声配信ゼロを見逃す」運用 WATCH と判定。
+- 修正: `run_step` が rc を返すようにし、`produce` 失敗時のみ `notify_failure` を呼ぶ。通知は既存の `post_summary` を使い、`DISCORD_ERROR_WEBHOOK_URL` があれば優先、未指定なら `DISCORD_WEBHOOK_URL` に送る。bash 側で Webhook URL を表示しない。通知と Irodori cleanup 後は `produce` の rc をスクリプト全体の rc として返し、launchd/外部監視が品質ゲート失敗を success 扱いしないようにした。
+
+**根因 9: pinyin 原題そのものが日本語番組音声として破綻しうる**:
+- OpenAI API キーが無く `transcribe` skill は使えなかったため、ローカルの MLX Whisper ASR で 6/26 実配信 `episode_11_20260625T213100335574Z.mp3` を検証。
+- baseline の日次配信 mp3 は TTS 入力との類似度 0.837 相当で、pinyin 原題が `ガン` / `インギニア` / `アイチテイ` などに崩れて認識された。
+- 中国語原題 quote を `この話題` へ退避した dry-run mp3 は類似度 0.893 相当まで改善し、pinyin artifact は消失。`pypinyin` は不要になったため `pyproject.toml` / `uv.lock` から削除した。
+
+**根因 10: 絵文字スタイル注釈が実音声に異物読みを混ぜる**:
+- T34/T33+ の絵文字注釈あり dry-run は 276.3s / -16.3 LUFS / 3 秒以上無音なしまで機械ゲート上は正常だったが、ASR では `カイニーズ` / `ご作作` / `短短` / `イースム` / `課題の大ステム` など、台本にない異物句が残った。
+- 同じ draft #11 を絵文字注釈なし persona で dry-run すると、220.6s / -16.2 LUFS / `tp=-1.8 dBTP` / `max_silence=2.0s` / 3 秒以上無音なし。ASR 類似度は 0.951 相当まで改善し、既知 artifact ヒットは 0。
+- 修正: `load_emoji_annotation` は `tts.emoji_annotation_enabled: true` を明示した persona だけ mapping を返す。`config/hal_persona.yaml` は `emoji_annotation_enabled: false` を production 既定とし、再採用は ASR + 聴感再検証を条件にする。
+
+**目標駆動の検証手順**:
+1. 中国語 quote の順序バグを固定 → verify: `test_synthesize_sanitizes_chinese_title_before_reading_dict` が、`豆包` 読み辞書があっても長い中国語原題 quote を `この話題` へ退避し、raw 簡体字・pinyin 羅列・`ドウバオ` 混入を残さないことを確認。
+2. 中国語原題の発話退避を固定 → verify: `test_sanitize_replaces_chinese_title_with_topic_placeholder` / `test_sanitize_drops_long_pinyin_prone_title` が、長い中国語 quote を `この話題` へ置換し、読み辞書完全一致の短い固有名詞だけカナ読みへ残すことを確認。
+3. 合成欠落の可観測性を固定 → verify: flaky engine test で attempted=2 / synthesized=1 / skipped=1、mixed-rate/0-frame chunk は concat 後に skipped として数え、all-fail test で synthesized=0 / skipped=1。
+4. 全滅無音成功防止を固定 → verify: zero-frame engine で `produce` が `TTS 合成で欠落文があります 2/2 文` により rc=1 となり、mp3 を生成しない。
+5. デジタル無音成功防止を固定 → verify: 非ゼロフレームだが PCM が全て 0 の engine で `produce` が `TTS 合成で欠落文があります 2/2 文` により rc=1 となり、BGM/マスタリング前に mp3 を生成しない。
+6. LUFS 証跡欠落の成功防止を固定 → verify: master 後の duration が 5.0s かつ `measured_lufs=-inf` の場合、`LUFS を測定できません` により rc=1 となり、mp3 と audio_versions 行を残さない。
+7. output 証跡分離を固定 → verify: 同一 draft を 2 回 produce して `audio_versions.path` が 2 つとも異なり、両ファイルが存在。
+8. TTS 入力 QA を固定 → verify: inline Markdown link / bare URL は読ませず、`灵晟（リンション）` / `「灵晟」` は `リンション` に正規化される。URL 後続文 (`https://example.com/a。次です。`)、日本語前置語 (`中国企業灵晟（リンション）`)、ASCII 前置語 (`Tesla FSD（エフエスディー）`) は削らない。
+9. TTS 出力 QA を固定 → verify: `analyze_wav_signal` がデジタル無音と 4.5 秒無音ギャップを検出し、produce は 3.0 秒無音ギャップで `無音区間` エラーにより mp3 を生成しない。一方で 2.5 秒ギャップは通し、成功出力に `max_silence=2.5s` を含める。
+10. 置換文字混入を固定 → verify: `validate_topic_script` が `�` を拒否し、`strip_invalid_tts_chars` が `返り�きました` を `返り咲きました` へ補修、未知の `�` を除去する。
+11. post-encode clipping 余裕を固定 → verify: fake master が true peak -0.4 dBTP を返す実運用尺音声で produce が `true peak が高すぎます` により rc=1 となり、mp3 と audio_versions 行を残さない。
+12. produce 失敗通知と外部監視向け rc を固定 → verify: fake `uv` + ローカル health server smoke で collect/draft 成功・produce rc=7 のとき、`notify_failure` が呼ばれ `produce 失敗通知: 処理完了` が日次ログに残り、cleanup 後にスクリプト全体も rc=7 で終了する。
+13. 文単位の無音 chunk 欠落を固定 → verify: `test_synthesize_script_counts_silent_chunk_as_skipped` が 2 文中 1 文だけ無音 wav を返す engine で attempted=2 / synthesized=1 / skipped=1 となり、結合 wav には有音 chunk だけが残ることを確認。produce 境界では skipped が 1 件でも不完全音声として fail-fast し、mp3 を生成しない。
+14. クリック音だけの chunk 誤通過を固定 → verify: `test_analyze_wav_signal_measures_sparse_click_as_low_activity` が 1 サンプルだけ有音の 1 秒 wav を `active_ratio=0.05` と測定し、`test_synthesize_script_counts_sparse_click_chunk_as_skipped` が 2 文中 1 文だけクリック音 chunk の engine で attempted=2 / synthesized=1 / skipped=1 となることを確認。
+15. 短い実発話の誤 skip を防止 → verify: `test_synthesize_script_keeps_short_speech_with_padding` が、3 秒 chunk 中 0.2 秒だけ有音の短い実発話を `active_ratio < 0.1` でも kept として扱い、attempted=2 / synthesized=2 / skipped=0 となることを確認。
+16. 部分欠落配信を防止 → verify: `test_produce_partial_synthesis_exits_without_mp3` が、2 文中 1 文だけ無音 skipped の engine で `TTS 合成で欠落文があります 1/2 文` により rc=1 となり、mp3 を生成しないことを確認。
+17. 重複読み括弧を固定 → verify: `test_strip_duplicate_parentheticals_removes_exact_duplicate_reading` と `test_prepare_tts_text_strips_duplicate_parenthetical` が、`バイトダンス（バイトダンス）` および `字节跳动（バイトダンス）` + 読み辞書後の `バイトダンス（バイトダンス）` を `バイトダンス` へ整理することを確認。
+18. template fallback の原題読み上げを廃止 → verify: `test_fallback_does_not_embed_raw_title_in_spoken_body` が、fallback 本文に raw 中国語 title (`刚刚...`) を含めず category ベースの日本語 Hook に落とすことを確認。出典タイトルは Markdown 見出し/ソース一覧に残し、TTS では読ませない。
+19. pinyin 依存削除を固定 → verify: `uv lock` で `pypinyin v0.55.0` が lock から削除され、標準テストが pinyin 依存なしで通ることを確認。
+20. 絵文字注釈の production 既定無効を固定 → verify: `test_load_emoji_annotation_defaults_off_for_persona` が既定 persona で `{}` を返し、`test_load_emoji_annotation_requires_explicit_opt_in` が明示 opt-in のみ mapping を返すことを確認。
+21. ASR の客観改善を確認 → verify: draft #11 の Irodori dry-run を「中国語原題退避 + 絵文字注釈なし」で生成し、220.6s / -16.2 LUFS / `tp=-1.8 dBTP` / `max_silence=2.0s` / 3 秒以上無音なし、ASR 類似度 0.951 相当、既知 artifact ヒット 0 を確認。
+
+**TTS chunk gate (fresh)**: `uv run pytest tests/test_tts_quality.py tests/test_tts_synthesize.py` → **39 passed in 0.37s**。
+
+**対象ゲート (fresh)**: `uv run pytest tests/test_script_generate.py tests/test_tts_quality.py tests/test_tts_normalize.py tests/test_tts_synthesize.py tests/test_produce_pipeline.py` → **129 passed in 0.84s**。
+
+**ASR delta 対象ゲート (fresh)**: `uv run pytest tests/test_tts_annotate.py tests/test_tts_normalize.py tests/test_tts_synthesize.py tests/test_fallback.py` → **87 passed in 0.28s**。
+
+**通知補助込み対象ゲート (fresh)**: `uv run pytest tests/test_script_generate.py tests/test_tts_quality.py tests/test_tts_normalize.py tests/test_tts_synthesize.py tests/test_produce_pipeline.py tests/test_discord.py tests/test_discord_script.py` → **147 passed in 0.88s**。
+
+**全体ゲート (fresh)**:
+- `uv run pytest` → **438 passed in 2.93s**
+- `uv run ruff check .` → **All checks passed**
+- `uv run mypy src tests` → **Success: no issues found in 70 source files**
+- `uv lock --check` → **OK (Resolved 65 packages)**
+- `bash -n scripts/daily_pipeline.sh` + `shellcheck scripts/daily_pipeline.sh` → **clean**
+- `plutil -lint scripts/launchd/com.karyu.daily-pipeline.plist` → **OK**
+- `git diff --check` → **clean**
+
+**実データ QA (2026-06-25 追加)**:
+- `data/state.db` の最新 draft #6-#10 に `strip_markdown_structure` + `prepare_tts_text` を適用。発話入力に URL / Markdown link / `原語（カナ読み）` パターンは残らず、`灵晟` / `ling cheng` も残らないことを確認。draft #7-#10 は `リンション` へ正規化済み。draft #10 の `返り�きました` は `返り咲きました` に補修され、`�` は残らない。
+- 2026-06-26 03:42 JST 追加確認: draft #10 の TTS 入力は 31 文 / 1203 文字で、従来 `バイトダンス（バイトダンス）がドウバオ2.1をリリースしました。` となっていた文が `バイトダンスがドウバオ2.1をリリースしました。` に整理され、`contains_duplicate=False` を確認。
+- 簡体字候補として残った文字は draft #6=`争参` / #7=`参` / #8=`争参担` / #9=`争` / #10=`争参`。`競争` / `参考` / `担う` など日本語文脈のみで、中国語原題の未処理残存ではないことを文脈確認。
+- 2026-06-25 実運用 Irodori produce は `data/logs/daily_20260625_063004.log` で `episode_10_20260624T213100466311Z.mp3` 生成成功 (340.6s / -16.2 LUFS / `max_silence=2.3s`)。`ffprobe` は 340.6s / 8,175,789 bytes。`ffmpeg ... silencedetect=n=-45dB:d=4` で 4 秒以上の無音イベントは出力されず。追加で `silencedetect=n=-45dB:d=1.5` を当てると 1.5〜2.4 秒の自然な間はあるが、3.0 秒 fail-fast 閾値を超える無音はない。
+- 2026-06-26 03:12 JST 再測定: 同 mp3 は `silencedetect=n=-45dB:d=3` でも 3 秒以上の無音イベントなし。`loudnorm` は input -16.24 LUFS / -1.75 dBTP / LRA 6.90 で、T36 の -16 LUFS / true peak 余裕条件を満たす。
+- 2026-06-26 03:42 JST 時点では 6/26 の日次 log/episode は未生成 (06:30 launchd 前)。現行 T36 コード + 重複括弧除去で実 Irodori dry-run produce を再実行し、`episode_10_20260625T184522399308Z.mp3` を生成成功 (337.8s / -16.2 LUFS / `tp=-1.8 dBTP` / `max_silence=2.9s`)。`[DRY RUN] DB 記録・Discord 投稿はスキップ` を確認。`ffprobe` は 337.84s / 8,109,549 bytes。`silencedetect=n=-45dB:d=3` で 3 秒以上の無音イベントなし。`silencedetect=n=-45dB:d=1.5` は 1.5〜2.17 秒の自然な間のみ。`loudnorm` 再測定は input -16.25 LUFS / -1.75 dBTP / LRA 7.20。
+- 2026-06-26 06:30 JST launchd 実行: `data/logs/daily_20260626_063002.log` で collect 9/9 sources・52 new、draft #11、produce 成功、Discord mp3 投稿成功を確認。完パケ `episode_11_20260625T213100335574Z.mp3` は 316.8s / -16.3 LUFS / `tp=-1.8 dBTP` / `max_silence=2.6s`。DB `audio_versions` id=10 / draft_id=11 / lufs=-16.26 / path 記録済み。`ffprobe` は 316.80s / 7,604,397 bytes。`silencedetect=n=-45dB:d=3` で 3 秒以上の無音イベントなし。`silencedetect=n=-45dB:d=1.5` は最長 2.70 秒の自然な間のみ。`loudnorm` 再測定は input -16.26 LUFS / -1.76 dBTP / LRA 7.10。draft #11 の TTS 入力再構成は 1174 文字 / 25 文、URL / Markdown link / `�` / 重複括弧なし。簡体字候補は `参考` / `競争` など日本語文脈のみ。
+- 2026-06-26 追加修正後の入力 QA: 読み辞書で `世界人工智能大会` / `引领者` / `SAIL賞` / `聖陽股份` を日本語・カナ読みへ正規化。draft #11 再構成で `人工智能` / `引领者` / `聖陽股份` / `SAIL賞` は残らず、`世界人工知能大会` / `卓越エーアイリーダー賞(セイル賞)` / `シェンヤングーフェン` へ変換されることを確認。template fallback は future draft で raw title を発話本文に入れない。
+- ASR 確認 (2026-06-26): OpenAI API キーなしでも実行できるローカル MLX Whisper で draft #11 を検証。日次配信 mp3 は類似度 0.837 相当で pinyin artifact (`ガン` / `インギニア` / `アイチテイ`) を確認。中国語原題 quote を `この話題` へ退避した dry-run は類似度 0.893 相当で pinyin artifact 消失。さらに絵文字注釈なし persona の dry-run は `episode_11_20260626T004141167976Z.mp3` (220.6s / -16.2 LUFS / `tp=-1.8 dBTP` / `max_silence=2.0s`) となり、ASR 類似度 0.951 相当、既知 artifact ヒット 0、3 秒以上無音なし。発音・抑揚・固有名詞の自然さの最終判断は T32 の人間試聴が残る。
+- 置換文字修正後の dry-run 再 produce: `uv run python -m karyu_tech_news produce --draft-id 10 --dry-run --engine irodori-tts-v3 --db-path data/state.db --bgm-dir assets/bgm --out-dir data/episodes` → `episode_10_20260625T005025587701Z.mp3` 生成成功 (340.2s / -16.3 LUFS / `max_silence=2.2s`)。`[DRY RUN] DB 記録・Discord 投稿はスキップ` を確認。`ffprobe` は 340.24s / 8,167,149 bytes。`silencedetect=n=-45dB:d=4` で 4 秒以上の無音イベントなし。追加 `silencedetect=n=-45dB:d=1.5` でも最長は約2.1秒。`loudnorm` 再測定は -16.26 LUFS / -1.75 dBTP、`volumedetect` は max_volume -1.8 dB。TTS 入力再構成でも `返り咲きました` あり、`返り�きました` / `�` 残存なし。これは BGM 後の補助確認であり、T36 本体の品質ゲートは produce 内で BGM 前 TTS wav に対して `max_silence`、post-encode mp3 に対して LUFS / true peak を測る。
+- daily pipeline 通知 smoke: fake `uv` が collect/draft=0・produce=7 を返す環境で `scripts/daily_pipeline.sh` を実行し、script rc=7、`UV:run python - produce 7 <log>`、`WARNING: produce 失敗 (rc=7)`、`produce 失敗通知: 処理完了`、`日次パイプライン終了 (rc=7` を確認。これにより collect/draft は従来どおり fail-open で進めつつ、最終 produce の品質ゲート失敗は Discord 通知 + 非 0 終了で外部監視へ伝えられる。
+
+**独立レビュー反映**:
+- Code review (入力正規化 + concat 欠落検出まで): APPROVE with LOW。Kokoro 運用メモの `fail-open=無音mp3` が T36 後の fail-fast 契約と矛盾していたため、非 0 終了しうる説明へ修正。
+- Architecture review: 初回 WATCH。実運用尺で `measured_lufs=-inf` を成功扱いする証跡リスクを、duration >= 5.0s の LUFS 測定不能 fail-fast と `AudioVersion.lufs` コメント更新で解消。無音ギャップ検出追加後の WATCH (当初 4.0s 閾値の境界/観察不足) は、最終的に 2.5s pass / 3.0s fail テストと `max_silence` 出力で解消し、最終 CLEAR。
+- Code review (無音ギャップ検出 delta): サブエージェントへ最終確認を依頼したが長時間応答せず shutdown。main agent self-review と fresh gate は clean だが、PR 前には最新差分全体で独立 reviewer lane を再実行すること。
+- Code review (最新 full diff, 2026-06-25): code-reviewer lane COMMENT with LOW 2件。① all-silent produce guard は ffmpeg 前に fail-fast するため不要な `skipif(not _HAS_FFMPEG)` を削除。② `analyze_wav_signal` の PCM 形式 coverage として 8/16/24/32-bit mono + 16-bit stereo の signal/silence 検出を追加。修正後 gate: `tests/test_tts_quality.py tests/test_produce_pipeline.py` → 40 passed、対象セット 120 passed、全体 426 passed、ruff/mypy/diff-check clean。再確認で **APPROVE**。Architecture lane は full diff と U+FFFD delta と LOW 修正後 delta のすべてで **CLEAR**。true peak gate 追加分も architecture delta **CLEAR** / code-reviewer delta **APPROVE** (Files reviewed 4, CRITICAL/HIGH/MEDIUM/LOW 0)。Autopilot code loop は clean。
+- Code review (3.0s threshold + daily pipeline notification delta): code-reviewer lane **APPROVE** (CRITICAL/HIGH/MEDIUM/LOW 0)。architecture lane は initially WATCH (produce fail-fast を daily pipeline がログのみで見逃す運用リスク) → `daily_pipeline.sh` の produce 失敗通知追加後に **CLEAR**。残懸念は Discord 通知自体の best-effort 失敗時はログ止まりになる点のみで、既存 fail-open 契約と一致。
+- Code review (partial synthesis delta): code-reviewer lane **APPROVE** (CRITICAL/HIGH/MEDIUM/LOW 0)。architecture lane は **WATCH**: `skipped_sentences > 0` が stderr 警告だけで、20文中15文欠落のような不完全 mp3 が投稿され得る。対応: produce 境界で `skipped_sentences > 0` を fail-fast に変更し、日次 pipeline の produce 失敗通知へ接続。`test_produce_partial_synthesis_exits_without_mp3` を追加。follow-up architecture は **CLEAR**。follow-up code-review は LOW 1件 (古い fail-open 説明) → main.py docstring / TEST_LOG / IMPLEMENTATION_PLAN-2 を更新後 **APPROVE**。
+- Code review (latest full diff + duplicate-parenthetical delta, 2026-06-26): native subagent 2 レーンは使用上限で起動失敗したため CLI-backed review に代替。`codex review --uncommitted -c model_reasoning_effort=high` → **No discrete correctness, security, or maintainability bugs**。別途 `codex exec` architecture review → **Architectural Status: CLEAR**。非ブロッキング注意は (1) untracked `tts/quality.py` / `tests/test_tts_quality.py` を PR 前に含めること、(2) PROJECT_STATE review state の重複括弧 delta 待ち表現を更新すること。本追記で (2) は解消。
+- Code review (fallback title removal + reading_dict delta, 2026-06-26): native subagent tool は「明示的 subagent 依頼時のみ」の制約があるため、CLI-backed review で最終確認。`codex review --uncommitted -c model_reasoning_effort=high` → **No actionable correctness issues**、対象/全体 pytest・ruff・mypy・bash syntax・diff whitespace checks も review 側で clean。別途 `codex exec` architecture review → **Architectural Status: CLEAR**。残リスクは ASR/人間聴感未実施と、本文 quote に共有漢字のみの中国語タイトルが残った場合は簡体字特有文字ベースの翻字対象外になり得る点。
+- Code review (ASR delta + daily pipeline rc, 2026-06-26): staged full diff で `codex review --uncommitted -c model_reasoning_effort=high` を再実行し、**No actionable defects**。レビュアー側でも changed test subset / full `pytest` / `ruff` / `mypy` が green。別途 `codex exec` architecture review はコード境界・TTS 正規化順・日次 pipeline rc 伝播を妥当と確認し、初回は TEST_LOG/PROJECT_STATE の古い日次 pipeline rc と pytest 件数の記録だけ **WATCH** とした。記録修正後の follow-up architecture review は **Architectural Status: CLEAR** / Required actions none。

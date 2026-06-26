@@ -24,7 +24,6 @@ dependencies = [
 tts = [
     "kokoro-onnx>=0.4.0",
     "pydub>=0.25.1",  # T29 BGM ミックス (ffmpeg ラッパー、素材があるときのみ使用)
-    "pypinyin>=0.55.0",  # T35 中国語原題の pinyin 翻字 (TTS 前処理、未導入時は fail-open)
 ]
 
 [dependency-groups]
@@ -33,9 +32,6 @@ dev = [
     "ruff>=0.5.0",
     "mypy>=1.10.0",
     "types-PyYAML>=6.0.12",
-    # pypinyin は runtime では optional extra `tts` だが、翻字の肯定系テストが
-    # 標準 `uv run pytest` (dev group) で常に通るよう dev にも入れる (Codex High 対応)。
-    "pypinyin>=0.55.0",
 ]
 
 [project.scripts]
@@ -74,11 +70,6 @@ ignore_missing_imports = true
 # pydub は型スタブ無し (optional extra `tts`, T29 BGM ミックスで遅延 import)。
 [[tool.mypy.overrides]]
 module = "pydub"
-ignore_missing_imports = true
-
-# pypinyin は optional extra `tts` (T35 中国語原題翻字、normalize.py で遅延 import)。
-[[tool.mypy.overrides]]
-module = "pypinyin"
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

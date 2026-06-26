@@ -27,6 +27,10 @@ app = typer.Typer(
     add_completion=False,
 )
 
+MIN_LUFS_REQUIRED_DURATION_SEC = 5.0
+MAX_TTS_SILENCE_SEC = 3.0
+MAX_TRUE_PEAK_DBTP = -1.0
+
 
 def setup_logging(level: str = "INFO") -> None:
     """ロギング初期化."""
@@ -491,8 +495,9 @@ def produce(
     """保存済み台本から 1 エピソードの完パケ mp3 を生成 (Sprint 2 T29/T30/T31)。
 
     structure → 文単位合成 → BGM ミックス(素材があれば) → -16 LUFS 正規化 + mp3 →
-    audio_versions 記録 → (Discord 添付)。fail-open: BGM 無し/合成失敗文/Discord 失敗でも
-    番組を止めない。ローカルで実音声を出すには `--engine kokoro` を指定する。
+    audio_versions 記録 → (Discord 添付)。文単位合成は最後まで試して欠落数を集計するが、
+    欠落文がある完パケは produce 境界で fail-fast する。BGM 無し/Discord 失敗は
+    fail-open。ローカルで実音声を出すには `--engine kokoro` を指定する。
     """
     import math
     from datetime import UTC, datetime
@@ -514,6 +519,7 @@ def produce(
     from karyu_tech_news.tts.annotate import load_emoji_annotation
     from karyu_tech_news.tts.engine import TTSError, select_engine
     from karyu_tech_news.tts.normalize import load_reading_dict, strip_markdown_structure
+    from karyu_tech_news.tts.quality import analyze_wav_signal
     from karyu_tech_news.tts.synthesize import synthesize_script
 
     settings = ctx.obj
@@ -589,9 +595,43 @@ def produce(
         synth = synthesize_script(
             script, tts, reading_dict, emoji_mapping=emoji_mapping, caption=caption
         )
+        if synth.skipped_sentences:
+            typer.secho(
+                "ERROR: TTS 合成で欠落文があります "
+                f"{synth.skipped_sentences}/{synth.attempted_sentences} 文 "
+                "。不完全な mp3 の生成を中止します。",
+                fg=typer.colors.RED,
+                err=True,
+            )
+            raise typer.Exit(code=1)
+        if synth.synthesized_sentences == 0:
+            typer.secho(
+                "ERROR: TTS 合成成功文が 0 件です。無音 mp3 の生成を中止します。",
+                fg=typer.colors.RED,
+                err=True,
+            )
+            raise typer.Exit(code=1)
+        signal = analyze_wav_signal(synth.audio)
+        if not signal.has_pcm_signal:
+            typer.secho(
+                "ERROR: TTS 合成結果が無音です。mp3 配信を中止します。",
+                fg=typer.colors.RED,
+                err=True,
+            )
+            raise typer.Exit(code=1)
+        if signal.max_silence_sec >= MAX_TTS_SILENCE_SEC - 1e-6:
+            typer.secho(
+                "ERROR: TTS 音声に "
+                f"{MAX_TTS_SILENCE_SEC:.1f} 秒以上の無音区間があります "
+                f"(max={signal.max_silence_sec:.1f}s)。mp3 配信を中止します。",
+                fg=typer.colors.RED,
+                err=True,
+            )
+            raise typer.Exit(code=1)
         mixed = mix_bgm(synth.audio, bgm_path=find_bgm(bgm_dir))
 
-        out_path = out_dir / f"episode_{draft_pk}.mp3"
+        stamp = now.strftime("%Y%m%dT%H%M%S%fZ")
+        out_path = out_dir / f"episode_{draft_pk}_{stamp}.mp3"
         try:
             result = master_to_mp3(mixed, out_path)
         except MasteringError as exc:
@@ -599,10 +639,40 @@ def produce(
             raise typer.Exit(code=1) from exc
 
         lufs = result.measured_lufs if math.isfinite(result.measured_lufs) else None
-        lufs_str = f"{lufs:.1f} LUFS" if lufs is not None else "無音 (fail-open)"
+        if lufs is None and result.duration_sec >= MIN_LUFS_REQUIRED_DURATION_SEC:
+            out_path.unlink(missing_ok=True)
+            typer.secho(
+                "ERROR: 実運用尺の音声で LUFS を測定できません。mp3 配信を中止します。",
+                fg=typer.colors.RED,
+                err=True,
+            )
+            raise typer.Exit(code=1)
+        true_peak = result.true_peak_dbtp if math.isfinite(result.true_peak_dbtp) else None
+        if result.duration_sec >= MIN_LUFS_REQUIRED_DURATION_SEC:
+            if true_peak is None:
+                out_path.unlink(missing_ok=True)
+                typer.secho(
+                    "ERROR: 実運用尺の音声で true peak を測定できません。mp3 配信を中止します。",
+                    fg=typer.colors.RED,
+                    err=True,
+                )
+                raise typer.Exit(code=1)
+            if true_peak > MAX_TRUE_PEAK_DBTP:
+                out_path.unlink(missing_ok=True)
+                typer.secho(
+                    "ERROR: mp3 の true peak が高すぎます "
+                    f"({true_peak:.1f} dBTP > {MAX_TRUE_PEAK_DBTP:.1f} dBTP)。"
+                    "mp3 配信を中止します。",
+                    fg=typer.colors.RED,
+                    err=True,
+                )
+                raise typer.Exit(code=1)
+        lufs_str = f"{lufs:.1f} LUFS" if lufs is not None else "測定不能"
+        tp_str = f"{true_peak:.1f} dBTP" if true_peak is not None else "TP測定不能"
         typer.echo(
             f"完パケ: {out_path} ({result.duration_sec:.1f}s, "
-            f"{result.bitrate}/{result.sample_rate}Hz, {lufs_str}) engine={tts.name()}"
+            f"{result.bitrate}/{result.sample_rate}Hz, {lufs_str}, tp={tp_str}, "
+            f"max_silence={signal.max_silence_sec:.1f}s) engine={tts.name()}"
         )
         if dry_run:
             typer.echo("[DRY RUN] DB 記録・Discord 投稿はスキップ")

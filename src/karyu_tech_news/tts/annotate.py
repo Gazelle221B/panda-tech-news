@@ -4,8 +4,8 @@ architecture §4 / ADR-0006: edit 層の tone 判定 (hard_negative/constructive
 を Irodori-TTS の絵文字スタイル制御に変換する後処理層。台本生成段階では絵文字を
 入れず (editorial-policy: 本文に絵文字禁止)、TTS 前処理で機械的に文末挿入する。
 
-エンジンが絵文字スタイルをサポートする場合のみ適用する (capabilities 分岐)。
-呼び出し側は `engine.capabilities().emoji_style` を `emoji_enabled` に渡す。
+T36 ASR QA 後は production 既定で無効。persona が `emoji_annotation_enabled: true`
+を明示し、かつエンジンが絵文字スタイルをサポートする場合のみ適用する。
 """
 from __future__ import annotations
 
@@ -18,9 +18,15 @@ from karyu_tech_news.script.structure import StructuredScript
 
 
 def load_emoji_annotation(persona_path: Path) -> dict[str, list[str]]:
-    """hal_persona.yaml の `tts.emoji_annotation` (tone → 絵文字候補) を読む."""
+    """hal_persona.yaml の `tts.emoji_annotation` (tone → 絵文字候補) を読む.
+
+    実音声 ASR QA で絵文字スタイル注釈が異物読みの原因になったため、production 既定は
+    無効。`tts.emoji_annotation_enabled: true` を明示した persona だけ読み込む。
+    """
     raw: Any = yaml.safe_load(persona_path.read_text(encoding="utf-8")) or {}
     tts = raw.get("tts", {}) if isinstance(raw, dict) else {}
+    if not isinstance(tts, dict) or tts.get("emoji_annotation_enabled") is not True:
+        return {}
     mapping = tts.get("emoji_annotation", {}) if isinstance(tts, dict) else {}
     result: dict[str, list[str]] = {}
     if isinstance(mapping, dict):

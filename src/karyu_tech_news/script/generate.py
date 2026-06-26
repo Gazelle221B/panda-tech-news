@@ -32,6 +32,7 @@ RUMOR_MARKER = "噂"  # 「これは噂レベルですが — 」等の明示を
 
 # editorial-policy §10 / hal-persona §3 の禁止表現 (決定的チェック分)
 FORBIDDEN_PHRASES = ("中国すごい", "日本終わった", "中国製は粗悪", "以下は要約です")
+REPLACEMENT_CHARACTER = "\ufffd"  # 文字化け混入。TTS が記号名を読むため台本契約違反。
 
 _SECTION_LABELS = ("**Hook:**", "**Insight:**", "**Action:**")
 
@@ -121,6 +122,8 @@ def validate_topic_script(text: str, *, require_rumor_marker: bool = False) -> l
         violations.append(f"300 文字超過 (空白除く {count} 文字)")
     if "http://" in text or "https://" in text:
         violations.append("本文に URL を含めない (ソース一覧で別掲)")
+    if REPLACEMENT_CHARACTER in text:
+        violations.append("本文に置換文字 (�) を含めない")
     for phrase in FORBIDDEN_PHRASES:
         if phrase in text:
             violations.append(f"禁止表現: {phrase}")

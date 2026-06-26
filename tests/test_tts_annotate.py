@@ -77,8 +77,24 @@ def test_annotate_script_does_not_mutate_input() -> None:
 
 # ---------- 設定ロード ----------
 
-def test_load_emoji_annotation_from_persona() -> None:
+def test_load_emoji_annotation_defaults_off_for_persona() -> None:
     mapping = load_emoji_annotation(PERSONA_PATH)
+    assert mapping == {}
+
+
+def test_load_emoji_annotation_requires_explicit_opt_in(tmp_path: Path) -> None:
+    persona = tmp_path / "persona.yaml"
+    persona.write_text(
+        """
+tts:
+  emoji_annotation_enabled: true
+  emoji_annotation:
+    hard_negative: ["😟"]
+    bright: ["😊"]
+""".lstrip(),
+        encoding="utf-8",
+    )
+    mapping = load_emoji_annotation(persona)
     assert "hard_negative" in mapping
     assert "bright" in mapping
     assert all(isinstance(v, list) and v for v in mapping.values())
