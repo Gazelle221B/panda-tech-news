@@ -58,7 +58,8 @@
 ### Quick start (現時点で動くもの)
 
 ```bash
-uv sync                                            # 依存 + Python 3.11+ を用意
+uv sync                                            # 基本依存 + Python 3.11+ を用意
+uv sync --extra tts                                # produce / 実TTS を使う場合のみ
 cp .env.example .env                               # DISCORD_WEBHOOK_URL を埋める
 docker compose up -d rsshub                         # 掘金など RSSHub 経由ソース用
 uv run python -m karyu_tech_news --help
@@ -67,7 +68,7 @@ uv run python -m karyu_tech_news init-db           # SQLite 初期化
 uv run python -m karyu_tech_news collect --post    # 収集 → SQLite → Discord 投稿
 uv run python -m karyu_tech_news draft --dry-run   # 台本候補の確認 (LLM 不使用)
 uv run python -m karyu_tech_news draft --post      # LLM 台本生成 → Discord (要 API キー)
-uv run python -m karyu_tech_news produce --dry-run # 保存済み台本 → 音声完パケ (要 TTS 設定)
+uv run python -m karyu_tech_news produce --dry-run # 保存済み台本 → 音声完パケ (要 --extra tts + TTS 設定)
 uv run python -m karyu_tech_news evaluate          # A/B/C 検証の定量サマリー
 uv run pytest                                      # テスト (438 pass, 2026-06-26時点)
 ```

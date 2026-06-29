@@ -214,14 +214,15 @@ $S/history.sh karyu                    # 全履歴 (既読/未読問わず閲覧
 
 ## 4. 日次運用ループ (本番配信の心臓部)
 
-平日朝、以下を順に実行する (要件 §13.2)。各ステップは fail-open — 1 つの失敗で全体を止めない。
+平日朝、以下を順に実行する (要件 §13.2)。`collect` / `draft` は fail-open — 1 つのソース失敗や Discord 投稿失敗で全体を止めない。一方 `produce` は配信品質ゲートであり、TTS 文欠落・無音・LUFS/true peak 失敗時は Discord へ失敗通知を試みたうえで非 0 終了し、launchd/外部監視へ失敗を伝える。
 
 ```bash
 cd "$(git rev-parse --show-toplevel)"        # リポジトリルートへ移動 (環境非依存)
 docker compose up -d rsshub                   # 掘金など RSSHub 経由ソース用 (unhealthy 表示でも実応答 200 なら可)
 uv run python -m karyu_tech_news collect --post          # 収集 → SQLite → Discord サマリー
 uv run python -m karyu_tech_news draft --variant A --post # LLM 編集判定 → 3-5 本選定 → 台本 → Discord 台本投稿
-uv run python -m karyu_tech_news produce --engine irodori-tts-v3 --post # 音声完パケ → Discord mp3 (人間Go済みの場合のみ)
+uv run python -m karyu_tech_news produce --engine irodori-tts-v3 --post # 音声完パケ → Discord mp3 (人間Go済みの場合のみ。品質ゲート失敗は非0)
+# 任意: 配信後の観察・比較用。日次配信ループの成否判定には含めない。
 uv run python -m karyu_tech_news evaluate                 # A/B/C 定量サマリー
 ```
 

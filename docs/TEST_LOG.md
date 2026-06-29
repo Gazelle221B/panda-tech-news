@@ -1175,3 +1175,15 @@ libmp3lame assertion crash) → 修正 (上記 step 3) → 再レビューで実
 - `uv run ruff check .` → **All checks passed**
 - `uv run mypy src tests` → **Success: no issues found in 70 source files**
 - `git diff --check` → **clean**
+
+## 2026-06-29 — PR #24 review comment response
+
+**対応したコメント**:
+- README Quick start の `produce --dry-run` が `uv sync` だけで動くように見える点を修正。`uv sync --extra tts` と `--extra tts + TTS 設定` を明示。
+- ORCHESTRATION_RUNBOOK の日次運用ループが全ステップ fail-open に読める点を修正。`collect` / `draft` は fail-open、`produce` は品質ゲート失敗時に通知 + 非 0 終了、`evaluate` は配信ループ外の任意観察手順と明記。
+
+**全体ゲート (fresh)**:
+- `uv run pytest` → **438 passed in 2.68s**
+- `uv run ruff check .` → **All checks passed**
+- `uv run mypy src tests` → **Success: no issues found in 70 source files**
+- `git diff --check` → **clean**
