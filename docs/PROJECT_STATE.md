@@ -1,11 +1,12 @@
 # プロジェクト状態
 
-> 最終更新: 2026-06-26 / 更新者: Codex (T36 音声品質ハードニング ASR QA + 独立レビュー反映)
+> 最終更新: 2026-06-29 / 更新者: Codex (T37 agentic workflow research hardening)
 > 本ファイルは全エージェントが随時更新する。**Antigravity の内部記憶ではなくここを真の記憶とする** (WORKFLOW §13)。
 
 ## 現在のフェーズ
 
 **Sprint 2 (音声化・自動配信) 完了後の音声品質ハードニング code loop 完了 (T36 / branch `agent/T36-audio-quality-impl`)**
+- **T37 workflow hardening (2026-06-29, branch `agent/T37-workflow-hardening-impl`)**: 最新の agentic / multi-agent 研究を [agentic-workflow-research-2026.md](./agentic-workflow-research-2026.md) に集約し、WORKFLOW / ORCHESTRATION_RUNBOOK / AGENTS / README / review・QA prompts へ反映。追加方針: 単一オーケストレーター所有、並列は探索・レビュー・QA・独立ファイルに限定、context packet 必須、MAST型失敗 (specification gap / inter-agent misalignment / verification・termination failure) をレビュー対象化、agmsg は transport であり権威ではない。
 - **T33/T34/T35 は main 到達済み** (`ed0163f`, PR #22)。Irodori 600M VoiceDesign + caption、日次自動配信、launchd PATH 修正、中国語原題の簡体字ベース翻字まで反映済み。
 - **T36 (音声品質ハードニング) code loop 完了**: T35 後の実音声調査で、読み辞書 (`豆包`→`ドウバオ`) が中国語 quote にカナを混ぜ、後段の「かな有りなら日本語」ガードにより原題処理をスキップする順序バグを確認。`prepare_tts_text` で「Markdown/URL/ASCII 除去 → 原語（カナ読み）整理 → 中国語 quote 発話退避 → 読み辞書 → 残存 quote 発話退避」に整理。さらにローカル ASR で長い pinyin 羅列自体が異物読みになることを確認したため、長い中国語原題 quote は `この話題` へ退避し、読み辞書に完全一致する短い固有名詞だけカナ読みを残す方針へ変更。`pypinyin` 依存は削除済み。`SynthesisResult` に attempted/synthesized/skipped 文数を追加し、produce が 1 文でも欠落した時、全滅時、TTS 合成 wav が実質無音の時、または実運用尺で post-encode LUFS が測定不能な時に mp3 を成功扱いしないようにした。
 - **T36 追加対策**: repeated produce が同一 `data/episodes/episode_<draft_id>.mp3` を上書きし、`audio_versions` の過去行が実ファイル証跡とずれる問題を、timestamp 付き output path へ変更して解消済み。
@@ -19,7 +20,7 @@
 - T36 real-data QA: 最新 draft #6-#11 の TTS 前処理後に URL / Markdown link / `原語（カナ読み）` / `灵晟` / `ling cheng` / `�` は残存せず。残った簡体字候補は `競争` / `参考` / `担う` など日本語文脈のみ。draft #10 の `返り�きました` は `返り咲きました` へ補修され `�` 残存なし。draft #10 の `バイトダンス（バイトダンス）` 重複読みも `バイトダンス` へ整理済み。draft #11 の `世界人工智能大会` / `引领者` / `SAIL賞` / `聖陽股份` は `世界人工知能大会` / `卓越エーアイリーダー賞(セイル賞)` / `シェンヤングーフェン` へ正規化済み。template fallback は future draft で raw title を発話本文に入れず、category ベースの日本語 Hook に落とす。2026-06-25 実運用 Irodori produce は `episode_10_20260624T213100466311Z.mp3` (340.6s / -16.2 LUFS / `max_silence=2.3s`) で成功し、2026-06-26 03:12 JST 再測定でも `silencedetect=n=-45dB:d=3` で 3 秒以上の無音イベントなし、`loudnorm` input -16.24 LUFS / -1.75 dBTP。現行 T36 コード + 重複括弧除去での実 Irodori dry-run produce も `episode_10_20260625T184522399308Z.mp3` (337.8s / -16.2 LUFS / `tp=-1.8 dBTP` / `max_silence=2.9s`) で成功し、DB/Discord は dry-run により未変更。2026-06-26 06:30 launchd 実運用は draft #11 / `episode_11_20260625T213100335574Z.mp3` (316.8s / -16.3 LUFS / `tp=-1.8 dBTP` / `max_silence=2.6s`) で成功し、Discord mp3 投稿も成功。`silencedetect=n=-45dB:d=3` で 3 秒以上の無音イベントなし、`loudnorm` input -16.26 LUFS / -1.76 dBTP / LRA 7.10。追加の `silencedetect=n=-45dB:d=1.5` は最長 2.70 秒程度の自然な間のみ。
 - T36 review state: ASR delta (pinyin 廃止・絵文字注釈 opt-in 化) と daily pipeline rc 伝播まで含む staged full diff を Codex CLI `codex review --uncommitted -c model_reasoning_effort=high` で再確認し、**No actionable defects**。レビュアー側でも changed test subset / full pytest / ruff / mypy が green。Architecture CLI review はコード境界・TTS 正規化順・produce fail-fast・日次 pipeline rc 伝播を妥当と確認し、初回 WATCH は docs の古い日次 pipeline rc と pytest 件数の記録のみ。記録修正後の follow-up architecture review は **Architectural Status: CLEAR** / Required actions none。
 - T36 residual QA: ASR による客観チェックでは no-emoji 版が既知 artifact なし・高類似度まで改善。発音・抑揚・固有名詞の自然さの最終判断は T32 の人間試聴が残る。
-- **人間 TODO**: 2026-06-26 (金) の最終配信完了後に launchd をアンインストールすること (`launchctl unload ~/Library/LaunchAgents/com.karyu.daily-pipeline.plist && rm それ`)。
+- ~~**人間 TODO**: 2026-06-26 (金) の最終配信完了後に launchd をアンインストールすること~~ → **完了 (2026-06-27, Claude Code)**: `/schedule` 自動タスク `uninstall-daily-pipeline-launchd` は 06-27 07:00 JST に発火していたが `~/Library/LaunchAgents/com.karyu.daily-pipeline.plist` が削除されておらず未完了だったため、本セッションで `launchctl unload` + `rm` を実行し `launchctl list | grep karyu` 空を確認 (Month+Day ピンによる 2027 年再発火リスクを解消)。リポジトリ内テンプレート `scripts/launchd/com.karyu.daily-pipeline.plist` は再インストール用にそのまま保持。**次の判断: 日次配信を継続運用するか (恒久 launchd / `/schedule` クラウド実行への移行 / ここで停止) は人間判断待ち**。
 
 **Sprint 2 音声化自律実装分 (T23-T31) 完了 (2026-06-21)**: すべて main にマージ済み。Mockおよび実音声（Kokoro/Irodori）を用いた mp3 完パケ生成、-16 LUFS マスタリング、Discord 配信まで疎通を確認。
 
@@ -35,7 +36,7 @@
 **2026-06-23 続き — T33+: 絵文字スタイル制御の改善 + 600M VoiceDesign 実験 (人間 Go)**:
 - **絵文字改善 (Part B, 実装完了・ブランチ)**: 根因は2つ — ① 絵文字注釈層 (T27 `annotate.py`) が **produce で一度も呼ばれておらず本番で死んでいた**、② `hal_persona.yaml` の旧マッピングが Irodori 公式語彙外 (`bright→☺️`/`💡`/`✨`/`😔` はモデルが無視)。修正: `synthesize_script` に `emoji_mapping` 引数を追加し **文単位** で tone 別絵文字を挿入 (capabilities().emoji_style ゲート、後方互換)、`produce` が mapping を渡すよう配線、`hal_persona.yaml` を公式45絵文字語彙へ remap (bright→😊/constructive→🤔/hard_negative→😟/**neutral→📖 新規**)。test 3種追加。**全ゲート緑 (pytest 374 / ruff / mypy strict 68)**。⚠️ **この改善は 6/24 の日次 500M ジョブにも自動適用される** (produce が emoji_mapping を渡し 500M も emoji_style=True)。実機聴感は未確認 (低リスク・fail-open)。
 - **600M VoiceDesign 実験 (Part A, 隔離実行・本採用は人間判断待ち)**: 600M-v3-VoiceDesign は **参照音声+キャプション+絵文字の同時条件付け** をサポート (キャプションは「どう話すか」を上書き、参照は地声)。**ブロッカーだった点**: `irodori-tts` パッケージが古いコミット (256528a) で 600M config の `use_speaker_condition` 非対応 → 人間承認のもと server venv で最新コミット (eaf74d6) へ uv sync 更新 (日次 500M サーバはメモリ上の旧版を使い続けるため当面安全。**新版は出力に silentcipher ウォーターマークを埋め込む** — §3.5/FR-121 のAI音声明示と整合)。隔離スクリプト (server venv 別プロセス・別 checkpoint、port8088 の日次サーバ無干渉) で smoke + 6文 showcase 合成成功 (57.9s/-16 LUFS、`episode_voicedesign_sample.mp3` を人間へ送付し聴感判断待ち)。**発見: draft の markdown に中国語見出しが素で埋め込まれており日本語TTSが読み上げると崩れる** (既存・両エンジン共通の content 課題、showcase はクリーンな代表ナレーション文を使用)。話速は 500M 同様やや遅い (T32 範囲)。
-- **2026-06-24 — 本採用 実装完了 ([PR #22](https://github.com/Gazelle221B/panda-tech-news/pull/22)、人間 merge 待ち)**: 人間が showcase 音質を承認 ("非常に満足") → 日次を600M+caption化。**実施済み**: 外部 server `app.py` の `IrodoriOptions`+`_build_sampling_request` に `caption`/`cfg_scale_caption` 配線 / `.env` checkpoint を600M VoiceDesign へ / `irodori-tts` を eaf74d6 へ更新 (別リポジトリ・本PR外)。repo 側: `SynthesisRequest.caption`+`Capabilities.voice_design` (engine.py)、`IrodoriTTSEngine` の caption 送出 (irodori.py)、`synthesize_script` の caption 文単位配線 (capabilities ゲート)、produce が `hal_persona.tts.caption` を渡す、`daily_pipeline.sh` を600M checkpoint 起動に更新。**検証**: pytest 380 / ruff / mypy strict 68、600M server caption smoke HTTP200、実 produce (draft6) 22文・**文欠落0**・236.6s/-16.2LUFS。**Codex 独立レビュー PASS (Critical0/High0/Medium2/Low1、Medium=ドキュメント同期は本更新で解消)**。Antigravity QA は agy タイムアウトのため代替 QA で補完。**残: 人間 merge (§3.1) + 6/24自動配信の中国語見出し content 課題の判断**。
+- **2026-06-24 — 本採用 実装完了 ([PR #22](https://github.com/Gazelle221B/panda-tech-news/pull/22)、後日 main 到達済み)**: 人間が showcase 音質を承認 ("非常に満足") → 日次を600M+caption化。**実施済み**: 外部 server `app.py` の `IrodoriOptions`+`_build_sampling_request` に `caption`/`cfg_scale_caption` 配線 / `.env` checkpoint を600M VoiceDesign へ / `irodori-tts` を eaf74d6 へ更新 (別リポジトリ・本PR外)。repo 側: `SynthesisRequest.caption`+`Capabilities.voice_design` (engine.py)、`IrodoriTTSEngine` の caption 送出 (irodori.py)、`synthesize_script` の caption 文単位配線 (capabilities ゲート)、produce が `hal_persona.tts.caption` を渡す、`daily_pipeline.sh` を600M checkpoint 起動に更新。**当時検証**: pytest 380 / ruff / mypy strict 68、600M server caption smoke HTTP200、実 produce (draft6) 22文・**文欠落0**・236.6s/-16.2LUFS。中国語見出し・翻字・無音/clip/LUFS gate は T35/T36 で追補済み。
 
 - **2026-06-24 — T35: 初の無人自動配信で発覚した 2 件を修正 (PR #22 に追加コミット `c7182e5`)**: ① **無音バグ**: 6/24 06:30 の launchd 実走で collect/draft は成功も produce が rc=1 失敗し**音声欠落のまま Discord 配信**。根因 = launchd の bare PATH に Homebrew (`/opt/homebrew/bin`) が無く **ffmpeg 不在**で T30 マスタリングが失敗 (対話実行では PATH に Homebrew があり常に成功していたため未検出)。`daily_pipeline.sh` の PATH に `/opt/homebrew/bin:/usr/local/bin` を追加。② **中国語文字化け (人間指示「翻字」)**: fallback テンプレ Hook が原題を「<中国語>」で埋め込み日本語TTSが崩す問題を `normalize.transliterate_chinese_titles` で解消 — 「」内に漢字あり・かな無しの span のみ pinyin (声調なし) へ翻字、日本語引用/ナレーションは不変、Latin/数字は保持。`synthesize_script` の文単位前処理に配線、`pypinyin` 依存追加、test 4種。draft 7 再 produce = 275.4s/-16.3LUFS/文欠落0 (audio_versions id=7) で実音声確認。**launchd 撤去は `/schedule` タスク `uninstall-daily-pipeline-launchd` (2026-06-27 07:00 JST 発火) に登録済み**。
 - **2026-06-24 — T35 Codex 2 ラウンドレビュー反映 (最終 PR #22)**: (R1 High) 翻字が漢字のみ日本語引用 (生成AI/東京大学/人工知能 等) も pinyin 化する誤検出を、**簡体字特有文字を含む span のみ翻字**へ強化 (`_SIMPLIFIED_HAN`、precision 優先) して解消。(R1 Medium) `pypinyin` を core→optional extra `tts` へ。(R2 High) 肯定系翻字テストが標準 pytest で extra 非導入だと落ちる依存/ゲート不整合を、**dev group へ pypinyin 追加** + 肯定系に `importorskip` で解消 (runtime は extra のまま最小)。**最終ゲート: pytest 396 / ruff / mypy strict 68 / bash -n + shellcheck**。誤翻字防止の回帰テスト + fail-open テスト追加済み。
@@ -81,7 +82,7 @@
 
 ## 作業中ブランチ
 
-`agent/T36-audio-quality-impl` (最新 main `ed0163f` から分岐。音声品質ハードニング: TTS 入力前処理、合成欠落可観測性、produce 出力証跡の上書き防止)
+`agent/T37-workflow-hardening-impl` (T37 agentic workflow research hardening)。既存の 2026-06-27 launchd 撤去記録を保持したまま、ワークフロー文書・プロンプト・README のドリフトを修正中。
 
 ## 直近の設計判断
 
@@ -90,6 +91,7 @@
 - **Discord**: Webhook 起点、Bot は将来 (ADR-0003)
 - **RSSHub**: セルフホスト (ADR-0004)
 - **Tier4 噂**: 原則不採用、独立2ソースかつ「噂」明示で例外
+- **Agentic workflow**: 複数エージェントは transport / 補助知性として使い、状態・権威・完了判定は repo 内成果物と単一オーケストレーターに集約する。
 
 ## 未解決リスク
 
@@ -137,23 +139,15 @@
 
 ## 人間判断待ちの事項
 
-- ~~Python モジュール名~~ → **確定・実装済**: モジュール `karyu_tech_news`、配布名 `panda-tech-news` 維持、ビルドは hatchling (`packages = ["src/karyu_tech_news"]`)、console script `karyu`。
-- ~~ソース URL 実取得検証~~ → ✅ 完了 (2026-05-29)。
-- ~~コミット/ブランチ運用: Ticket #1+#2先行 を `agent/<task>` ブランチに乗せるか直接コミットか。~~ → 初期実装として直接 `main` へコミット済。以降は `agent/<task>` 運用を厳格に適用。
-- 初期9本に Game/Subculture 系を1本予備で入れるか (Spike §3 B案)。**→ 決定支援資料作成済み (2026-06-12): [proposals/game-subculture-source-v0.1.md](./proposals/game-subculture-source-v0.1.md)。IndieNova を実検証 OK (HTTP 200) の第一候補として推薦、採否は人間**。
-- LLM 役割 A/B/C のどれを初期既定にするか (ADR-0005、実測後確定)。
-- **【Sprint 1B 着手前ブロッカー】実 LLM model ID / endpoint の確定** (要件 §16): `deepseek-chat` / `mimo-v2.5-pro` はプレースホルダ。MiMo 海外課金が困難なら OpenRouter フォールバック。API 契約・課金は人間判断 (WORKFLOW §4 区分 D)。詳細は [IMPLEMENTATION_PLAN-1B.md](./IMPLEMENTATION_PLAN-1B.md) §6。
-- HAL の声リファレンス確定タイミング (Sprint 2 までは保留可)。
-- **【Sprint 2 Go 判断パッケージ】** T22 完了 + Sprint 1B 完了 PR マージ後に人間が判断: ① Sprint 2 着手の Go/No-Go ② Irodori-TTS-Server 実行環境 (macOS 可否 / 別マシン / クラウド GPU) ③ HAL 声リファレンス試聴 ④ BGM/ジングル素材とライセンス ⑤ mp3 配信方法 (Discord 添付 25MB vs R2/S3 リンク)。詳細は [IMPLEMENTATION_PLAN-2.md](./IMPLEMENTATION_PLAN-2.md) §6。
-- 番組オープニング/エンディング挨拶フレーズの確定 (Sprint 1B 以降で可)。**→ 候補 3 案作成済み (2026-06-12): [proposals/greeting-phrases-v0.1.md](./proposals/greeting-phrases-v0.1.md)。音読/試聴して選定は人間**。
-- **【環境・区分 D】OpenCode CLI が全モデルで UnknownError (2026-06-12)**: `opencode run` が go/qwen3.7-max・go/qwen3.7-plus・zen 無料 (deepseek-v4-flash-free) の 3 連続で「Unexpected server error」。モデル非依存のためクライアント/サーバー側の問題 — `opencode` の再ログイン・更新等の復旧確認は人間。今回の起草はインライン代替で影響なし。
-- (E2E 検証 2026-06-11 で発見) タイトルが短い GitHub リリース (例「v1.0.0」) は台本見出しにソース名を併記すべきか — T22 観察で要否判断。
-- **(T22 Day 2 で発見・Day 2 に DB 診断で真因確定) writer (DeepSeek) の台本生成成否が日で振れる** (Day1=0/5→Day2=4/5 が template fallback)。editor (MiMo) は 100% 安定なので問題は writer 側。
-  - **確定した真因** (llm_runs/script_versions の実データ解析): writer LLM 呼び出し自体は**成功** (`ok=1`、API エラー無し)。template 落ちした 4 本はいずれも **`attempts=3` (再生成上限) まで `validate_topic_script` の「300 字超過 (空白除く)」検証に通らず** fallback。成功 1 本は空白除き ≤300 字で通過。**= DeepSeek が `TOPIC_CHAR_LIMIT=300` を超える長さで書き、フィードバック再生成 3 回でも 300 字未満に収められないのが真因**。日次変動は題材による DeepSeek の冗長度の差。
-  - **人間判断の選択肢** (post-T22): ① writer プロンプトに明示的な字数バジェット (例「空白除き 250 字以内」と上限より厳しめ) を入れる ← **最有力・低リスク・コスト不変** ② 再生成フィードバックに現在の文字数と目標差分を入れる ③ `TOPIC_CHAR_LIMIT` を緩める (ただし読み上げ尺 §9.1 と TTS 時間に影響) ④ writer を DeepSeek 以外へ差し替え (llm_profiles.yaml variant、コスト再評価)。
-  - **今は直さない**: prompt/閾値を T22 観察期間中に変えると Day1/2/3 比較が汚染される (§12.4)。**T22 完了後**に上記から人間が選択 → 通常の実装→Codex→QA サイクルで反映。**fallback が機能し番組は毎日成立しているため緊急度は中**。
-- **(運用) ローカルスケジュールタスクの信頼性**: T22 Day 2 の自動実行 (06-13 07:47) が発火したが記録・コミットを残さず途中失敗した。Day 3 (06-14) も同様に失敗する可能性があるため、**Day 3 朝に TEST_LOG へ Day 3 記録が無ければ [ORCHESTRATION_RUNBOOK.md](./ORCHESTRATION_RUNBOOK.md) §4 を手動実行**して補完する (本 Day 2 と同手順)。
-- **【環境・区分D】標準 `gemini` CLI のキャッシュ済み認証が失効 (2026-06-22 発見)**: `gemini -p` を実行すると毎回ブラウザでの再認証確認 (`[Y/n]`) を要求するようになり、非対話実行ができない状態。Google公式発表 ([google-gemini/gemini-cli Discussion #27274](https://github.com/google-gemini/gemini-cli/discussions/27274)) によれば2026-06-18にGemini CLIのPro/Ultra/無料ティアへのリクエスト提供が終了しAntigravity CLI (agy) に統合されており、これが原因の可能性が高い。本プロジェクトの ORCHESTRATION_RUNBOOK.md/WORKFLOW.md が「調査・セカンドオピニオン」役として記載している `gemini -p "<prompt>"` (WORKFLOW.md / ORCHESTRATION_RUNBOOK.md 該当行) が現状そのままでは非対話実行不可。**選択肢**: ①ブラウザで再認証を試す (再認証後も提供範囲が変わっている可能性は残る) ②同役を `agy` (Antigravity) に統合する ③一旦保留し次に必要になった時に判断。認証フローはユーザー許可なく起動していない (今回は確認プロンプトの時点で安全側に停止)。
+2026-06-29 現在の有効項目:
+
+- **T32 人間試聴**: T36 で ASR・無音・LUFS・true peak の機械検証は改善済み。発音、抑揚、固有名詞の自然さ、「配信する価値」の最終判断は人間。
+- **日次配信の恒久運用**: 3日限定 launchd は撤去済み。今後の運用は恒久 launchd / `/schedule` クラウド実行 / 停止のいずれにするか人間判断。
+- **BGM/ジングル素材とライセンス**: mixer は素材非依存で実装済み。実素材の採用、権利、音量の聴感確認は人間判断。
+- **A/B/C 既定 variant**: 既定は当面 variant A。正式な既定確定は実測・聴感・コストを見て人間判断。
+- **Game/Subculture 予備ソース**: [proposals/game-subculture-source-v0.1.md](./proposals/game-subculture-source-v0.1.md) に決定支援資料あり。採否は人間。
+- **番組オープニング/エンディング挨拶フレーズ**: [proposals/greeting-phrases-v0.1.md](./proposals/greeting-phrases-v0.1.md) に候補あり。音読/試聴して選定は人間。
+- **標準 `gemini` CLI 認証失効**: `gemini -p` は非対話実行不可。必要時に再認証するか、調査役を `agy` に統合するか判断。
 
 ## 本日 (2026-05-30) 追加した成果物
 
@@ -276,3 +270,4 @@ meeting.md / meeting2.md / tik-choco コードdump の全読に基づき作成:
 | 2026-06-22 | Claude Code | **Antigravity (agy) の運用知識を整備** (ユーザー依頼「Antigravityについても同様に全モデル全コマンドを学んで習熟して」)。`/autopilot` で起動されたが、ビルド対象のコードが無い調査・ドキュメント更新作業のため5フェーズパイプラインは使わず直接調査で対応 (判断根拠を回答内で明示)。`agy --help` / `agy models` / `agy changelog` / `agy plugin list` を実機確認し、①コマンド全体 (対話TUI/単発`-p`/Async Subagentモードの3系統、`models`/`changelog`/`plugin`/`install`/`update`サブコマンド)、②選択可能な全モデル (`Gemini 3.5 Flash`のLow/Medium/High、`Gemini 3.1 Pro`のLow/High、**`Claude Sonnet 4.6`/`Claude Opus 4.6`/`GPT-OSS 120B`という他社モデルも選択可能**)、③`--model`未指定時の既定が`Gemini 3.5 Flash`(Proではない)であることを把握。RUNBOOK §3.4 を新設し、タスク特性別の推奨モデル表と「Antigravity経由でClaudeモデルを選ぶとCodex/Claude Codeとの視点独立性が崩れるため使わない」という注意を明記。WORKFLOW.md既存の「agyのサブエージェント機能は課金壁とバグの境界が不透明」という既存判断を、2026年6月の外部クォータ不具合報告 (Google AI Pro/Ultraで「5時間リフレッシュのはず複数日ロックアウト」) で裏付けて再確認。**副次的発見**: 本プロジェクトが「調査・セカンドオピニオン」役として現役運用中の標準`gemini`CLIが、キャッシュ済み認証失効でブラウザ再認証を要求する状態になっていることを発見 (Google公式発表によれば2026-06-18にGemini CLIのPro/Ultra/無料ティア提供がAntigravity CLIへ統合済み)。認証フローはユーザー許可なく起動せず安全側に停止。RUNBOOK §3.4・PROJECT_STATE「人間判断待ちの事項」に記録。コード変更なし、品質ゲート対象外 |
 | 2026-06-22 | Claude Code | **GitHub Copilot CLI の運用知識を整備** (ユーザー依頼「GithubCopilot CLIについても同様に全モデル全コマンドを学んで習熟して」)。本ツールは既存方針で「コーディングタスクには絶対使わない」(月300 premium request制限) ため、その制約は変えずコマンド/モデルの精度向上のみを目的に実施。`copilot --help` / `gh copilot --help` / `copilot help permissions` を実機確認し、①**`gh pr create`等の素の`gh`サブコマンドはLLMを介さないREST API直接呼び出しで300req/月の対象外、AIエージェント(`copilot`/`gh copilot`、実体は同一バイナリ)のみが消費する**という重要な区別を明確化(既存ドキュメントは両者を同列に書いており誤解の余地があった)、②選択可能な全モデル(Claude7種/Gemini1種/GPT10種、既定`gpt-5.4`)、③`--reasoning-effort low/medium/high/xhigh`という独立フラグの存在、④AGENTS.mdをデフォルトで読み込むこと、を把握。**実機検証は最小限のプロンプト1回のみに留めた**: `copilot -p`は何もツールを使わない単純な質問でも「1 Premium request」を消費すると出力上で確認できたため、月300という厳しい上限を踏まえ追加の試し打ちは行わなかった(OpenCode/Codex/Antigravityのような無料枠・大枠の対象では実施した多数回smoke testを、有料かつ厳格な上限を持つ本ツールでは意図的に控えた判断)。`copilot-agent.md`に記載されていた`copilot suggest`/`copilot explain`は現行v1.0.6に存在しない古いコマンドだったため修正。RUNBOOK §3.5 を新設。コード変更なし、品質ゲート対象外 |
 | 2026-06-22 | Claude Code | **agmsg (クロスエージェント・メッセージング) をワークフローへ文書統合** (ユーザー依頼「ここまでをめちゃくちゃ研究してワークフローに組み込んで」、`/autopilot` 起動だがビルド対象コードが無い文書統合作業のため5フェーズは使わず直接対応)。[agmsg](https://github.com/fujibee/agmsg) (bash+sqlite、daemon/MCP無し) を `/Users/kairyon/projects/agmsg` にクローン→`install.sh` 内容確認→ユーザー全体へインストール (v1.1.0)→**全4外部CLI (Codex/Antigravity/OpenCode/Copilot) で `karyu` チーム経由の実通信を実機検証** (claude⇄各エージェントの往復を `history.sh` で確認)。**統合の深さは人間が「文書統合」を選択** (能動運用・グローバル設定のみ等の選択肢から)。WORKFLOW.md §7 (「複数ハーネスを束ねる軽量連携手段は存在しない」とした節) に追記、RUNBOOK §3.6 を新設。**設計上の核心**: ①agmsg は WORKFLOW §0 の文書ハンドオフ原則を**置換せず補完** (生成果物でなくポインタ・通知を運ぶ、REVIEW_REPORT.md 等は真実の源のまま) ②**ロール配置 §1 は不変** (agmsg は伝送路) ③§3 の一発委任の代替でなく永続双方向が要る場面用の補完 ④Task ラッパー自己代行バグ ([[claude-code-own-environment]]) の修正とは別軸、直接シェル呼び出しが既定経路 ⑤bash+sqlite で製品コード外、**ADR-0001 非抵触**。実機で踏んだ落とし穴 (共有SKILL.mdが単一codex型でagy誤認/Copilotの`--allow-tool`は`:*`必須/`AGMSG_STORAGE_PATH`はDB のみ隔離) も RUNBOOK §3.6 に記録。**副次発見**: Codex実行時に `~/.codex/hooks.json` のパース失敗警告 (oh-my-codex が state キーを書き Codex 0.140+ と衝突、全hook 5週間以上無効化) を発見、別調査タスクとして起票・[[codex-hooks-json-state-regression]] にメモ化。コード変更なし、品質ゲート対象外 |
+| 2026-06-29 | Codex | **T37 agentic workflow research hardening**。Anthropic / OpenAI / MAST / Cognition / SWE-agent などの一次情報・研究を [agentic-workflow-research-2026.md](./agentic-workflow-research-2026.md) に集約し、WORKFLOW v1.1.0 / ORCHESTRATION_RUNBOOK / AGENTS / README / review・QA prompts へ反映。単一オーケストレーター所有、context packet、MAST型失敗チェック、同一ファイル群の並列書込禁止、agmsg=transport という境界を明文化。 |

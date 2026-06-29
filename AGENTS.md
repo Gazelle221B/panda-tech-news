@@ -22,7 +22,7 @@
 - **Sprint 1B 完全終了 (マージ済み)** — T12〜T22 完了 (PR #10/#11/#12)。実 LLM API (MiMo editor + DeepSeek writer) で variant A 本番配信中。T22 発見の 2 defects (writer 300字超過 / canonical URL 横断 dedup) は修正済み。
 - **Sprint 2 (音声化) ほぼ完了** — TTS 抽象化 (T23) / 構造化台本・読み仮名・絵文字・文単位合成 (T25-T28) / 実音声 Kokoro+Irodori アダプタ (T24) / ラウドネス -16LUFS・mp3 完パケ (T30) / BGM mixer 素材非依存 (T29) / produce 完パケ+`audio_versions` 永続化+Discord mp3 配信 (T31) を実装。実 produce で完パケ mp3 生成を実証 (draft→503〜643s/-16.3LUFS)。**残: T32 話速調整 (実音声の聴感判断 = 人間) / BGM 素材ライセンス / variant 既定確定**。
 - **2026-06-21 ミスマージ解消確認**: T29/T31 (旧 PR #18) は新 PR #19 (`main` ベースで再ランディング) が人間マージ済み。`gh` の表示のみに頼らず `origin/main` の生ログで squash コミット (#19) の到達を直接検証済み。fresh 全ゲート再検証 (pytest 365 / ruff / mypy strict 68 files) 緑。旧土台ブランチ `agent/T30-impl` (remote) は内容の main 到達確認後に削除済み。詳細は [docs/PROJECT_STATE.md](docs/PROJECT_STATE.md) 改訂履歴。
-- **2026-06-24 — T33/T34 (日次自動配信 + 600M VoiceDesign 本採用)**: `collect→draft→produce→Discord` を launchd で平日朝に自動配信 (`scripts/daily_pipeline.sh`)。絵文字スタイル制御を produce に配線+公式語彙へ修正 (T33+)。Irodori **600M VoiceDesign + caption** をエンジン非依存で本採用 (T34)。[PR #22](https://github.com/Gazelle221B/panda-tech-news/pull/22) 人間 merge 待ち (Codex 独立レビュー PASS / Antigravity QA 合格、pytest 380 / ruff / mypy strict 68)。
+- **2026-06-24〜26 — T33/T34/T35 main 到達、T36 音声品質ハードニング code loop 完了**: `collect→draft→produce→Discord` の日次自動配信、Irodori **600M VoiceDesign + caption**、launchd PATH 修正、中国語原題の発話退避、produce fail-fast、3 秒無音検出、clip/LUFS gate、daily pipeline 失敗通知まで反映済み。T36 fresh gate は pytest 438 / ruff / mypy strict 70 / shellcheck / plutil 緑。**残: T32 人間試聴、日次配信の恒久運用判断、BGM 素材ライセンス、variant 既定確定**。
 - 動画/YouTube は未実装 (Sprint 3 以降。着手は人間の Go 判断後)。
 
 ## 3. 絶対 NG (禁止事項) — 最優先
@@ -80,9 +80,9 @@ uv run python -m karyu_tech_news evaluate           # A/B/C 検証の定量サ�
 # または: uv run karyu collect --post
 
 # 品質ゲート (PR 前に必ず通す)
-uv run pytest                                       # ユニットテスト (現状 380 / pass)
+uv run pytest                                       # ユニットテスト (現状 438 / pass, 2026-06-26時点)
 uv run ruff check .                                 # Lint
-uv run mypy src tests                               # 型 (strict)
+uv run mypy src tests                               # 型 (strict, 現状 70 files)
 
 # 日次運用: RSSHub 起動 → 収集 → LLM 台本生成 (いずれも Discord 投稿込み)
 docker compose up -d rsshub
@@ -145,7 +145,7 @@ panda-tech-news/
 │   ├── llm/      (T12 で追加: profile / client)
 │   ├── edit/     (T14-T16, T20 で追加: prescore / judge / select / arc / abtest)
 │   └── script/   (T17-T18, T21 で追加: generate / fallback / runner)
-├── tests/                   # pytest (現状 380 / pass)
+├── tests/                   # pytest (現状 438 / pass)
 ├── scripts/                 # spike_curl_check.sh など検証スクリプト
 ├── data/                    # state.db 等 (.gitkeep 以外 git 管理外)
 └── assets/                  # bgm / jingles / voice_reference (素材本体は git 管理外)
@@ -164,6 +164,8 @@ panda-tech-news/
 | Antigravity (テックリード / QA) | agy + Gemini 大コンテキスト | 最終 QA、状態保持の補助 | `docs/QA_REPORT.md` |
 
 **永続化 > 内部記憶**: 状態は必ず `docs/PROJECT_STATE.md` に書く。モデルの内部記憶を真実の源にしない (WORKFLOW §13)。
+
+**2026-06-29 研究反映済みの運用補正** ([docs/agentic-workflow-research-2026.md](docs/agentic-workflow-research-2026.md)): 単一オーケストレーターが計画・統合・完了判定を所有する。並列エージェントは探索・レビュー・QA・独立ファイルに限定し、同じファイル群への並列書き込みは禁止。agmsg は通知/ポインタの transport であり、`PROJECT_STATE.md` / `REVIEW_REPORT.md` / `QA_REPORT.md` / PR review / 人間 merge の権威を置き換えない。
 
 **エスカレーション分類** (WORKFLOW §4):
 - A. 実装失敗 → OpenCode 差し戻し
@@ -231,6 +233,7 @@ panda-tech-news/
 | 実装計画 (1B) | [docs/IMPLEMENTATION_PLAN-1B.md](docs/IMPLEMENTATION_PLAN-1B.md) | Sprint 1B タスク分解 (T12〜) + 着手前ブロッカー |
 | 実装計画 (2) | [docs/IMPLEMENTATION_PLAN-2.md](docs/IMPLEMENTATION_PLAN-2.md) | Sprint 2 (音声化) タスク分解 (T23〜) + 着手ゲート |
 | ワークフロー | [docs/WORKFLOW.md](docs/WORKFLOW.md) | エージェント間契約 (組織・ロール) |
+| ワークフロー研究 | [docs/agentic-workflow-research-2026.md](docs/agentic-workflow-research-2026.md) | agentic / multi-agent 最新知見の運用反映根拠 |
 | 運用書 | [docs/ORCHESTRATION_RUNBOOK.md](docs/ORCHESTRATION_RUNBOOK.md) | ★ 自律オーケストレーションの操作手順 (状態判定→次手→委任→検証)。交代した AI はまずここ |
 | 引き継ぎ | [docs/HANDOFF.md](docs/HANDOFF.md) | 時点スナップショット (今どこ・次に何) |
 | 状態 | [docs/PROJECT_STATE.md](docs/PROJECT_STATE.md) | 永続化された進捗 (★ ここを真の記憶とする) |
@@ -254,9 +257,6 @@ panda-tech-news/
 7. **言語**: 日本語で応答 (英語のみのドキュメント作成は例外)。
 
 ## 12. コーディング原則 (Karpathy 4 原則)
-
-> 出典: [multica-ai/andrej-karpathy-skills](https://github.com/multica-ai/andrej-karpathy-skills) — Andrej Karpathy による LLM コーディング pitfall ([X 元投稿](https://x.com/karpathy/status/2015883857489522876)) を 4 原則に整理したもの。
-> 適用: 全エージェント (Claude Code / OpenCode / Codex / Antigravity)。グローバル `~/.claude/CLAUDE.md` の同名セクションを本プロジェクト固有の手続きに翻訳した実装ガイド。**§3「絶対 NG」と矛盾する場合は §3 を優先**。
 
 ### 12.1 Think Before Coding — 実装前に思考する
 **勝手に仮定しない。混乱を隠さない。トレードオフを提示する。**
@@ -297,4 +297,3 @@ panda-tech-news/
 ---
 
 > 改訂方針: 重大な設計判断は ADR を追加 → 本書 §3 / §5 / §10 を更新。`docs/PROJECT_STATE.md` の「直近の設計判断」も同期。
-> 本書の対象範囲を超える詳細は必ず該当 md へポインタを置く (300 行制限維持のため)。
