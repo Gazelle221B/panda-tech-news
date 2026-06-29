@@ -4,6 +4,7 @@
 > 目的: オーケストレーターが交代しても、この 1 冊を読めば「現在地の判定 → 次の一手の決定 → 適切な AI への委任 → 検証 → 記録」を**人間の逐次指示なしに**回せるようにする。
 > 位置づけ: [WORKFLOW.md](./WORKFLOW.md) が *組織契約* (誰が何の役割か) を定義するのに対し、本書は *操作手順* (どう自走するか) を定義する。両者は補完関係。
 > 不変条件 ([AGENTS.md](../AGENTS.md) §3「絶対 NG」) は本書より常に優先。本書と §3 が矛盾したら §3 に従う。
+> 最終見直し: 2026-06-29。agentic / multi-agent 研究反映の根拠は [agentic-workflow-research-2026.md](./agentic-workflow-research-2026.md)。
 
 ---
 
@@ -12,7 +13,7 @@
 1. [AGENTS.md](../AGENTS.md) — 最上位の指示書・禁止事項 (§3)。
 2. [docs/PROJECT_STATE.md](./PROJECT_STATE.md) — **真の記憶**。現在のフェーズ・人間判断待ち・改訂履歴。内部記憶より常にこちらを信じる。
 3. 本書 (ORCHESTRATION_RUNBOOK.md) — 次の一手の決め方。
-4. [docs/TEST_LOG.md](./TEST_LOG.md) の末尾 — 直近の運用実走の結果 (T22 観察記録など)。
+4. [docs/TEST_LOG.md](./TEST_LOG.md) の末尾 — 直近の運用実走の結果 (T32/T36 観察・日次配信など)。
 5. 必要に応じ [docs/HANDOFF.md](./HANDOFF.md) — 直近の引き継ぎ時点スナップショット (あれば)。
 
 読んだら **§2 の決定木で現在地を判定**してから動く。「とりあえず実装」を始めない (§12.1 Think Before Coding)。
@@ -27,12 +28,12 @@ PROJECT_STATE.md の「現在のフェーズ」と git/PR 状態を突き合わ�
 |---|---|---|---|
 | 1 | `git status` が dirty | 作業途中で中断 | 未コミット変更の意図を PROJECT_STATE と照合 → §5 ゲート → commit (作業ブランチへ)。意図不明な変更は破棄せず人間判断待ちに記録 |
 | 2 | `uv run pytest` が赤 | 品質ゲート破れ | §5 を緑にするまで他作業を止める。原因が自分の変更でなければ `git log` で犯人を特定し PROJECT_STATE に記録 |
-| 3 | TEST_LOG に T22 Day N 未記録 かつ 当日朝 | 日次観察日 | §4 日次運用ループを実行し観察を記録 |
-| 4 | T22 が 3 日未達 | Sprint 1B 観察中 | スケジュールタスク (§7) の自動実行を待つ。手動補完が必要なら §4 を実行 |
-| 5 | T22 完了 かつ Sprint 1B 完了 PR 未作成 | 観察完了 | 3 日総括を TEST_LOG に記入 → DoD 更新 → 完了 PR 作成 (`gh pr create`)。**merge はしない** (§6 人間ゲート) |
-| 6 | Sprint 1B 完了 PR がマージ済み かつ Sprint 2 Go 未宣言 | 次フェーズ判断待ち | **停止して人間を待つ** (§6)。判断材料は [IMPLEMENTATION_PLAN-2.md §6](./IMPLEMENTATION_PLAN-2.md) と `docs/proposals/` に準備済み |
-| 7 | 人間が Sprint 2 Go を PROJECT_STATE に記録済み | Sprint 2 着手可 | 最新 main から `agent/T23-impl` を切り、[IMPLEMENTATION_PLAN-2.md](./IMPLEMENTATION_PLAN-2.md) の T23 から §3 の委任サイクルで実装 |
-| 8 | 上記いずれも非該当 | 平常運用 | §4 日次運用ループ (本番配信の継続) + ドキュメントのドリフト点検 |
+| 3 | `PROJECT_STATE.md` が T36 code loop 完了・T32 人間試聴待ちを示す | Sprint 2 実装側は完了、聴感判断待ち | 新機能を発明しない。必要作業は (a) 証跡整理 (b) docs drift 修正 (c) 人間判断材料の更新に限定 |
+| 4 | `~/Library/LaunchAgents/com.karyu.daily-pipeline.plist` が存在 | 3日限定 launchd が残存している可能性 | `launchctl list | grep karyu` と plist を確認。残っていれば人間TODO履歴と照合し、不要なら撤去記録を PROJECT_STATE に残す |
+| 5 | 日次配信を継続する人間Goがある | 継続運用 | §4 の日次運用ループを実行し、TEST_LOG / PROJECT_STATE へ収集・台本・音声・Discord・音質ゲートの結果を記録 |
+| 6 | 日次配信継続Goが無い | 人間判断待ち | 恒久 launchd / `/schedule` クラウド実行 / 停止の判断材料だけ整備し、新しい定期実行は作らない |
+| 7 | T36 PR/ブランチが未PR・未merge | 実装完了後の公開待ち | fresh §5 ゲート → REVIEW/QA 証跡確認 → PR 作成。**merge はしない** (§6 人間ゲート) |
+| 8 | 上記いずれも非該当 | 平常運用 | ドキュメント drift 点検、依存・モデル・CLI仕様の再確認、既存DoDの維持 |
 
 > **原則**: 決定木が「人間ゲート」を指したら、追加作業を発明せず停止する。ゲートを迂回する作業 (例: 観察を待たず Sprint 2 コードを書く) は §6/§3.4 違反であり、プロダクトを*前進ではなく劣化*させる。
 
@@ -186,6 +187,29 @@ $S/history.sh karyu                    # 全履歴 (既読/未読問わず閲覧
 
 **使いどころの判断**: 単発の委任 (レビュー1件・実装1タスク) は §3 表の直接呼び出しで十分で、agmsg を噛ませる必要はない。agmsg を使うのは ①セッションを跨いで連携履歴を残したい ②複数エージェントが同じ「部屋」で非同期にやり取りする ③オーケストレーター不在でもピア同士が通知し合う、といった**永続・双方向が本質的に要る**場面に限る。現状の本プロジェクトは人間ゲート待ち (§2 決定木) が多く単発委任で足りるため、agmsg は**「整備済みの選択肢」**という位置づけ (常用を強制しない)。
 
+### 3.7 研究反映済みの agentic workflow guardrails (2026-06-29)
+
+委任前に必ず context packet を作る。最低限の項目:
+
+- objective: 何を達成するか
+- in-scope / out-of-scope: 触ってよい範囲、触ってはいけない範囲
+- authority docs: `AGENTS.md`、`PROJECT_STATE.md`、該当 DESIGN / IMPLEMENTATION_PLAN / ADR
+- writable files: 書き込み許可ファイル。指定がなければ read-only
+- required evidence: 必要なテスト、diff、line reference、外部URL検証
+- stop conditions: 人間ゲート、環境失敗2回、同一レビューFAIL2回など
+
+並列化のルール:
+
+- 並列可: repo探索、一次情報調査、独立レビュー、QA、互いに disjoint なファイルの実装。
+- 原則不可: 同じファイル群への同時編集、`PROJECT_STATE.md` の同時更新、同じPRへの複数ライターの直接push。
+- 必要時のみ: worktree で隔離し、統合はオーケストレーターが diff を読んで行う。
+
+採用前チェック:
+
+- 外部AIやagmsgの発言は権威ではない。採用するには repo 内差分、実行ログ、一次情報、PR review のいずれかに接続する。
+- 完了判定は MAST 型失敗を見る: specification gap / inter-agent misalignment / verification・termination failure が残っていないか。
+- 最新モデル・価格・CLI仕様に依存する判断は、実行時に `--help` / 公式docs / smoke test で再確認する。
+
 ---
 
 ## 4. 日次運用ループ (本番配信の心臓部)
@@ -194,10 +218,10 @@ $S/history.sh karyu                    # 全履歴 (既読/未読問わず閲覧
 
 ```bash
 cd "$(git rev-parse --show-toplevel)"        # リポジトリルートへ移動 (環境非依存)
-git checkout agent/T22-impl                  # 作業ブランチ (フェーズにより切り替え)
 docker compose up -d rsshub                   # 掘金など RSSHub 経由ソース用 (unhealthy 表示でも実応答 200 なら可)
 uv run python -m karyu_tech_news collect --post          # 収集 → SQLite → Discord サマリー
 uv run python -m karyu_tech_news draft --variant A --post # LLM 編集判定 → 3-5 本選定 → 台本 → Discord 台本投稿
+uv run python -m karyu_tech_news produce --engine irodori-tts-v3 --post # 音声完パケ → Discord mp3 (人間Go済みの場合のみ)
 uv run python -m karyu_tech_news evaluate                 # A/B/C 定量サマリー
 ```
 
@@ -206,16 +230,18 @@ uv run python -m karyu_tech_news evaluate                 # A/B/C 定量サマ�
 - 編集: 候補数 → 採用数 / llm 成功・retry・fallback 回数 / editor JSON 安定性
 - コスト: トークン消費 (要件 §9.7 月 1,500-3,000 円の範囲内か)
 - 配信: Discord HTTP ステータス (204 期待)
-- 品質: 「音声化する価値」観点の所感 / [editorial-policy.md](./editorial-policy.md) 違反の有無
+- 音声: mp3 秒数 / LUFS / true peak / `max_silence` / skipped 文数 / produce fail-fast の有無
+- 品質: 「配信する価値」観点の所感 / [editorial-policy.md](./editorial-policy.md) 違反の有無
 
 ---
 
 ## 5. 品質ゲート (完了宣言前に必ず・記憶で代用しない)
 
 ```bash
-uv run pytest        # 全テスト緑 (現状 242)
+uv run pytest        # 全テスト緑 (2026-06-26時点: 438。件数は記憶でなくfresh出力を信じる)
 uv run ruff check .  # lint クリーン
-uv run mypy src tests # 型 strict クリーン
+uv run mypy src tests # 型 strict クリーン (2026-06-26時点: 70 files)
+git diff --check     # whitespace / conflict marker 確認
 ```
 
 3 つとも**フレッシュ実行で**緑を確認してからのみ「完了」と言う ([commit-rules.md](./commit-rules.md))。

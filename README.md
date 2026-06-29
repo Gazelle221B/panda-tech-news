@@ -10,9 +10,9 @@
 
 ## ステータス
 
-- フェーズ: **Sprint 2 (音声化) 完了 → 日次自動配信 本採用中** — Sprint 1A/1B マージ済み。T23〜T31 (TTS 抽象化〜完パケ mp3 配信) main 到達。T33/T34 で `collect→draft→produce→Discord` を launchd 自動配信化 + Irodori **600M VoiceDesign + caption** + 絵文字スタイル制御を本採用 ([PR #22](https://github.com/Gazelle221B/panda-tech-news/pull/22) 人間 merge 待ち)。
-- 品質: pytest **380 pass** / ruff / mypy strict (68 files)。実 produce E2E (600M+caption) 文欠落0・-16.2 LUFS。Codex 独立レビュー PASS / Antigravity QA 合格。
-- 次アクション: **① PR #22 merge (人間) ② 6/24-26 自動配信観察 ③ 残課題: 中国語見出しの台本 content 改善 / T32 話速 / launchd 6/26 後撤去** ([docs/PROJECT_STATE.md](docs/PROJECT_STATE.md))
+- フェーズ: **Sprint 2 (音声化・日次自動配信) code loop 完了後の人間判断待ち** — Sprint 1A/1B、T23〜T35 は main 到達済み。T36 で中国語原題の発話退避、produce fail-fast、無音/clip/LUFS gate、日次 pipeline 失敗通知までハードニング済み。
+- 品質: T36 fresh gate は pytest **438 pass** / ruff / mypy strict (70 files) / shellcheck / plutil 緑。実 Irodori dry-run produce は -16.2 LUFS / true peak 安全域 / 3秒以上無音なしを確認。
+- 次アクション: **T32 人間試聴、日次配信の恒久運用判断、BGM 素材ライセンス、variant 既定確定** ([docs/PROJECT_STATE.md](docs/PROJECT_STATE.md))
 
 ## ドキュメント地図
 
@@ -31,6 +31,8 @@
 | 実装計画(1B) | [docs/IMPLEMENTATION_PLAN-1B.md](docs/IMPLEMENTATION_PLAN-1B.md) | Sprint 1B タスク分解 (T12〜) |
 | 実装計画(2) | [docs/IMPLEMENTATION_PLAN-2.md](docs/IMPLEMENTATION_PLAN-2.md) | Sprint 2 (音声化) タスク分解 (T23〜) + 着手ゲート |
 | ワークフロー | [docs/WORKFLOW.md](docs/WORKFLOW.md) | エージェント間契約 |
+| ワークフロー研究メモ | [docs/agentic-workflow-research-2026.md](docs/agentic-workflow-research-2026.md) | agentic / multi-agent 最新知見の運用反映根拠 |
+| オーケストレーション運用 | [docs/ORCHESTRATION_RUNBOOK.md](docs/ORCHESTRATION_RUNBOOK.md) | 現在地判定・委任・検証・記録の手順 |
 | 状態 | [docs/PROJECT_STATE.md](docs/PROJECT_STATE.md) | 永続化された進捗 |
 | Spike | [docs/source-selection-spike-v0.1.md](docs/source-selection-spike-v0.1.md) | 初期ソース選定 (11本/有効9) |
 | ADR | [docs/adr/INDEX.md](docs/adr/INDEX.md) | 重要決定の記録ハブ (0001-0006) + TEMPLATE |
@@ -49,9 +51,9 @@
 | [.env.example](.env.example) | 環境変数サンプル (`cp .env.example .env`) |
 | [scripts/](scripts/) | Spike 検証スクリプト (curl / feedparser) |
 
-## 現在のスコープ要旨 (Sprint 1B 実装済み)
+## 現在のスコープ要旨
 
-TTS・動画・YouTube は未実装 (Sprint 2 以降)。**「収集 (1A) → LLM 編集判定 → 3-5 本選定 → Markdown 台本生成 → Discord 投稿 (1B)」** までコード実装済み。実 LLM API 接続 (T13) も完了済み (MiMo + DeepSeek、2026-06-12) — variant A で本番配信中。
+**「収集 → LLM 編集判定 → 3-5 本選定 → Markdown 台本生成 → Irodori 600M VoiceDesign + caption による mp3 完パケ → Discord 投稿」** までコード実装済み。動画 / YouTube は未実装 (Sprint 3 以降、人間 Go 後)。variant A で運用中、音声品質の最終判断は T32 の人間試聴が残る。
 
 ### Quick start (現時点で動くもの)
 
@@ -65,8 +67,9 @@ uv run python -m karyu_tech_news init-db           # SQLite 初期化
 uv run python -m karyu_tech_news collect --post    # 収集 → SQLite → Discord 投稿
 uv run python -m karyu_tech_news draft --dry-run   # 台本候補の確認 (LLM 不使用)
 uv run python -m karyu_tech_news draft --post      # LLM 台本生成 → Discord (要 API キー)
+uv run python -m karyu_tech_news produce --dry-run # 保存済み台本 → 音声完パケ (要 TTS 設定)
 uv run python -m karyu_tech_news evaluate          # A/B/C 検証の定量サマリー
-uv run pytest                                      # テスト (380 pass)
+uv run pytest                                      # テスト (438 pass, 2026-06-26時点)
 ```
 
 ### CLI 進捗
@@ -77,9 +80,10 @@ uv run pytest                                      # テスト (380 pass)
 | `init-db` | ✅ T4 (SQLite 初期化・冪等) |
 | `collect` (`--source` / `--post` / `--dry-run`) | ✅ T3-T10 (収集→保存→dedupe→source_health→Discord) |
 | `draft` (`--variant` / `--post` / `--dry-run`) | ✅ T12-T19, T21 (候補→判定→選定→台本→投稿)。実 API 接続済み (T13) |
+| `produce` (`--engine` / `--post` / `--dry-run`) | ✅ T31-T36 (構造化→TTS→BGM optional→-16 LUFS mp3→Discord、fail-fast品質ゲート) |
 | `evaluate` | ✅ T20 (採用率/修正回数/コスト/JSON安定性) |
 
-> Discord 投稿は独立コマンドではなく `collect --post` / `draft --post` に統合。
+> Discord 投稿は独立コマンドではなく `collect --post` / `draft --post` / `produce --post` に統合。
 
 ## マルチエージェント運用
 

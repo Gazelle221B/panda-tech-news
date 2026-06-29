@@ -1151,3 +1151,27 @@ libmp3lame assertion crash) → 修正 (上記 step 3) → 再レビューで実
 - Code review (latest full diff + duplicate-parenthetical delta, 2026-06-26): native subagent 2 レーンは使用上限で起動失敗したため CLI-backed review に代替。`codex review --uncommitted -c model_reasoning_effort=high` → **No discrete correctness, security, or maintainability bugs**。別途 `codex exec` architecture review → **Architectural Status: CLEAR**。非ブロッキング注意は (1) untracked `tts/quality.py` / `tests/test_tts_quality.py` を PR 前に含めること、(2) PROJECT_STATE review state の重複括弧 delta 待ち表現を更新すること。本追記で (2) は解消。
 - Code review (fallback title removal + reading_dict delta, 2026-06-26): native subagent tool は「明示的 subagent 依頼時のみ」の制約があるため、CLI-backed review で最終確認。`codex review --uncommitted -c model_reasoning_effort=high` → **No actionable correctness issues**、対象/全体 pytest・ruff・mypy・bash syntax・diff whitespace checks も review 側で clean。別途 `codex exec` architecture review → **Architectural Status: CLEAR**。残リスクは ASR/人間聴感未実施と、本文 quote に共有漢字のみの中国語タイトルが残った場合は簡体字特有文字ベースの翻字対象外になり得る点。
 - Code review (ASR delta + daily pipeline rc, 2026-06-26): staged full diff で `codex review --uncommitted -c model_reasoning_effort=high` を再実行し、**No actionable defects**。レビュアー側でも changed test subset / full `pytest` / `ruff` / `mypy` が green。別途 `codex exec` architecture review はコード境界・TTS 正規化順・日次 pipeline rc 伝播を妥当と確認し、初回は TEST_LOG/PROJECT_STATE の古い日次 pipeline rc と pytest 件数の記録だけ **WATCH** とした。記録修正後の follow-up architecture review は **Architectural Status: CLEAR** / Required actions none。
+
+## 2026-06-29 — T37 agentic workflow research hardening
+
+**対象**: プロダクトコード変更なし。agentic / multi-agent 最新知見を [agentic-workflow-research-2026.md](./agentic-workflow-research-2026.md) に集約し、`AGENTS.md` / `README.md` / `docs/WORKFLOW.md` / `docs/ORCHESTRATION_RUNBOOK.md` / `docs/PROJECT_STATE.md` / `prompts/review.md` / `prompts/qa.md` へ反映。
+
+**URL到達性確認**:
+- Anthropic Building effective agents: HTTP 200
+- OpenAI practical guide to building agents: curl は HTTP 403 (公式ページのアクセス制限、404ではない)
+- arXiv 2503.13657 MAST: HTTP 200
+- Cognition Don't Build Multi-Agents / Multi-Agents working: HTTP 200 / 200
+- arXiv 2405.15793 SWE-agent: HTTP 200
+- arXiv 2604.07821 cooperation failure: HTTP 200
+- arXiv 2605.01133 MAS safety: HTTP 200
+
+**静的整合チェック**:
+- `wc -l AGENTS.md` → **299** (300行以内)
+- stale表現検索 (`merge 待ち` / `pytest **380` / `現状 242` / `agent/T22` など、現役文書対象) → no matches
+- `git diff --check` → clean
+
+**全体ゲート (fresh)**:
+- `uv run pytest` → **438 passed in 3.02s**
+- `uv run ruff check .` → **All checks passed**
+- `uv run mypy src tests` → **Success: no issues found in 70 source files**
+- `git diff --check` → **clean**
