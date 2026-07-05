@@ -106,6 +106,21 @@ def _error_detail(resp: httpx.Response) -> str:
     return f"HTTP {resp.status_code}: {body}"
 
 
+def _parse_json(resp: httpx.Response, context: str) -> dict[str, Any]:
+    """200 応答の JSON を安全にパースする.
+
+    Google 側の一時異常やプロキシの HTML 応答で json() が壊れても、生の
+    JSONDecodeError を漏らさず YouTubeError に正規化する (Codex レビュー Medium)。
+    """
+    try:
+        body = resp.json()
+    except ValueError as exc:
+        raise YouTubeError(f"{context} 応答が JSON ではありません: {_error_detail(resp)}") from exc
+    if not isinstance(body, dict):
+        raise YouTubeError(f"{context} 応答の形式が不正です (JSON object でない)")
+    return body
+
+
 def ensure_disclosure(description: str) -> str:
     """説明欄に AI 開示文言 (FR-121) が無ければ先頭へ挿入する."""
     if AI_DISCLOSURE in description:
@@ -142,7 +157,7 @@ def refresh_access_token(creds: YouTubeCredentials) -> str:
         raise YouTubeError(f"OAuth token refresh 接続失敗: {type(exc).__name__}") from exc
     if resp.status_code != 200:
         raise YouTubeError(f"OAuth token refresh 失敗: {_error_detail(resp)}")
-    token = resp.json().get("access_token", "")
+    token = _parse_json(resp, "OAuth token refresh").get("access_token", "")
     if not isinstance(token, str) or not token:
         raise YouTubeError("OAuth token refresh 応答に access_token がありません")
     return token
@@ -239,7 +254,7 @@ def upload_video(
     if put.status_code not in (200, 201):
         raise YouTubeError(f"動画データ送信失敗: {_error_detail(put)}")
 
-    body = put.json()
+    body = _parse_json(put, "アップロード")
     video_id = body.get("id", "")
     if not isinstance(video_id, str) or not video_id:
         raise YouTubeError("アップロード応答に動画 id がありません")
@@ -267,7 +282,7 @@ def get_video_status(access_token: str, video_id: str) -> dict[str, Any]:
         raise YouTubeError(f"status 取得の接続失敗: {type(exc).__name__}") from exc
     if resp.status_code != 200:
         raise YouTubeError(f"status 取得失敗: {_error_detail(resp)}")
-    items = resp.json().get("items") or []
+    items = _parse_json(resp, "status 取得").get("items") or []
     if not items:
         raise YouTubeError(f"動画が見つかりません: video_id={video_id}")
     status = items[0].get("status")
@@ -276,18 +291,32 @@ def get_video_status(access_token: str, video_id: str) -> dict[str, Any]:
     return status
 
 
+# videos.update に送ってよい status の mutable フィールド (videos.update 公式ドキュメント)。
+# videos.list の応答には uploadStatus / failureReason / rejectionReason 等の read-only
+# フィールドが含まれ、そのまま送り返すと invalidVideoMetadata で update が失敗しうる
+# (Codex レビュー High)。
+_MUTABLE_STATUS_FIELDS = (
+    "privacyStatus",
+    "embeddable",
+    "license",
+    "publicStatsViewable",
+    "selfDeclaredMadeForKids",
+    "containsSyntheticMedia",
+)
+
+
 def set_privacy_status(access_token: str, video_id: str, privacy: str) -> str:
     """privacyStatus を変更する (approve フロー: unlisted → public).
 
     videos.update (part=status) は status を全置換するため、現状を取得して
-    privacyStatus のみ差し替えて送る (ADR-0007)。
+    mutable フィールドのみ (whitelist) を privacyStatus 差し替えで送る (ADR-0007)。
+    publishAt (予約公開) は残っていると public 変更が拒否されるため送らない。
     """
     if privacy not in VALID_PRIVACY:
         raise YouTubeError(f"不正な privacyStatus: {privacy!r} (choose from {VALID_PRIVACY})")
-    status = get_video_status(access_token, video_id)
+    current = get_video_status(access_token, video_id)
+    status = {k: current[k] for k in _MUTABLE_STATUS_FIELDS if k in current}
     status["privacyStatus"] = privacy
-    # publishAt (予約公開) が残っていると public 変更が拒否されるため除去
-    status.pop("publishAt", None)
     try:
         resp = httpx.put(
             f"{VIDEOS_URL}?part=status",
@@ -299,7 +328,7 @@ def set_privacy_status(access_token: str, video_id: str, privacy: str) -> str:
         raise YouTubeError(f"privacy 変更の接続失敗: {type(exc).__name__}") from exc
     if resp.status_code != 200:
         raise YouTubeError(f"privacy 変更失敗: {_error_detail(resp)}")
-    updated = resp.json().get("status") or {}
+    updated = _parse_json(resp, "privacy 変更").get("status") or {}
     result = str(updated.get("privacyStatus", privacy))
     logger.info("YouTube privacy 変更 (video_id=%s → %s)", video_id, result)
     return result
@@ -353,7 +382,7 @@ def exchange_code_for_refresh_token(
         raise YouTubeError(f"code 交換の接続失敗: {type(exc).__name__}") from exc
     if resp.status_code != 200:
         raise YouTubeError(f"code 交換失敗: {_error_detail(resp)}")
-    token = resp.json().get("refresh_token", "")
+    token = _parse_json(resp, "code 交換").get("refresh_token", "")
     if not isinstance(token, str) or not token:
         raise YouTubeError(
             "応答に refresh_token がありません "
@@ -381,7 +410,13 @@ def wait_for_oauth_code(port: int, *, timeout_seconds: float = 300.0) -> str:
         def log_message(self, format: str, *args: Any) -> None:  # noqa: A002
             return  # アクセスログ (URL に code が含まれる) を出さない
 
-    server = HTTPServer(("127.0.0.1", port), _Handler)
+    try:
+        server = HTTPServer(("127.0.0.1", port), _Handler)
+    except OSError as exc:
+        raise YouTubeError(
+            f"ポート {port} で待受できません ({type(exc).__name__})。"
+            "--port で別ポートを指定するか --manual を使ってください"
+        ) from exc
     server.timeout = timeout_seconds
     try:
         server.handle_request()  # 1 リクエストだけ処理して返る (timeout で諦める)

@@ -825,21 +825,35 @@ def publish(
             typer.secho(f"ERROR: YouTube アップロード失敗: {exc}", fg=typer.colors.RED, err=True)
             raise typer.Exit(code=1) from exc
 
-        insert_video_version(
-            session,
-            draft_pk,
-            audio_pk,
-            path=video.path,
-            youtube_video_id=result.video_id,
-            youtube_url=result.url,
-            privacy_status=result.privacy_status,
-            now=now,
-        )
-        session.commit()
         typer.secho(
             f"YouTube アップロード成功 ({result.privacy_status}): {result.url}",
             fg=typer.colors.GREEN,
         )
+        # アップロード (外部副作用) は確定済み。以降の DB 記録失敗で動画を見失わない
+        # よう、失敗時は復旧に必要な情報を明示して非 0 終了する (Codex レビュー Medium)。
+        try:
+            insert_video_version(
+                session,
+                draft_pk,
+                audio_pk,
+                path=video.path,
+                youtube_video_id=result.video_id,
+                youtube_url=result.url,
+                privacy_status=result.privacy_status,
+                now=now,
+            )
+            session.commit()
+        except Exception as exc:  # noqa: BLE001
+            typer.secho(
+                "ERROR: video_versions への記録に失敗しました "
+                f"({type(exc).__name__})。YouTube には既に {result.privacy_status} で"
+                f"アップロード済みです: video_id={result.video_id} / {result.url}\n"
+                "再 publish すると重複アップロードになるため、YouTube Studio で当該動画を"
+                "確認してから対応してください。",
+                fg=typer.colors.RED,
+                err=True,
+            )
+            raise typer.Exit(code=1) from exc
 
         if post:
             message = "\n".join(
@@ -919,8 +933,20 @@ def approve(
             typer.secho(f"ERROR: 公開切り替え失敗: {exc}", fg=typer.colors.RED, err=True)
             raise typer.Exit(code=1) from exc
 
-        update_video_privacy(session, video, new_status)
-        session.commit()
+        # YouTube 側の public 化は確定済み。DB 更新失敗時は乖離を明示する (Codex レビュー Medium)。
+        try:
+            update_video_privacy(session, video, new_status)
+            session.commit()
+        except Exception as exc:  # noqa: BLE001
+            typer.secho(
+                "ERROR: DB の privacy_status 更新に失敗しました "
+                f"({type(exc).__name__})。YouTube 側は既に {new_status} です: {yt_url}\n"
+                "DB は unlisted のまま乖離しています。再実行すれば整合します "
+                "(YouTube への再変更は冪等)。",
+                fg=typer.colors.RED,
+                err=True,
+            )
+            raise typer.Exit(code=1) from exc
         typer.secho(f"公開に切り替えました ({new_status}): {yt_url}", fg=typer.colors.GREEN)
 
         if post:

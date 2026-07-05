@@ -138,6 +138,20 @@ def test_refresh_access_token_connection_error(monkeypatch: pytest.MonkeyPatch) 
         refresh_access_token(_creds())
 
 
+class _BrokenJSONResp(_Resp):
+    """200 だが本文が JSON でない応答 (プロキシの HTML 等)."""
+
+    def json(self) -> dict[str, Any]:
+        raise ValueError("not json")
+
+
+def test_refresh_access_token_broken_json(monkeypatch: pytest.MonkeyPatch) -> None:
+    """200 応答の JSON 破損も YouTubeError に正規化する (traceback で落とさない)."""
+    monkeypatch.setattr(httpx, "post", lambda *a, **k: _BrokenJSONResp(200))
+    with pytest.raises(YouTubeError, match="JSON ではありません"):
+        refresh_access_token(_creds())
+
+
 # ---- upload (resumable 2 段階) ----
 
 
@@ -238,7 +252,7 @@ def test_get_video_status_not_found(monkeypatch: pytest.MonkeyPatch) -> None:
         get_video_status("at", "ghost")
 
 
-def test_set_privacy_status_replaces_only_privacy(
+def test_set_privacy_status_sends_only_mutable_fields(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     sent: dict[str, Any] = {}
@@ -254,6 +268,10 @@ def test_set_privacy_status_replaces_only_privacy(
                             "privacyStatus": "unlisted",
                             "selfDeclaredMadeForKids": False,
                             "publishAt": "2026-07-07T00:00:00Z",
+                            # videos.list が返す read-only フィールド (送り返すと
+                            # invalidVideoMetadata になりうる)
+                            "uploadStatus": "processed",
+                            "license": "youtube",
                         }
                     }
                 ]
@@ -270,8 +288,11 @@ def test_set_privacy_status_replaces_only_privacy(
     payload = sent["payload"]
     assert payload["id"] == "vid42"
     assert payload["status"]["privacyStatus"] == "public"
-    # 既存フィールドは維持しつつ publishAt (予約公開) は除去
+    # mutable フィールドは維持
     assert payload["status"]["selfDeclaredMadeForKids"] is False
+    assert payload["status"]["license"] == "youtube"
+    # read-only / 予約公開フィールドは送らない
+    assert "uploadStatus" not in payload["status"]
     assert "publishAt" not in payload["status"]
 
 
@@ -342,3 +363,15 @@ def test_wait_for_oauth_code_timeout() -> None:
     port = _free_port()
     with pytest.raises(YouTubeError, match="受信できませんでした"):
         wait_for_oauth_code(port, timeout_seconds=0.2)
+
+
+def test_wait_for_oauth_code_port_in_use() -> None:
+    """ポート使用中は生の OSError でなく YouTubeError で案内する."""
+    import socket
+
+    with socket.socket() as blocker:
+        blocker.bind(("127.0.0.1", 0))
+        blocker.listen(1)
+        port = int(blocker.getsockname()[1])
+        with pytest.raises(YouTubeError, match="待受できません"):
+            wait_for_oauth_code(port, timeout_seconds=0.2)
