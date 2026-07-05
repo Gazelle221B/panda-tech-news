@@ -20,6 +20,7 @@
 | [0004](./ADR-0004-rsshub-self-host.md) | RSSHub をセルフホスト | Accepted | 1A | Public インスタンスの Cookie 管理・障害調査不能を回避。`docker compose` で自前運用 |
 | [0005](./ADR-0005-llm-roles-ab-test.md) | LLM 役割 (editor/writer) を A/B/C 検証で確定 | Accepted (検証は 1B) | 1B | 役割を固定せず設定で切替。価格戦争下のベンダー固定リスクを抽象化で回避 |
 | [0006](./ADR-0006-tts-irodori-abstraction.md) | TTS は Irodori-TTS v3 主軸 + 抽象化レイヤー | Accepted (実装は 2) | 2 | `TTSEngine` で差し替え可能に。HAL 人格は TTS 非依存 |
+| [0007](./ADR-0007-youtube-httpx-cli-approval.md) | YouTube 配信は httpx 直叩き + CLI 承認フロー | Accepted (実装は 3) | 3 | SDK・Discord Bot 不採用。OAuth refresh token + resumable upload を httpx で直接実装、公開は `karyu approve` |
 
 ## スプリント別の効き方
 
