@@ -23,7 +23,7 @@
 - **Sprint 2 (音声化) ほぼ完了** — TTS 抽象化 (T23) / 構造化台本・読み仮名・絵文字・文単位合成 (T25-T28) / 実音声 Kokoro+Irodori アダプタ (T24) / ラウドネス -16LUFS・mp3 完パケ (T30) / BGM mixer 素材非依存 (T29) / produce 完パケ+`audio_versions` 永続化+Discord mp3 配信 (T31) を実装。実 produce で完パケ mp3 生成を実証 (draft→503〜643s/-16.3LUFS)。**残: T32 話速調整 (実音声の聴感判断 = 人間) / BGM 素材ライセンス / variant 既定確定**。
 - **2026-06-21 ミスマージ解消確認**: T29/T31 (旧 PR #18) は新 PR #19 (`main` ベースで再ランディング) が人間マージ済み。`gh` の表示のみに頼らず `origin/main` の生ログで squash コミット (#19) の到達を直接検証済み。fresh 全ゲート再検証 (pytest 365 / ruff / mypy strict 68 files) 緑。旧土台ブランチ `agent/T30-impl` (remote) は内容の main 到達確認後に削除済み。詳細は [docs/PROJECT_STATE.md](docs/PROJECT_STATE.md) 改訂履歴。
 - **2026-06-24〜26 — T33/T34/T35 main 到達、T36 音声品質ハードニング code loop 完了**: `collect→draft→produce→Discord` の日次自動配信、Irodori **600M VoiceDesign + caption**、launchd PATH 修正、中国語原題の発話退避、produce fail-fast、3 秒無音検出、clip/LUFS gate、daily pipeline 失敗通知まで反映済み。T36 fresh gate は pytest 438 / ruff / mypy strict 70 / shellcheck / plutil 緑。**残: T32 人間試聴、日次配信の恒久運用判断、BGM 素材ライセンス、variant 既定確定**。
-- 動画/YouTube は未実装 (Sprint 3 以降。着手は人間の Go 判断後)。
+- **2026-07-06 — Sprint 3 (配信) 実装完了 (T38〜T41, branch `agent/T38-sprint3-impl`)**: `publish` (mp3→showwaves 波形動画 mp4→YouTube **限定公開** アップロード→`video_versions` 永続化→Discord 朝確認) / `approve` (人間確認後の public 化) / `youtube-auth` (初回 OAuth) を実装。AI 開示 (FR-121) はコードで強制、新規依存ゼロ ([ADR-0007](docs/adr/ADR-0007-youtube-httpx-cli-approval.md))。**残: YouTube OAuth セットアップ + 実アップロード smoke (人間、README 手順)**。
 
 ## 3. 絶対 NG (禁止事項) — 最優先
 
@@ -77,6 +77,9 @@ uv run python -m karyu_tech_news init-db            # SQLite 初期化 (冪等)
 uv run python -m karyu_tech_news collect [--source <id>] [--post] [--dry-run]  # 収集→保存(→Discord)
 uv run python -m karyu_tech_news draft [--variant A] [--post] [--dry-run]      # 候補→LLM台本→(Discord)。実APIはT13後
 uv run python -m karyu_tech_news evaluate           # A/B/C 検証の定量サマリー (ADR-0005)
+uv run python -m karyu_tech_news publish [--dry-run] [--post]  # mp3→波形動画→YouTube 限定公開 (Sprint 3)
+uv run python -m karyu_tech_news approve            # 朝確認 ✅ → public 化 (人間のみ)
+uv run python -m karyu_tech_news youtube-auth       # 初回 OAuth (refresh token 取得)
 # または: uv run karyu collect --post
 
 # 品質ゲート (PR 前に必ず通す)

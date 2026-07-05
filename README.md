@@ -10,9 +10,9 @@
 
 ## ステータス
 
-- フェーズ: **Sprint 2 (音声化・日次自動配信) code loop 完了後の人間判断待ち** — Sprint 1A/1B、T23〜T35 は main 到達済み。T36 で中国語原題の発話退避、produce fail-fast、無音/clip/LUFS gate、日次 pipeline 失敗通知までハードニング済み。
-- 品質: T36 fresh gate は pytest **438 pass** / ruff / mypy strict (70 files) / shellcheck / plutil 緑。実 Irodori dry-run produce は -16.2 LUFS / true peak 安全域 / 3秒以上無音なしを確認。
-- 次アクション: **T32 人間試聴、日次配信の恒久運用判断、BGM 素材ライセンス、variant 既定確定** ([docs/PROJECT_STATE.md](docs/PROJECT_STATE.md))
+- フェーズ: **Sprint 3 (配信) 実装完了 — v0.5 経路 (mp3 → 波形動画 mp4 → YouTube 限定公開 → 朝確認 → approve 公開) をコード実装済み**。実アップロード smoke は YouTube OAuth セットアップ (人間) 待ち。Sprint 1A/1B/2 (T1〜T37) は main 到達済み。
+- 品質: Sprint 3 追加後も pytest / ruff / mypy strict / shellcheck 緑。新規依存ゼロ (httpx + ffmpeg のみ, [ADR-0007](docs/adr/ADR-0007-youtube-httpx-cli-approval.md))。
+- 次アクション: **YouTube OAuth セットアップ (下記) → 実アップロード smoke、T32 人間試聴、日次配信の恒久運用判断、BGM 素材ライセンス、variant 既定確定** ([docs/PROJECT_STATE.md](docs/PROJECT_STATE.md))
 
 ## ドキュメント地図
 
@@ -30,12 +30,13 @@
 | 実装計画 | [docs/IMPLEMENTATION_PLAN.md](docs/IMPLEMENTATION_PLAN.md) | Sprint 1A タスク分解 |
 | 実装計画(1B) | [docs/IMPLEMENTATION_PLAN-1B.md](docs/IMPLEMENTATION_PLAN-1B.md) | Sprint 1B タスク分解 (T12〜) |
 | 実装計画(2) | [docs/IMPLEMENTATION_PLAN-2.md](docs/IMPLEMENTATION_PLAN-2.md) | Sprint 2 (音声化) タスク分解 (T23〜) + 着手ゲート |
+| 実装計画(3) | [docs/IMPLEMENTATION_PLAN-3.md](docs/IMPLEMENTATION_PLAN-3.md) | Sprint 3 (配信) タスク分解 (T38〜) + 人間ブロッカー |
 | ワークフロー | [docs/WORKFLOW.md](docs/WORKFLOW.md) | エージェント間契約 |
 | ワークフロー研究メモ | [docs/agentic-workflow-research-2026.md](docs/agentic-workflow-research-2026.md) | agentic / multi-agent 最新知見の運用反映根拠 |
 | オーケストレーション運用 | [docs/ORCHESTRATION_RUNBOOK.md](docs/ORCHESTRATION_RUNBOOK.md) | 現在地判定・委任・検証・記録の手順 |
 | 状態 | [docs/PROJECT_STATE.md](docs/PROJECT_STATE.md) | 永続化された進捗 |
 | Spike | [docs/source-selection-spike-v0.1.md](docs/source-selection-spike-v0.1.md) | 初期ソース選定 (11本/有効9) |
-| ADR | [docs/adr/INDEX.md](docs/adr/INDEX.md) | 重要決定の記録ハブ (0001-0006) + TEMPLATE |
+| ADR | [docs/adr/INDEX.md](docs/adr/INDEX.md) | 重要決定の記録ハブ (0001-0007) + TEMPLATE |
 | 番組仕様 | [docs/hal-persona.md](docs/hal-persona.md), [docs/show-format.md](docs/show-format.md), [docs/editorial-policy.md](docs/editorial-policy.md) | HAL人格 / 構成 / 編集方針 |
 | プロンプト | [prompts/](prompts/) | 各エージェント宛指示 |
 
@@ -53,7 +54,7 @@
 
 ## 現在のスコープ要旨
 
-**「収集 → LLM 編集判定 → 3-5 本選定 → Markdown 台本生成 → Irodori 600M VoiceDesign + caption による mp3 完パケ → Discord 投稿」** までコード実装済み。動画 / YouTube は未実装 (Sprint 3 以降、人間 Go 後)。variant A で運用中、音声品質の最終判断は T32 の人間試聴が残る。
+**「収集 → LLM 編集判定 → 3-5 本選定 → Markdown 台本生成 → Irodori 600M VoiceDesign + caption による mp3 完パケ → Discord 投稿 → 波形動画 mp4 → YouTube 限定公開 → 朝確認 → approve 公開」** までコード実装済み (v0.5 経路)。variant A で運用中、音声品質の最終判断は T32 の人間試聴、実 YouTube アップロード smoke は OAuth セットアップ (人間) が残る。
 
 ### Quick start (現時点で動くもの)
 
@@ -69,8 +70,11 @@ uv run python -m karyu_tech_news collect --post    # 収集 → SQLite → Disco
 uv run python -m karyu_tech_news draft --dry-run   # 台本候補の確認 (LLM 不使用)
 uv run python -m karyu_tech_news draft --post      # LLM 台本生成 → Discord (要 API キー)
 uv run python -m karyu_tech_news produce --dry-run # 保存済み台本 → 音声完パケ (要 --extra tts + TTS 設定)
+uv run python -m karyu_tech_news publish --dry-run # 完パケ mp3 → 波形動画 mp4 (要 ffmpeg)
+uv run python -m karyu_tech_news publish --post    # mp4 → YouTube 限定公開 + Discord 朝確認 (要 OAuth)
+uv run python -m karyu_tech_news approve           # 朝確認 ✅ → 公開へ切り替え (人間のみ)
 uv run python -m karyu_tech_news evaluate          # A/B/C 検証の定量サマリー
-uv run pytest                                      # テスト (438 pass, 2026-06-26時点)
+uv run pytest                                      # テスト
 ```
 
 ### CLI 進捗
@@ -83,8 +87,21 @@ uv run pytest                                      # テスト (438 pass, 2026-0
 | `draft` (`--variant` / `--post` / `--dry-run`) | ✅ T12-T19, T21 (候補→判定→選定→台本→投稿)。実 API 接続済み (T13) |
 | `produce` (`--engine` / `--post` / `--dry-run`) | ✅ T31-T36 (構造化→TTS→BGM optional→-16 LUFS mp3→Discord、fail-fast品質ゲート) |
 | `evaluate` | ✅ T20 (採用率/修正回数/コスト/JSON安定性) |
+| `publish` (`--audio-id` / `--post` / `--dry-run`) | ✅ T38-T40 (mp3→波形動画→YouTube unlisted→video_versions→Discord 朝確認) |
+| `approve` (`--video-id` / `--post`) | ✅ T40 (朝確認 ✅ → public 切り替え。人間のみ実行) |
+| `youtube-auth` | ✅ T39 (初回 OAuth。refresh token を取得して .env へ) |
 
-> Discord 投稿は独立コマンドではなく `collect --post` / `draft --post` / `produce --post` に統合。
+> Discord 投稿は独立コマンドではなく `collect --post` / `draft --post` / `produce --post` / `publish --post` に統合。
+
+## YouTube 配信セットアップ (人間が一度だけ)
+
+1. [Google Cloud Console](https://console.cloud.google.com/) でプロジェクトを作成し、**YouTube Data API v3** を有効化する。
+2. 「OAuth 同意画面」を設定 (External / テストユーザーに自分の Google アカウントを追加) し、スコープに `youtube.upload` / `youtube` を含める。
+3. 「認証情報」→ OAuth クライアント ID (種類: **デスクトップアプリ**) を作成し、client ID / client secret を `.env` の `YOUTUBE_CLIENT_ID` / `YOUTUBE_CLIENT_SECRET` に設定する。
+4. `uv run karyu youtube-auth` を実行し、表示された URL を配信チャンネルの Google アカウントで認可 → 表示された `YOUTUBE_REFRESH_TOKEN=...` を `.env` に貼る。
+5. smoke: `uv run karyu publish --dry-run` (mp4 生成のみ) → `uv run karyu publish` (限定公開アップロード) → YouTube Studio で確認 → `uv run karyu approve` (公開する場合のみ)。
+
+> アップロードは 1 本あたり 1600 quota units (既定 10,000/日)。自動テストから実 API は叩かない ([IMPLEMENTATION_PLAN-3 §8](docs/IMPLEMENTATION_PLAN-3.md))。
 
 ## マルチエージェント運用
 

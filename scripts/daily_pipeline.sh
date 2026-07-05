@@ -135,6 +135,25 @@ if [ "$PRODUCE_RC" -ne 0 ]; then
   FINAL_RC="$PRODUCE_RC"
 fi
 
+# --- Sprint 3 (T41): YouTube 限定公開配信 (オプトイン。既定 off) ---
+# 恒久運用の判断は人間ゲート (PROJECT_STATE「人間判断待ち」) のため、
+# PUBLISH_YOUTUBE=1 を明示した環境でのみ実行する。公開 (public) 化は含まない
+# (人間が朝確認後に `karyu approve`)。
+if [ "${PUBLISH_YOUTUBE:-0}" = "1" ]; then
+  if [ "$PRODUCE_RC" -eq 0 ]; then
+    run_step "publish" "$UV" run python -m karyu_tech_news publish --post
+    PUBLISH_RC=$?
+    if [ "$PUBLISH_RC" -ne 0 ]; then
+      notify_failure "publish" "$PUBLISH_RC" "$LOG"
+      if [ "$FINAL_RC" -eq 0 ]; then
+        FINAL_RC="$PUBLISH_RC"
+      fi
+    fi
+  else
+    log "publish スキップ (produce rc=${PRODUCE_RC} — 当日音声が無いまま古い音声を配信しない)"
+  fi
+fi
+
 # --- 本ジョブが起動したサーバのみ停止 (外部起動分は温存) ---
 if [ "$STARTED_SERVER" = "1" ] && [ -f "$PIDFILE" ]; then
   PID="$(cat "$PIDFILE")"

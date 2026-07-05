@@ -1,9 +1,18 @@
 # プロジェクト状態
 
-> 最終更新: 2026-06-29 / 更新者: Codex (T37 agentic workflow research hardening)
+> 最終更新: 2026-07-06 / 更新者: Claude Code (Sprint 3 配信実装 T38-T41)
 > 本ファイルは全エージェントが随時更新する。**Antigravity の内部記憶ではなくここを真の記憶とする** (WORKFLOW §13)。
 
 ## 現在のフェーズ
+
+**Sprint 3 (配信) 実装完了 — v0.5 経路をコード実装 (T38〜T41 / branch `agent/T38-sprint3-impl`, 2026-07-06)**
+- 人間の「完成させて欲しい」指示 (2026-07-06) を Sprint 3 Go と解釈し、roadmap Sprint 3 (波形動画 / YouTube 限定公開 / AI 開示 / 朝確認フロー) を実装。計画は [IMPLEMENTATION_PLAN-3.md](./IMPLEMENTATION_PLAN-3.md)、判断記録は [ADR-0007](./adr/ADR-0007-youtube-httpx-cli-approval.md) (httpx 直叩き + CLI 承認、SDK/Bot 不採用)。
+- **T38**: `video/render.py` — mp3 + ロゴ静止画 (無ければ単色縮退) + showwaves 波形 → 720p H.264/AAC mp4 (FR-110/111/112)。ffmpeg 単発呼び出し・タイムアウト必須・純ロジック分離。
+- **T39**: `deliver/youtube.py` — OAuth refresh token 方式 + resumable upload (FR-120/122)。説明欄への AI 開示挿入をコードで強制し `containsSyntheticMedia=true` も送る (FR-121 二重開示)。`youtube-auth` CLI (loopback / --manual) で初回 refresh token 取得。
+- **T40**: `video_versions` テーブル + repo 4関数 + `publish` / `approve` CLI。publish は unlisted/private のみ受け付け (public 拒否)、アップロード失敗は fail-fast・Discord 通知は fail-open。朝確認メッセージ (✅ approve / 🔁 再生成 / ❌ 見送り) を Discord へ投稿。
+- **T41**: `daily_pipeline.sh` に `PUBLISH_YOUTUBE=1` オプトインの publish 段を追加 (既定 off。produce 失敗日はスキップし古い音声を配信しない)。.env.example / README (セットアップ手順) / AGENTS / ADR INDEX を同期。
+- **残 (人間)**: GCP プロジェクト + YouTube Data API v3 + OAuth クライアント (デスクトップ) 作成 → `karyu youtube-auth` → 実アップロード smoke → 限定公開 2 週間運用 (roadmap 配信フェーズ 1)。ロゴ素材 `assets/logo.png` は任意 (無くても単色背景で配信可)。
+- 備考: 本ブランチは人間指示によりプロジェクト内規約を簡略化 (多段レビュー/QA レーン省略)、最低限 (main 直 push 禁止 / 品質ゲート / 秘密情報) を遵守。
 
 **Sprint 2 (音声化・自動配信) 完了後の音声品質ハードニング code loop 完了 (T36 / branch `agent/T36-audio-quality-impl`)**
 - **T37 workflow hardening (2026-06-29, branch `agent/T37-workflow-hardening-impl`)**: 最新の agentic / multi-agent 研究を [agentic-workflow-research-2026.md](./agentic-workflow-research-2026.md) に集約し、WORKFLOW / ORCHESTRATION_RUNBOOK / AGENTS / README / review・QA prompts へ反映。追加方針: 単一オーケストレーター所有、並列は探索・レビュー・QA・独立ファイルに限定、context packet 必須、MAST型失敗 (specification gap / inter-agent misalignment / verification・termination failure) をレビュー対象化、agmsg は transport であり権威ではない。
