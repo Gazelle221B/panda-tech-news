@@ -695,5 +695,304 @@ def produce(
             typer.echo("Discord 投稿: " + ("成功" if ok else "失敗 (fail-open)"))
 
 
+@app.command()
+def publish(
+    ctx: typer.Context,
+    db_path: Path = typer.Option(
+        Path("data/state.db"), "--db-path", "-d", help="SQLite DB パス", show_default=True
+    ),
+    audio_id: int | None = typer.Option(
+        None, "--audio-id", help="対象 audio_version の id (未指定で最新)"
+    ),
+    logo_file: Path = typer.Option(
+        Path("assets/logo.png"), "--logo", help="番組ロゴ画像 (無ければ単色背景に縮退)"
+    ),
+    out_dir: Path = typer.Option(
+        Path("data/videos"), "--out-dir", help="mp4 出力先 (git 管理外)"
+    ),
+    privacy: str = typer.Option(
+        "unlisted",
+        "--privacy",
+        help="YouTube privacyStatus (unlisted/private。public は approve のみ, FR-120)",
+        show_default=True,
+    ),
+    post: bool = typer.Option(False, "--post", "-p", help="Discord に朝確認メッセージを投稿"),
+    dry_run: bool = typer.Option(
+        False, "--dry-run", help="mp4 生成まで (アップロード・DB 記録・Discord 投稿はしない)"
+    ),
+) -> None:
+    """完パケ mp3 から波形動画を生成し YouTube に限定公開アップロード (Sprint 3 T38-T40)。
+
+    audio_versions の mp3 → showwaves 波形 + ロゴ mp4 (FR-110/111/112) →
+    YouTube unlisted (FR-120/122, AI 開示は FR-121 で強制) → video_versions 記録 →
+    (Discord 朝確認)。アップロード失敗は fail-fast、Discord 通知失敗は fail-open。
+    公開 (public) への切り替えは人間が `karyu approve` で行う。
+    """
+    from datetime import UTC, datetime, timedelta, timezone
+
+    from sqlalchemy.orm import Session
+
+    from karyu_tech_news.deliver.discord import post_markdown
+    from karyu_tech_news.deliver.youtube import (
+        YouTubeCredentials,
+        YouTubeError,
+        refresh_access_token,
+        upload_video,
+    )
+    from karyu_tech_news.store.repo import (
+        create_db_engine,
+        get_audio_version,
+        get_latest_audio_version,
+        insert_video_version,
+    )
+    from karyu_tech_news.store.repo import init_db as init_database
+    from karyu_tech_news.store.schema import EpisodeDraft
+    from karyu_tech_news.video.render import VideoRenderError, render_video
+
+    settings = ctx.obj
+
+    if privacy not in ("unlisted", "private"):
+        typer.secho(
+            "ERROR: publish で指定できる privacy は unlisted / private のみです "
+            "(public 化は人間確認後の `karyu approve`, IMPLEMENTATION_PLAN-3 §8)",
+            fg=typer.colors.RED,
+            err=True,
+        )
+        raise typer.Exit(code=1)
+
+    db_engine = create_db_engine(db_path)
+    init_database(db_engine)
+    now = datetime.now(UTC)
+    with Session(db_engine) as session:
+        audio = (
+            get_audio_version(session, audio_id)
+            if audio_id is not None
+            else get_latest_audio_version(session)
+        )
+        if audio is None:
+            typer.secho(
+                "ERROR: 対象の audio_version がありません (先に produce を実行)",
+                fg=typer.colors.RED,
+                err=True,
+            )
+            raise typer.Exit(code=1)
+
+        audio_pk = int(audio.id)
+        draft_pk = int(audio.draft_id)
+        mp3_path = Path(str(audio.path))
+        if not mp3_path.exists():
+            typer.secho(
+                f"ERROR: mp3 が見つかりません: {mp3_path} (audio_version id={audio_pk})",
+                fg=typer.colors.RED,
+                err=True,
+            )
+            raise typer.Exit(code=1)
+
+        draft = session.get(EpisodeDraft, draft_pk)
+        title = str(draft.title) if draft is not None else "華流テック通信"
+
+        stamp = now.strftime("%Y%m%dT%H%M%S%fZ")
+        out_path = out_dir / f"episode_{draft_pk}_{stamp}.mp4"
+        try:
+            video = render_video(mp3_path, out_path, logo_path=logo_file)
+        except VideoRenderError as exc:
+            typer.secho(f"ERROR: 動画生成失敗: {exc}", fg=typer.colors.RED, err=True)
+            raise typer.Exit(code=1) from exc
+        typer.echo(
+            f"動画生成: {video.path} ({video.width}x{video.height}, "
+            f"{video.size_bytes / 1024 / 1024:.1f}MB, "
+            f"{'ロゴあり' if video.used_logo else '単色背景 (ロゴ素材なし)'})"
+        )
+
+        if dry_run:
+            typer.echo("[DRY RUN] YouTube アップロード・DB 記録・Discord 投稿はスキップ")
+            return
+
+        jst = timezone(timedelta(hours=9))
+        date_str = now.astimezone(jst).strftime("%Y-%m-%d")
+        description = f"華流テック通信 — HAL Daily Briefing\n配信日: {date_str} JST"
+        try:
+            creds = YouTubeCredentials.from_env()
+            token = refresh_access_token(creds)
+            result = upload_video(
+                token,
+                Path(video.path),
+                title=title,
+                description=description,
+                privacy=privacy,
+            )
+        except YouTubeError as exc:
+            typer.secho(f"ERROR: YouTube アップロード失敗: {exc}", fg=typer.colors.RED, err=True)
+            raise typer.Exit(code=1) from exc
+
+        insert_video_version(
+            session,
+            draft_pk,
+            audio_pk,
+            path=video.path,
+            youtube_video_id=result.video_id,
+            youtube_url=result.url,
+            privacy_status=result.privacy_status,
+            now=now,
+        )
+        session.commit()
+        typer.secho(
+            f"YouTube アップロード成功 ({result.privacy_status}): {result.url}",
+            fg=typer.colors.GREEN,
+        )
+
+        if post:
+            message = "\n".join(
+                [
+                    "🎬 本日のエピソードを YouTube に限定公開でアップロードしました",
+                    f"📺 {result.title}",
+                    f"🔗 {result.url}",
+                    "",
+                    "朝確認フロー (要件 §15.4):",
+                    "✅ 公開してよければ: `uv run karyu approve`",
+                    "🔁 作り直す: `uv run karyu produce` → `uv run karyu publish`",
+                    "❌ 見送る: そのまま (限定公開のまま残ります)",
+                ]
+            )
+            ok = post_markdown(settings.discord_webhook_url, message)
+            typer.echo("Discord 朝確認投稿: " + ("成功" if ok else "失敗 (fail-open)"))
+
+
+@app.command()
+def approve(
+    ctx: typer.Context,
+    db_path: Path = typer.Option(
+        Path("data/state.db"), "--db-path", "-d", help="SQLite DB パス", show_default=True
+    ),
+    video_id: int | None = typer.Option(
+        None, "--video-id", help="対象 video_version の id (未指定で最新アップロード済み)"
+    ),
+    post: bool = typer.Option(False, "--post", "-p", help="公開完了を Discord に通知"),
+) -> None:
+    """限定公開の動画を public へ切り替える (朝確認フロー ✅, Sprint 3 T40)。
+
+    人間が限定公開 URL を試聴・確認した後にのみ実行する想定 (FR-120 の
+    2 週間限定公開運用中は実行しない)。
+    """
+    from sqlalchemy.orm import Session
+
+    from karyu_tech_news.deliver.discord import post_summary
+    from karyu_tech_news.deliver.youtube import (
+        YouTubeCredentials,
+        YouTubeError,
+        refresh_access_token,
+        set_privacy_status,
+    )
+    from karyu_tech_news.store.repo import (
+        create_db_engine,
+        get_latest_uploaded_video,
+        get_video_version,
+        update_video_privacy,
+    )
+    from karyu_tech_news.store.repo import init_db as init_database
+
+    settings = ctx.obj
+
+    db_engine = create_db_engine(db_path)
+    init_database(db_engine)
+    with Session(db_engine) as session:
+        video = (
+            get_video_version(session, video_id)
+            if video_id is not None
+            else get_latest_uploaded_video(session)
+        )
+        if video is None or video.youtube_video_id is None:
+            typer.secho(
+                "ERROR: アップロード済みの video_version がありません (先に publish を実行)",
+                fg=typer.colors.RED,
+                err=True,
+            )
+            raise typer.Exit(code=1)
+
+        yt_video_id = str(video.youtube_video_id)
+        yt_url = str(video.youtube_url or f"https://www.youtube.com/watch?v={yt_video_id}")
+        try:
+            creds = YouTubeCredentials.from_env()
+            token = refresh_access_token(creds)
+            new_status = set_privacy_status(token, yt_video_id, "public")
+        except YouTubeError as exc:
+            typer.secho(f"ERROR: 公開切り替え失敗: {exc}", fg=typer.colors.RED, err=True)
+            raise typer.Exit(code=1) from exc
+
+        update_video_privacy(session, video, new_status)
+        session.commit()
+        typer.secho(f"公開に切り替えました ({new_status}): {yt_url}", fg=typer.colors.GREEN)
+
+        if post:
+            ok = post_summary(settings.discord_webhook_url, f"✅ 公開しました: {yt_url}")
+            typer.echo("Discord 通知: " + ("成功" if ok else "失敗 (fail-open)"))
+
+
+@app.command("youtube-auth")
+def youtube_auth(
+    client_id: str = typer.Option(
+        "", "--client-id", envvar="YOUTUBE_CLIENT_ID", help="OAuth クライアント ID"
+    ),
+    client_secret: str = typer.Option(
+        "",
+        "--client-secret",
+        envvar="YOUTUBE_CLIENT_SECRET",
+        help="OAuth クライアントシークレット",
+    ),
+    port: int = typer.Option(
+        8765, "--port", help="loopback リダイレクトの待受ポート", show_default=True
+    ),
+    manual: bool = typer.Option(
+        False,
+        "--manual",
+        help="ブラウザのリダイレクト先 URL を手貼りする (loopback 待受が使えない環境向け)",
+    ),
+) -> None:
+    """YouTube OAuth の refresh token を取得する (初回のみ人間が実行, Sprint 3 T39)。
+
+    前提: GCP プロジェクトで YouTube Data API v3 を有効化し、OAuth クライアント
+    (種類: デスクトップアプリ) を作成しておく (README「YouTube 配信セットアップ」)。
+    表示された refresh token は .env の YOUTUBE_REFRESH_TOKEN に貼る (値は git 管理外)。
+    """
+    from karyu_tech_news.deliver.youtube import (
+        YouTubeError,
+        build_auth_url,
+        exchange_code_for_refresh_token,
+        extract_code,
+        wait_for_oauth_code,
+    )
+
+    if not client_id or not client_secret:
+        typer.secho(
+            "ERROR: --client-id / --client-secret (または .env の YOUTUBE_CLIENT_ID / "
+            "YOUTUBE_CLIENT_SECRET) が必要です",
+            fg=typer.colors.RED,
+            err=True,
+        )
+        raise typer.Exit(code=1)
+
+    redirect_uri = f"http://127.0.0.1:{port}"
+    typer.echo("以下の URL をブラウザで開き、YouTube チャンネルの Google アカウントで認可してください:")
+    typer.echo("")
+    typer.echo(build_auth_url(client_id, redirect_uri))
+    typer.echo("")
+    try:
+        if manual:
+            pasted = typer.prompt("リダイレクト先の URL (または code パラメータの値)")
+            code = extract_code(pasted)
+        else:
+            typer.echo(f"認可後のリダイレクトを {redirect_uri} で待っています (最大 300 秒)...")
+            code = wait_for_oauth_code(port)
+        refresh_token = exchange_code_for_refresh_token(
+            client_id, client_secret, code, redirect_uri
+        )
+    except YouTubeError as exc:
+        typer.secho(f"ERROR: {exc}", fg=typer.colors.RED, err=True)
+        raise typer.Exit(code=1) from exc
+
+    typer.secho("refresh token を取得しました。.env に次の行を追加してください:", fg=typer.colors.GREEN)
+    typer.echo(f"YOUTUBE_REFRESH_TOKEN={refresh_token}")
+
+
 if __name__ == "__main__":
     app()

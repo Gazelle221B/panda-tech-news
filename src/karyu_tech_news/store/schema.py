@@ -196,3 +196,23 @@ class AudioVersion(Base):
     bitrate = Column(String, nullable=False)
     sample_rate = Column(Integer, nullable=False)
     path = Column(String, nullable=False)
+
+
+class VideoVersion(Base):
+    """video_versions テーブル (Sprint 3 T40, IMPLEMENTATION_PLAN-3 §3.3).
+
+    1 回の `publish` 実行 = 1 行。波形動画 mp4 のパスと YouTube アップロード結果
+    (video id / URL / privacy) を記録し、朝確認フロー (approve) と配信履歴の追跡に
+    使う。動画ファイル本体は data/videos/ (git 管理外) に置き、ここにはパスのみ保持する。
+    """
+
+    __tablename__ = "video_versions"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    draft_id = Column(Integer, ForeignKey("episode_drafts.id"), nullable=False)
+    audio_version_id = Column(Integer, ForeignKey("audio_versions.id"), nullable=False)
+    created_at = Column(DateTime, nullable=False)
+    path = Column(String, nullable=False)
+    youtube_video_id = Column(String, nullable=True)  # アップロード成功時のみ
+    youtube_url = Column(String, nullable=True)
+    privacy_status = Column(String, nullable=True)  # unlisted / public / private

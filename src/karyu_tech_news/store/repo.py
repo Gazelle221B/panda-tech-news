@@ -24,6 +24,7 @@ from karyu_tech_news.store.schema import (
     Source,
     SourceHealth,
     TopicCandidate,
+    VideoVersion,
 )
 
 
@@ -299,3 +300,64 @@ def insert_audio_version(
     session.add(row)
     session.flush()  # id 採番
     return row
+
+
+def get_latest_audio_version(session: Session) -> AudioVersion | None:
+    """最新の audio_version を返す (publish の既定対象). 無ければ None."""
+    return session.execute(
+        select(AudioVersion).order_by(AudioVersion.id.desc()).limit(1)
+    ).scalar_one_or_none()
+
+
+def get_audio_version(session: Session, audio_version_id: int) -> AudioVersion | None:
+    """id 指定で audio_version を返す. 無ければ None."""
+    return session.get(AudioVersion, audio_version_id)
+
+
+def insert_video_version(
+    session: Session,
+    draft_id: int,
+    audio_version_id: int,
+    *,
+    path: str,
+    youtube_video_id: str | None,
+    youtube_url: str | None,
+    privacy_status: str | None,
+    now: datetime,
+) -> VideoVersion:
+    """波形動画とアップロード結果を video_versions に1行記録する (T40)."""
+    row = VideoVersion(
+        draft_id=draft_id,
+        audio_version_id=audio_version_id,
+        created_at=now,
+        path=path,
+        youtube_video_id=youtube_video_id,
+        youtube_url=youtube_url,
+        privacy_status=privacy_status,
+    )
+    session.add(row)
+    session.flush()  # id 採番
+    return row
+
+
+def get_latest_uploaded_video(session: Session) -> VideoVersion | None:
+    """YouTube にアップロード済みの最新 video_version を返す (approve の既定対象)."""
+    return session.execute(
+        select(VideoVersion)
+        .where(VideoVersion.youtube_video_id.is_not(None))
+        .order_by(VideoVersion.id.desc())
+        .limit(1)
+    ).scalar_one_or_none()
+
+
+def get_video_version(session: Session, video_version_id: int) -> VideoVersion | None:
+    """id 指定で video_version を返す. 無ければ None."""
+    return session.get(VideoVersion, video_version_id)
+
+
+def update_video_privacy(
+    session: Session, video_version: VideoVersion, privacy_status: str
+) -> None:
+    """video_versions の privacy_status を更新する (approve フロー)."""
+    video_version.privacy_status = privacy_status  # type: ignore[assignment]
+    session.flush()
