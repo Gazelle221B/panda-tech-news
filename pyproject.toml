@@ -24,6 +24,10 @@ dependencies = [
 tts = [
     "kokoro-onnx>=0.4.0",
     "pydub>=0.25.1",  # T29 BGM ミックス (ffmpeg ラッパー、素材があるときのみ使用)
+    # pydub は stdlib audioop に依存するが、Python 3.13 で audioop が削除された。
+    # backport が無いと `import pydub` が ModuleNotFoundError で失敗し、BGM ミックスが
+    # 気付かず passthrough へ縮退する (Codex T48 レビュー指摘、実 3.13 環境で再現)。
+    "audioop-lts>=0.2.1; python_version >= '3.13'",
 ]
 
 [dependency-groups]
