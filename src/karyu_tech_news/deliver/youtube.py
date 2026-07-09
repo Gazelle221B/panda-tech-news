@@ -415,7 +415,7 @@ def wait_for_oauth_code(port: int, *, timeout_seconds: float = 300.0) -> str:
     except OSError as exc:
         raise YouTubeError(
             f"ポート {port} で待受できません ({type(exc).__name__})。"
-            "--port で別ポートを指定するか --manual を使ってください"
+            " --port で別ポートを指定するか --manual を使ってください"
         ) from exc
     server.timeout = timeout_seconds
     try:

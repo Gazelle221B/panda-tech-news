@@ -262,7 +262,7 @@ def test_publish_missing_credentials(
     db = tmp_path / "state.db"
     _seed_audio(db, tmp_path)
     for name in ("YOUTUBE_CLIENT_ID", "YOUTUBE_CLIENT_SECRET", "YOUTUBE_REFRESH_TOKEN"):
-        monkeypatch.delenv(name, raising=False)
+        monkeypatch.setenv(name, "")
     with patch(
         "karyu_tech_news.video.render.render_video",
         return_value=_render_result(tmp_path),
@@ -358,7 +358,7 @@ def test_approve_youtube_error_keeps_db(
 
 def test_youtube_auth_requires_client(monkeypatch: pytest.MonkeyPatch) -> None:
     for name in ("YOUTUBE_CLIENT_ID", "YOUTUBE_CLIENT_SECRET"):
-        monkeypatch.delenv(name, raising=False)
+        monkeypatch.setenv(name, "")
     result = runner.invoke(app, ["youtube-auth"])
     assert result.exit_code == 1
     assert "client-id" in result.output
