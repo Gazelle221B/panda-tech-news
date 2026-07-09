@@ -56,6 +56,21 @@ def test_normalize_multiple_terms() -> None:
     assert normalize_text("小米と華為", d) == "シャオミとファーウェイ"
 
 
+def test_normalize_ascii_terms_require_token_boundary() -> None:
+    d = {"AI": "エーアイ", "SAIL賞": "セイル賞", "OpenAI": "オープンエーアイ"}
+    assert normalize_text("SAIL賞とAI。OpenAIも対象。", d) == (
+        "セイル賞とエーアイ。オープンエーアイも対象。"
+    )
+    assert normalize_text("SAIL", {"AI": "エーアイ"}) == "SAIL"
+    assert normalize_text("OpenAI_API", d) == "OpenAI_API"
+    assert normalize_text("GPT-5.6.1", {"GPT-5.6": "ジーピーティー五点六"}) == "GPT-5.6.1"
+    assert normalize_text("LLM/RAG", {"LLM": "エルエルエム", "RAG": "ラグ"}) == "エルエルエム/ラグ"
+    assert (
+        normalize_text("5G+AI", {"5G+": "ファイブジープラス", "AI": "エーアイ"})
+        == "ファイブジープラスエーアイ"
+    )
+
+
 # ---------- ASCII 原語グロス除去 ----------
 
 def test_strip_ascii_gloss_removes_paren_original() -> None:
@@ -162,6 +177,49 @@ def test_prepare_tts_text_preserves_known_short_chinese_quote_reading() -> None:
     assert out == "「リンション」が首位。"
 
 
+def test_prepare_tts_text_normalizes_observed_english_terms() -> None:
+    d = load_reading_dict(DICT_PATH)
+    out = prepare_tts_text(
+        "HAL Daily Briefingです。Claude Code、FSD、LLM、GitHub、HBM4、GPT-5.6、"
+        "ISC、A株、AI、5G、5G+、5G+AI、4D、LLM/RAG、Lite/Pro/Maxを確認。",
+        d,
+    )
+    for raw in [
+        "HAL Daily Briefing",
+        "Claude Code",
+        "FSD",
+        "LLM",
+        "GitHub",
+        "HBM4",
+        "GPT-5.6",
+        "ISC",
+        "A株",
+        "5G",
+        "5G+",
+        "5G+AI",
+        "4D",
+        "LLM/RAG",
+        "Lite/Pro/Max",
+    ]:
+        assert raw not in out
+    assert "ハル デイリーブリーフィング" in out
+    assert "クロードコード" in out
+    assert "エフエスディー" in out
+    assert "エルエルエム" in out
+    assert "ギットハブ" in out
+    assert "エイチビーエムフォー" in out
+    assert "ジーピーティー五点六" in out
+    assert "アイエスシー" in out
+    assert "エー株" in out
+    assert "エーアイ" in out
+    assert "ファイブジー" in out
+    assert "ファイブジープラス" in out
+    assert "ファイブジープラスエーアイ" in out
+    assert "フォーディー" in out
+    assert "エルエルエム/ラグ" in out
+    assert "ライト/プロ/マックス" in out
+
+
 # ---------- Markdown マーカー除去 (実音声 smoke で発見) ----------
 
 def test_strip_script_markup_removes_labels() -> None:
@@ -178,8 +236,48 @@ def test_strip_script_markup_handles_fullwidth_colon() -> None:
     assert strip_script_markup("**Hook：** あ") == "あ"
 
 
+def test_strip_script_markup_removes_plain_labels() -> None:
+    body = "Hook: つかみです。\nInsight：意味です。\nAction: 行動です。"
+    out = strip_script_markup(body)
+    assert "Hook" not in out and "Insight" not in out and "Action" not in out
+    assert "つかみです。" in out and "意味です。" in out and "行動です。" in out
+
+
+def test_strip_script_markup_removes_list_prefixed_labels() -> None:
+    body = "- **Hook:** つかみです。\n1. **Insight:** 意味です。\n+ Action: 行動です。"
+    out = strip_script_markup(body)
+    assert "Hook" not in out and "Insight" not in out and "Action" not in out
+    assert "- " not in out and "1. " not in out and "+ " not in out
+    assert "つかみです。" in out and "意味です。" in out and "行動です。" in out
+
+
+def test_strip_script_markup_preserves_content_action_terms() -> None:
+    assert strip_script_markup("GitHub Action: ワークフローを改善。") == (
+        "GitHub Action: ワークフローを改善。"
+    )
+    assert strip_script_markup("Call to Action: 登録導線を改善。") == (
+        "Call to Action: 登録導線を改善。"
+    )
+
+
+def test_prepare_tts_text_strips_plain_script_labels() -> None:
+    out = prepare_tts_text("Hook: つかみです。Insight: 意味です。Action: 行動です。", {})
+    assert "Hook" not in out and "Insight" not in out and "Action" not in out
+    assert "つかみです。" in out and "意味です。" in out and "行動です。" in out
+
+
 def test_strip_script_markup_noop_on_plain_text() -> None:
     assert strip_script_markup("普通の文。") == "普通の文。"
+
+
+def test_strip_script_markup_removes_multiple_list_prefixes() -> None:
+    # T42 Codex 実証: 箇条書き prefix は `?` (最大1回) までしか剥がれず、
+    # 二重 prefix ("- -" 等) が素通りしていた。`*` (0回以上) に変更して修正。
+    assert strip_script_markup("- - Hook: abc") == "abc"
+    assert strip_script_markup("1. - **Insight:** x") == "x"
+    # 既存の単一 prefix ケースが非破壊であることも併せて確認。
+    body = "- **Hook:** つかみです。\n1. **Insight:** 意味です。\n+ Action: 行動です。"
+    assert strip_script_markup(body) == "つかみです。\n意味です。\n行動です。"
 
 
 # ---------- 辞書ロード ----------
@@ -246,9 +344,37 @@ def test_sanitize_drops_long_pinyin_prone_title() -> None:
     assert "刚刚" not in out
 
 
+def test_sanitize_drops_mixed_katakana_chinese_title() -> None:
+    out = sanitize_chinese_title_quotes(
+        "本日注目の話題です。「モアスレッド：完成MiniMax M3大規模モデル适配」が報じられました。"
+    )
+    assert out == "本日注目の話題が報じられました。"
+    assert "适配" not in out
+    assert "MiniMax" not in out
+
+
+def test_sanitize_cleans_placeholder_topic_repetition() -> None:
+    out = sanitize_chinese_title_quotes("「モアスレッド：完成MiniMax M3大規模モデル适配」が話題になっています。")
+    assert out == "この話題が注目されています。"
+
+
 @pytest.mark.parametrize(
     "jp_quote",
-    ["「生成AI」", "「東京大学」", "「人工知能」", "「半導体」", "「国際会議」", "「機械学習」", "「自動運転」"],
+    [
+        "「生成AI」",
+        "「東京大学」",
+        "「人工知能」",
+        "「半導体」",
+        "「国際会議」",
+        "「機械学習」",
+        "「自動運転」",
+        "「国際競争」",
+        "「関与」",
+        "「付与」",
+        "「与党」",
+        "「給与」",
+        "「貸与」",
+    ],
 )
 def test_transliterate_skips_japanese_kanji_only_quote(jp_quote: str) -> None:
     # 漢字のみの日本語引用 (簡体字特有文字を含まない) は退避しない (Codex High 回帰)。
@@ -263,3 +389,19 @@ def test_sanitize_requires_simplified_char() -> None:
 
 def test_sanitize_keeps_exact_known_chinese_quote_reading() -> None:
     assert sanitize_chinese_title_quotes("「灵晟」が首位。", {"灵晟": "リンション"}) == "「リンション」が首位。"
+
+
+def test_sanitize_evacuates_short_simplified_title_missing_signal_char() -> None:
+    # T42 Codex 実証: 「竞」が _SIMPLIFIED_HAN 未収録で短い簡体字タイトルが素通りしていた。
+    assert sanitize_chinese_title_quotes("「竞争」が話題になっています。") == "この話題が注目されています。"
+    assert sanitize_chinese_title_quotes("「竞价排名」というニュース。") == "このニュース。"
+
+
+@pytest.mark.parametrize(
+    "jp_quote",
+    ["「競争」", "「生成AI」", "「関与」", "「参考」"],
+)
+def test_sanitize_new_simplified_signal_chars_preserve_japanese(jp_quote: str) -> None:
+    # T42 で追加した簡体字シグナル文字 (态势报线统经说视计讯论读类织页项顶竞) が
+    # 日本語新字体 (競争等) を誤検知しないことを確認する (非破壊)。
+    assert sanitize_chinese_title_quotes(jp_quote) == jp_quote
