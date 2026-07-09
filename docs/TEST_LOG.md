@@ -1272,3 +1272,31 @@ libmp3lame assertion crash) → 修正 (上記 step 3) → 再レビューで実
 - `uv run ruff check .` → **All checks passed**
 - `uv run mypy src tests` → **Success: no issues found in 70 source files**
 - `git diff --check` → **clean**
+
+## T48 mixer 実 BGM ミックス経路テスト追加 (実装者: Claude Code / 日付: 2026-07-10)
+
+**背景**: `src/karyu_tech_news/mix/mixer.py` の実 BGM オーバーレイ経路 (pydub でループ/フェード/overlay/export する本体、49-68 行) が passthrough (素材なし) 経路しかテストされておらず、カバレッジ 46%。BGM 素材投入時に本番で初めて走る未検証コードだった。
+
+**追加**: `tests/test_mix_mixer.py` (新規)。`pytest.importorskip("pydub")` で optional extra `tts` 未導入環境を自動 skip する流儀は `tests/test_mix_master.py` の ffmpeg skipif に合わせた。ダミー wav (無音ナレーション / 正弦波 BGM) を `tmp_path` に生成し実ミックス経路を検証:
+- 出力長がナレーション長に一致 (BGM 長に引きずられない)
+- 出力が正しい RIFF/WAVE コンテナ
+- BGM (2秒) がナレーション (6秒) より短い → 全編ループして敷かれる (中間区間の RMS で信号存在を確認)
+- BGM (5秒) がナレーション (1秒) より長い → 切り詰め
+- 前後フェード (端の RMS が中間より小さい)
+- `bgm_gain_db` が実際に音量を減衰させる (-18dB ≈ 振幅比 0.126、理論値と比較検証)
+- 非無音ナレーションへの overlay で波形が passthrough と変化する
+- fail-open 分岐: BGM 0フレーム / pydub ImportError (`builtins.__import__` を monkeypatch で強制) / デコード失敗 (壊れた音声) — いずれも `mix_bgm` が例外を投げず音声のみ返すことを確認
+
+**発見バグ (最小修正済み)**: `mix_bgm(fade_ms=0)` (フェード無効化のつもりの呼び出し) が pydub 内部の `fade_in(0)`/`fade_out(0)` で `TypeError: unsupported operand type(s) for -: 'NoneType' and 'int'` を送出し、fail-open で BGM がまるごと passthrough (無音扱い) に縮退することを発見。現行 `main.py` の呼び出しは `fade_ms` を上書きしないため本番導線には未到達だが、公開関数のシグネチャ上は妥当な呼び出しのため `mixer.py` に `if fade_ms > 0:` ガードを追加 (fade_ms<=0 のときはフェードをスキップして BGM 自体は正常に敷く)。
+
+**カバレッジ (mixer.py, fresh 実測)**:
+- Before (T48 着手前, `uv run --with pytest-cov pytest tests/ --cov=karyu_tech_news.mix.mixer`): **46%** (missing 49-68, 実ミックス経路まるごと)
+- After (同コマンド, pydub 導入下): **100%** (0 missing)
+- タスク指定コマンド `uv run --with pytest-cov pytest tests/test_mix*.py --cov=karyu_tech_news.mix.mixer --cov-report=term-missing -q` (glob が `test_mix*.py` のみを対象とし、`find_bgm` 系テストが `test_produce_pipeline.py` にあるため対象外) では **87%** (missing 30-33, 48 = `find_bgm` 本体 / `bgm_path=None` passthrough 行)。
+
+**全体ゲート (fresh)**:
+- `uv run pytest` → **458 passed, 1 skipped in 2.03s** (pydub 未導入のベース環境では `test_mix_mixer.py` が importorskip で 1 モジュールとして skip)
+- `uv run --with pydub --with audioop-lts pytest tests/test_mix_mixer.py tests/test_produce_pipeline.py tests/test_mix_master.py -q` → **61 passed** (pydub 導入下で実ミックス経路含め全緑)
+- `uv run ruff check .` → **All checks passed**
+- `uv run mypy src tests` → **Success: no issues found in 71 source files**
+- `git diff --check` → **clean**

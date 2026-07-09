@@ -58,7 +58,11 @@ def mix_bgm(
             return voice_wav
         bgm = bgm + bgm_gain_db  # dB 加算 = 減衰 (負値)
         loops = len(voice) // len(bgm) + 1
-        bed = (bgm * loops)[: len(voice)].fade_in(fade_ms).fade_out(fade_ms)
+        bed = (bgm * loops)[: len(voice)]
+        if fade_ms > 0:
+            # pydub の fade_in/fade_out は duration=0 で内部的に
+            # TypeError (None - int) を投げるため、フェード無効化 (0) はスキップする。
+            bed = bed.fade_in(fade_ms).fade_out(fade_ms)
         mixed = voice.overlay(bed)
         out = io.BytesIO()
         mixed.export(out, format="wav")
