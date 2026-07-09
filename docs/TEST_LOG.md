@@ -39,6 +39,91 @@ pytest tests/test_<...>.py -v --cov=src/karyu_tech_news/<...>
 
 ## 履歴
 
+## T42: TTS 読み上げハードニング  (実装: Codex / 日付: 2026-07-02)
+
+### 実行コマンド
+
+```bash
+uv run pytest tests/test_tts_normalize.py -q
+uv run pytest tests/test_tts_synthesize.py -q
+uv run pytest tests/test_tts_normalize.py tests/test_tts_synthesize.py -q
+uv run ruff check src/karyu_tech_news/tts/normalize.py tests/test_tts_normalize.py
+uv run pytest
+uv run ruff check .
+uv run mypy src tests
+git diff --check
+uv run python - <<'PY'
+# latest 10 episode_drafts を strip_markdown_structure + prepare_tts_text で検査
+PY
+```
+
+### 結果サマリー
+
+- `tests/test_tts_normalize.py`: **52 passed**。
+- `tests/test_tts_synthesize.py`: **27 passed**。
+- focused TTS tests: **81 passed**。
+- focused ruff: All checks passed。
+- full pytest: **452 passed in 3.23s**。
+- full ruff: All checks passed。
+- mypy strict: Success, no issues found in 70 source files。
+- `git diff --check`: clean。
+- 実 DB 検査: 最新 draft #2-#11 の TTS 入力で ASCII word token と `Hook/Insight/Action:` label が 0 件。対象にした raw `HAL Daily Briefing` / `Claude Code` / `FSD` / `LLM` / `GitHub` / `HBM4` / `GPT-5.6` / `ISC` / `A株` / `5G` / `5G+` / `4D` / `适配` / `国资系` / `脳機接口` は残存なし。
+- レビュー指摘の追加回帰: `関与` / `付与` / `与党` / `給与` / `貸与` は中国語 quote 退避の対象外として保持。`OpenAI_API` / `GPT-5.6.1` は短い辞書語の部分置換で壊さない。`GitHub Action:` / `Call to Action:` は本文として保持し、台本構造ラベルの `Action:` だけを除去する。`LLM/RAG` / `Lite/Pro/Max` / `5G+AI` は記号区切りでも各語を読みへ置換する。`- **Hook:**` / `1. **Insight:**` / `+ Action:` のような箇条書き label も発話から除去する。
+
+### 既知制限
+
+- 人間聴感の最終判断 (T32) は未実施。今回の完了条件は TTS 入力の客観ハードニングまで。
+- 共有漢字だけで構成された未知の中国語タイトルは、従来どおり誤置換回避のため自動退避しない。
+
+### Codex への引き継ぎポイント
+
+- `prepare_tts_text()` が TTS 境界。plain label 除去、ASCII 境界付き読み辞書置換、混在中国語 quote 退避の順序を重点確認。
+- `config/reading_dict.yaml` は実 draft に出た英語技術語を優先追加。今後の聴感 QA で継続追記する。
+
+## T42 追加修正: Codex 実証欠陥 2 件 (改称・多重 prefix・簡体字未収録)  (実装: Claude Code / 日付: 2026-07-09)
+
+PR #25 (Sprint 3, T38-T41) との採番衝突により旧称「T38」を **T42** へ改称した上で、Codex 独立レビューで実証された欠陥 2 件を修正。
+
+### 実行コマンド
+
+```bash
+uv run pytest tests/test_tts_normalize.py -q
+uv run pytest tests/test_tts_normalize.py tests/test_tts_synthesize.py -q
+uv run pytest -q
+uv run ruff check .
+uv run mypy src tests
+git diff --check
+```
+
+### 結果サマリー
+
+- `tests/test_tts_normalize.py`: **60 passed in 0.04s**。
+- `tests/test_tts_normalize.py` + `tests/test_tts_synthesize.py`: **87 passed in 0.17s**。
+- full pytest: **458 passed in 2.40s**。
+- full ruff: All checks passed。
+- mypy strict: Success, no issues found in 70 source files。
+- `git diff --check`: clean。
+
+### 修正内容と挙動確認 (修正前後)
+
+- **修正A (`strip_script_markup` の多重 prefix 未除去)**: `_SCRIPT_LABEL_RE` の箇条書き prefix 部分を `(?:...)?` (0または1回) から `(?:...)*` (0回以上) に変更。
+  - 修正前: `strip_script_markup('- - Hook: abc')` → `'- abc'` (二重 prefix の1つ目のみ剥がれ、`- ` が素通り)。
+  - 修正後: `strip_script_markup('- - Hook: abc')` == `'abc'`、`strip_script_markup('1. - **Insight:** x')` == `'x'`。
+  - 非破壊確認: 既存の単一 prefix ケース (`- **Hook:**` / `1. **Insight:**` / `+ Action:`)・`GitHub Action:` / `Call to Action:` の本文保持は回帰テストで維持を確認。
+- **修正B (`sanitize_chinese_title_quotes` の短い簡体字タイトル素通り)**: `_SIMPLIFIED_HAN` に `竞` を含む未収録18字 (`态势报线统经说视计讯论读类织页项顶竞`) を追加。各字は日本語新字体と1字ずつ字形比較の上で選定 (例: `竞`≠`競`、`说`≠`説`、`视`≠`視`。`变`は追加前から既に収録済みと判明したため追加不要だった)。
+  - 修正前: `sanitize_chinese_title_quotes("「竞争」が話題になっています。")` → 素通り (簡体字シグナルなしと誤判定)。
+  - 修正後: `== "この話題が注目されています。"`、`sanitize_chinese_title_quotes("「竞价排名」というニュース。") == "このニュース。"`。
+  - 非破壊確認: 「競争」「生成AI」「関与」「参考」等の日本語新字体クォートは新規追加字と字形が異なるため不変であることを回帰テストで確認 (「国際競争」等の既存回帰テストも継続グリーン)。
+
+### 既知制限
+
+- `docker-compose.yml` の healthcheck 修正は本チケットのスコープ外 (T43 として分離、本ブランチでは変更していない)。
+- 人間聴感の最終判断 (T32 由来の残課題) は引き続き未実施。
+
+### Codex への引き継ぎポイント
+
+- `_SCRIPT_LABEL_RE` (`src/karyu_tech_news/tts/normalize.py`) の prefix 量指定子と `_SIMPLIFIED_HAN` の追加18字を重点確認。
+
 ## T1 + T3(schema): プロジェクト初期化・CLIスケルトン・ソーススキーマ  (実装: autopilot / 日付: 2026-05-30)
 
 ### 実行コマンド

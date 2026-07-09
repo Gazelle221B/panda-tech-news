@@ -120,7 +120,12 @@ def strip_pronunciation_parentheticals(
 # 台本本文の Markdown 構造マーカー (**Hook:** / **Insight:** / **Action:**) を除去する用。
 # Discord 表示には必要だが TTS では「アスタリスク アスタリスク フック コロン」と読み上げて
 # しまうため、合成前に落とす (実音声 smoke で発見, architecture §4 の script→tts 境界)。
-_SCRIPT_LABEL_RE = re.compile(r"\*\*\s*(?:Hook|Insight|Action)\s*[:：]\s*\*\*\s*")
+# 箇条書き prefix ((?:[-*+]|\d+[.)]) [ \t]+) は `*` で 0 回以上許容する (T42 Codex 指摘:
+# `- - Hook: abc` のような二重 prefix が `?` (最大1回) では剥がれず素通りしていた)。
+_SCRIPT_LABEL_RE = re.compile(
+    r"(?:^|(?<=[\n。！？!?]))[ \t]*(?:(?:[-*+]|\d+[.)])[ \t]+)*"
+    r"(?:\*\*\s*)?(?:Hook|Insight|Action)\s*[:：]\s*(?:\*\*)?\s*"
+)
 
 
 def strip_script_markup(text: str) -> str:
@@ -167,20 +172,30 @@ def normalize_text(text: str, reading_dict: dict[str, str]) -> str:
     if not text or not reading_dict:
         return text
     terms = sorted(reading_dict, key=len, reverse=True)
-    pattern = re.compile("|".join(re.escape(t) for t in terms))
+    pattern = re.compile("|".join(_reading_term_pattern(t) for t in terms))
     return pattern.sub(lambda m: reading_dict[m.group(0)], text)
+
+
+def _reading_term_pattern(term: str) -> str:
+    """辞書 term 用 regex。ASCII 語は長い識別子の内部で部分一致させない."""
+    escaped = re.escape(term)
+    if any(ch.isascii() and ch.isalnum() for ch in term):
+        right_boundary = r"[._\-]" if term.endswith("+") else r"[A-Za-z0-9._\-]"
+        return rf"(?<![A-Za-z0-9._\-]){escaped}(?!{right_boundary})"
+    return escaped
 
 
 # 中国語原題の発話退避 (T35/T36): かつては本文の「<中国語原題>」を pinyin へ
 # 翻字していたが、実 ASR で長い pinyin 羅列そのものが「変な読み」に聞こえることを確認。
 # 見出し/ソース一覧は strip_markdown_structure で除去済みなので、本文 quote に残った
 # 中国語原題は発話本文では「この話題」へ置換する。原題は Markdown 側に視覚情報として残る。
-# 検出: 「」内に漢字があり・日本語かな無し・かつ**簡体字特有文字**を含む span = 中国語原題。
-# かな無しだけでは漢字のみの日本語引用 (生成AI / 東京大学 / 人工知能 等) も誤翻字するため
+# 検出: 「」内に漢字があり・ひらがな無し・かつ**簡体字シグナル文字**を含む span = 中国語原題。
+# ひらがな無しだけでは漢字のみの日本語引用 (生成AI / 東京大学 / 人工知能 等) も誤翻字するため
 # (Codex High 指摘)、日本語新字体/繁体字と字形が異なる簡体字を 1 つ以上含むことを必須にする。
+# カタカナは中国企業名の日本語表記と中国語原題が混ざる quote にも出るため、保護条件にしない。
 # precision 優先: 共有字のみの稀な中国語原題は取りこぼす (従来通り素のまま) が、正しい日本語は壊さない。
 _HAN_RE = re.compile(r"[㐀-䶿一-鿿]")
-_KANA_RE = re.compile(r"[぀-ヿ]")
+_HIRAGANA_RE = re.compile(r"[ぁ-ゟ]")
 _QUOTED_RE = re.compile(r"「([^」]*)」")
 # 簡体字特有 (日本語新字体と字形が異なる) 高頻度文字。中国語原題の確証に使う。
 # 共有字 (国 学 会 体 来 万 数 医 区 等 = 日本語新字体と同形) は意図的に除外。
@@ -189,6 +204,12 @@ _SIMPLIFIED_HAN = frozenset(
     "验销额亿灵续闻监构该场选开关间时这过还进远边转较钟际团图价习张划评试语资业务员观规严"
     "众货质购贸费软轻输载连运钱铁错队阶险顺顾频颗颜驱鸟鸡齐齿龟丰临举义乐乡买争亚仅从仓伟"
     "伤伦伪侧侨偿厂历压县参双变叠号叶团圆园块坚执扩扫担拥据摆术机权条标树桥检欢残职"
+    # T42 Codex 実証: 短い簡体字タイトル (例:「竞争」) が未収録で素通りしていた。
+    # 各字を日本語新字体と 1 字ずつ字形比較し、明確に異なるもののみ追加 (同形字は含めない)。
+    "态势报线统经说视计讯论读类织页项顶竞"
+)
+_CHINESE_TITLE_SIGNAL_HAN = (_SIMPLIFIED_HAN | frozenset("刚个办兴广责问让适级头为")) - frozenset(
+    "参争与"
 )
 CHINESE_TITLE_PLACEHOLDER = "この話題"
 
@@ -196,14 +217,15 @@ CHINESE_TITLE_PLACEHOLDER = "この話題"
 def _is_chinese_title_quote(text: str) -> bool:
     return (
         _HAN_RE.search(text) is not None
-        and _KANA_RE.search(text) is None
-        and any(ch in _SIMPLIFIED_HAN for ch in text)
+        and _HIRAGANA_RE.search(text) is None
+        and any(ch in _CHINESE_TITLE_SIGNAL_HAN for ch in text)
     )
 
 
 def _cleanup_chinese_title_placeholder_context(text: str) -> str:
     """置換後に不自然になる定型文を発話向けに整える."""
     text = text.replace(f"{CHINESE_TITLE_PLACEHOLDER}というニュース", "このニュース")
+    text = text.replace(f"{CHINESE_TITLE_PLACEHOLDER}が話題になっています", "この話題が注目されています")
     text = text.replace(
         f"本日注目の話題です。{CHINESE_TITLE_PLACEHOLDER}が報じられました。",
         "本日注目の話題が報じられました。",
