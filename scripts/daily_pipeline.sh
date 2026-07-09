@@ -134,7 +134,12 @@ backup_state_db() {
   local backup_dir="${PROJECT_DIR}/data/backups"
   local keep=7  # 平日運用で約 1.5 週間分を保持
   [ -f "$db" ] || { log "state.db 未作成 — バックアップをスキップ"; return 0; }
-  mkdir -p "$backup_dir"
+  # 本スクリプトは set -e 非使用のため mkdir 失敗でも即終了しないが、意図を明示して
+  # fail-open を自己文書化する (バックアップ不能でも collect 以降は継続)。
+  mkdir -p "$backup_dir" 2>>"$LOG" || {
+    log "WARNING: バックアップ先ディレクトリ作成失敗 (パイプラインは継続): ${backup_dir}"
+    return 0
+  }
   local dest="${backup_dir}/state_${STAMP}.db"
   # sqlite3 .backup はオンライン整合バックアップ (WAL 中でも安全)。cp より堅い。
   if sqlite3 "$db" ".backup '${dest}'" 2>>"$LOG"; then

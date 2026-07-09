@@ -20,13 +20,27 @@ mkdir -p "$DEST_DIR"
 mkdir -p "${HOME}/projects/panda-tech-news/data/logs"
 
 # __HOME__ を実 $HOME へ展開 (launchd は StandardOutPath 等で $HOME を展開しないため)。
-sed "s|__HOME__|${HOME}|g" "$TEMPLATE" > "$DEST"
+# 一時ファイルへ展開 → lint → 成功時のみ本配置へ mv。壊れたテンプレートで
+# live plist を破損状態に上書きしない (Codex T44 レビュー Medium)。
+# HOME に & や | が含まれても壊れないよう index/substr で完全 literal 置換する
+# (sed も awk gsub も置換文字列側で特殊文字を解釈するため使わない)。__HOME__ は 8 文字。
+TMP="$(mktemp "${DEST}.tmp.XXXXXX")"
+trap 'rm -f "$TMP"' EXIT
+awk -v home="$HOME" '{
+  while ((i = index($0, "__HOME__")) > 0)
+    $0 = substr($0, 1, i - 1) home substr($0, i + 8)
+  print
+}' "$TEMPLATE" > "$TMP"
 
 # 構文検証 (壊れた plist を load しない)。
-plutil -lint "$DEST"
+plutil -lint "$TMP"
+mv "$TMP" "$DEST"
+trap - EXIT
 
-# 既存登録があれば一旦解除してから再登録 (冪等)。
+# 既存登録があれば解除してから再登録 (冪等)。別 path から同一 label が load 済みでも
+# 取りこぼさないよう remove も試す (launchctl load の "already loaded" 失敗を防ぐ)。
 launchctl unload "$DEST" 2>/dev/null || true
+launchctl remove "$LABEL" 2>/dev/null || true
 launchctl load "$DEST"
 
 echo "インストール完了: ${DEST}"
