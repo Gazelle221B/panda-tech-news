@@ -31,26 +31,26 @@ def test_clean_japanese_text_has_zero_candidates() -> None:
     assert report.ascii_residual_count == 0
     assert report.cjk_residual_count == 0
     assert report.candidate_count == 0
-    assert report.dict_hit_rate is None
+    assert report.preprocess_resolution_rate is None
 
 
-def test_dict_hit_rate_reflects_conversion_ratio() -> None:
-    # 候補2語のうち1語だけ辞書ヒットする場合、ヒット率は0.5になる。
+def test_resolution_rate_reflects_conversion_ratio() -> None:
+    # 候補2語のうち1語だけ前処理で解消される場合、解消率は0.5になる。
     text = "OpenAI と UnknownVendor が提携した。"
     report = analyze_coverage(text, {"OpenAI": "オープンエーアイ"})
     assert report.candidate_count == 2
     assert report.converted_count == 1
-    assert report.dict_hit_rate == 0.5
+    assert report.preprocess_resolution_rate == 0.5
 
 
-def test_dict_hit_rate_full_coverage_is_one() -> None:
+def test_resolution_rate_full_coverage_is_one() -> None:
     text = "OpenAI と Google が提携した。"
     report = analyze_coverage(
         text, {"OpenAI": "オープンエーアイ", "Google": "グーグル"}
     )
     assert report.candidate_count == 2
     assert report.converted_count == 2
-    assert report.dict_hit_rate == 1.0
+    assert report.preprocess_resolution_rate == 1.0
 
 
 def test_detects_residual_simplified_chinese_token() -> None:

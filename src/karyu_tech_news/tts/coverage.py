@@ -47,8 +47,13 @@ class CoverageReport:
     converted_count: int
 
     @property
-    def dict_hit_rate(self) -> float | None:
-        """候補語のうち prepare_tts_text で変換された割合 (候補 0 件なら None)."""
+    def preprocess_resolution_rate(self) -> float | None:
+        """候補語のうち prepare_tts_text 全体で消えた割合 (候補 0 件なら None).
+
+        注意: これは辞書置換単体のヒット率ではない。URL 除去・ASCII gloss 除去・
+        中国語タイトル退避など前処理全体で消失した候補も含む「前処理解消率」の近似値
+        (Codex T46 レビュー Medium: 辞書ヒット率と誤認させないため命名を正確化)。
+        """
         if self.candidate_count == 0:
             return None
         return self.converted_count / self.candidate_count
@@ -118,13 +123,13 @@ def analyze_coverage(
 
 def format_coverage_summary(report: CoverageReport) -> str:
     """CLI 出力向けにレポートを 1 ブロックの文字列へ整形する."""
-    hit_rate = report.dict_hit_rate
-    hit_rate_str = f"{hit_rate:.1%}" if hit_rate is not None else "N/A (候補0件)"
+    rate = report.preprocess_resolution_rate
+    rate_str = f"{rate:.1%}" if rate is not None else "N/A (候補0件)"
     ascii_top = ", ".join(f"{t.token}x{t.count}" for t in report.ascii_top_tokens) or "-"
     cjk_top = ", ".join(f"{t.token}x{t.count}" for t in report.cjk_top_tokens) or "-"
     return (
         "読み辞書カバレッジ: "
-        f"辞書ヒット率={hit_rate_str} (候補{report.candidate_count}/変換{report.converted_count}), "
+        f"前処理解消率={rate_str} (候補{report.candidate_count}/解消{report.converted_count}), "
         f"残存ASCII={report.ascii_residual_count}件 [{ascii_top}], "
         f"残存CJK(簡体字)={report.cjk_residual_count}件 [{cjk_top}]"
     )
