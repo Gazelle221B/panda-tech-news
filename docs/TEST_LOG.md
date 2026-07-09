@@ -1272,3 +1272,18 @@ libmp3lame assertion crash) → 修正 (上記 step 3) → 再レビューで実
 - `uv run ruff check .` → **All checks passed**
 - `uv run mypy src tests` → **Success: no issues found in 70 source files**
 - `git diff --check` → **clean**
+
+## 2026-07-10 — T46 読み辞書カバレッジ観測機構
+
+**対象**: `config/reading_dict.yaml` は新語が出るたび人手追記が必要で、未収録語のカバレッジが定量化できていなかった問題 (Codex 提案) への対応。`prepare_tts_text()` 適用前後の diff から、残存する未変換 ASCII 単語トークン・簡体字シグナルを含む残存 CJK トークンを検出し、辞書ヒット率とあわせてレポート化する**観測専用**モジュールを新設。辞書自動追記・自動翻字は行わない (スコープ外)。
+
+**実装**:
+- `src/karyu_tech_news/tts/coverage.py` (新設): `analyze_coverage(raw_text, reading_dict, *, top_n=10) -> CoverageReport` / `format_coverage_summary(report) -> str`。`prepare_tts_text()` を素通しでブラックボックス呼び出しし、`normalize.py` の内部処理順序には依存しない。CJK 簡体字シグナル検出は `normalize.py._CHINESE_TITLE_SIGNAL_HAN` (共有字 参/争/与 を除外済みの precision-tuned 集合) を再利用し、`_SIMPLIFIED_HAN` 単体使用時の誤検出 (例: 「参入」を簡体字残存トークンと誤判定) を回避した。
+- `main.py` `produce` コマンド: `reading_dict` ロード直後に `analyze_coverage` を呼び、`format_coverage_summary` の結果を `typer.echo` で出力。観測処理自体が例外を投げても `WARN` ログのみで続行し (fail-open)、既存の produce 成功条件・fail-fast 挙動 (欠落文検出・無音検出・LUFS/true peak ゲート) は変更していない。
+- `tests/test_tts_coverage.py` (新設, 9 tests): 残存 ASCII 検出 / クリーンテキストで 0 件 / 候補 0 件で hit_rate=None / hit_rate 算出 (部分ヒット・全ヒット) / quote 外の簡体字残存トークン検出 (参入の誤検出なしも実質確認) / top_n 制限 / summary フォーマット 2 パターン。
+
+**全体ゲート (fresh)**:
+- `uv run pytest` → **467 passed in 2.07s**
+- `uv run ruff check .` → **All checks passed**
+- `uv run mypy src tests` → **Success: no issues found in 72 source files**
+- `git diff --check` → **clean**
