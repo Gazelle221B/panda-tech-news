@@ -588,7 +588,10 @@ def produce(
         # 読み辞書カバレッジ観測 (T46): TTS 合成前の情報出力のみ。既存の成功条件・
         # fail-fast 挙動には影響しない (失敗しても合成は続行する, 観測は fail-open)。
         try:
-            coverage = analyze_coverage(script.segments[0].text, reading_dict)
+            # 全セグメントを結合して観測する (現状 produce は単一セグメントだが、
+            # 将来 multi-segment 化しても先頭だけに縮退しないようにする)。
+            coverage_text = "\n".join(seg.text for seg in script.segments)
+            coverage = analyze_coverage(coverage_text, reading_dict)
             typer.echo(format_coverage_summary(coverage))
         except Exception as exc:  # noqa: BLE001
             typer.secho(
