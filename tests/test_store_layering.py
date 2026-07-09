@@ -9,15 +9,31 @@ import ast
 from pathlib import Path
 
 STORE_DIR = Path(__file__).resolve().parent.parent / "src" / "karyu_tech_news" / "store"
-FORBIDDEN_PREFIXES = ("karyu_tech_news.edit", "karyu_tech_news.script")
+# 絶対 import (karyu_tech_news.edit...) と相対 import (..edit...) の両方を捕捉するため、
+# 末端パッケージ名 edit / script も禁止語に含める。
+FORBIDDEN_SEGMENTS = ("karyu_tech_news.edit", "karyu_tech_news.script", "edit", "script")
+
+
+def _is_forbidden(module: str) -> bool:
+    """module がドット区切りセグメント境界で禁止パッケージに一致するか.
+
+    ``editor_utils`` や ``scripting`` のような別語を誤検出しないよう、完全一致か
+    ``<forbidden>.`` で始まる場合のみ真とする (startswith の部分一致は使わない)。
+    """
+    return any(
+        module == seg or module.startswith(f"{seg}.") for seg in FORBIDDEN_SEGMENTS
+    )
 
 
 def _imported_modules(py_file: Path) -> set[str]:
     tree = ast.parse(py_file.read_text(encoding="utf-8"), filename=str(py_file))
     modules: set[str] = set()
     for node in ast.walk(tree):
-        if isinstance(node, ast.ImportFrom) and node.module:
-            modules.add(node.module)
+        if isinstance(node, ast.ImportFrom):
+            # 絶対 import は module をそのまま。相対 import (level>0、例 `from ..edit.judge`)
+            # は module 文字列 ("edit.judge") をそのまま見ることで edit/script リークを検出する。
+            if node.module:
+                modules.add(node.module)
         elif isinstance(node, ast.Import):
             for alias in node.names:
                 modules.add(alias.name)
@@ -25,13 +41,11 @@ def _imported_modules(py_file: Path) -> set[str]:
 
 
 def test_store_does_not_import_edit_or_script() -> None:
-    """store/ 配下の各モジュールが edit/ や script/ を import していないこと."""
+    """store/ 配下の各モジュール (サブパッケージ含む) が edit/ や script/ を import しないこと."""
     offenders: dict[str, set[str]] = {}
-    for py_file in sorted(STORE_DIR.glob("*.py")):
+    for py_file in sorted(STORE_DIR.rglob("*.py")):
         modules = _imported_modules(py_file)
-        forbidden = {
-            m for m in modules if any(m.startswith(prefix) for prefix in FORBIDDEN_PREFIXES)
-        }
+        forbidden = {m for m in modules if _is_forbidden(m)}
         if forbidden:
             offenders[py_file.name] = forbidden
 
