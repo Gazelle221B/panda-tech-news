@@ -125,6 +125,32 @@ PY
   fi
 }
 
+# --- state.db バックアップ (T47) ---
+# collect が新規 items を書き込む前に SQLite スナップショットを取る。item_key 履歴が
+# 失われると重複配信を招くため、破損・誤削除からの復旧手段を用意する。
+# fail-open: バックアップ失敗はパイプラインを止めない (ログのみ、配信は継続)。
+backup_state_db() {
+  local db="${PROJECT_DIR}/data/state.db"
+  local backup_dir="${PROJECT_DIR}/data/backups"
+  local keep=7  # 平日運用で約 1.5 週間分を保持
+  [ -f "$db" ] || { log "state.db 未作成 — バックアップをスキップ"; return 0; }
+  mkdir -p "$backup_dir"
+  local dest="${backup_dir}/state_${STAMP}.db"
+  # sqlite3 .backup はオンライン整合バックアップ (WAL 中でも安全)。cp より堅い。
+  if sqlite3 "$db" ".backup '${dest}'" 2>>"$LOG"; then
+    log "state.db バックアップ成功: ${dest} ($(du -h "$dest" | cut -f1))"
+    # 世代ローテーション: 新しい keep 件を残し、古いものを削除。
+    # shellcheck disable=SC2012
+    ls -1t "${backup_dir}"/state_*.db 2>/dev/null | tail -n +$((keep + 1)) | while IFS= read -r old; do
+      rm -f "$old" && log "古いバックアップを削除: $(basename "$old")"
+    done
+  else
+    log "WARNING: state.db バックアップ失敗 (パイプラインは継続)"
+  fi
+}
+
+backup_state_db
+
 run_step "collect" "$UV" run python -m karyu_tech_news collect --post
 run_step "draft"   "$UV" run python -m karyu_tech_news draft --variant A --post
 run_step "produce" "$UV" run python -m karyu_tech_news produce --engine irodori-tts-v3 --post
