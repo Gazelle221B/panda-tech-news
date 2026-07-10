@@ -1,5 +1,6 @@
 # レビュー報告
 
+> **本ファイルは 2026-07-11 で凍結。以後の新規追記は禁止**。1チケット1ファイルで `docs/review-reports/` に記録する ([ADR-0008](./adr/ADR-0008-append-log-sharding.md))。既存内容はそのまま保持 (移行・削除しない)。
 > 基準: [DESIGN.md](./DESIGN.md), [IMPLEMENTATION_PLAN.md](./IMPLEMENTATION_PLAN.md)
 > 作成者: Codex (専任レビュアー / GPT codex系 high reasoning)
 > 役割: WORKFLOW §14 に基づき、実装に **関与しない** 立場で品質ゲートを判定する。

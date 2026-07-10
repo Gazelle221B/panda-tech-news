@@ -20,12 +20,14 @@
 | [0004](./ADR-0004-rsshub-self-host.md) | RSSHub をセルフホスト | Accepted | 1A | Public インスタンスの Cookie 管理・障害調査不能を回避。`docker compose` で自前運用 |
 | [0005](./ADR-0005-llm-roles-ab-test.md) | LLM 役割 (editor/writer) を A/B/C 検証で確定 | Accepted (検証は 1B) | 1B | 役割を固定せず設定で切替。価格戦争下のベンダー固定リスクを抽象化で回避 |
 | [0006](./ADR-0006-tts-irodori-abstraction.md) | TTS は Irodori-TTS v3 主軸 + 抽象化レイヤー | Accepted (実装は 2) | 2 | `TTSEngine` で差し替え可能に。HAL 人格は TTS 非依存 |
+| [0008](./ADR-0008-append-log-sharding.md) | 追記型共有ログを1チケット1ファイルへシャーディング | Proposed | 全体 (運用) | TEST_LOG/REVIEW_REPORT/QA_REPORT への並行追記が並行PRを必然的にコンフリクトさせる問題を解消。`docs/test-logs/` 等へ移行 |
 
 ## スプリント別の効き方
 
 - **Sprint 1A (現在)**: 0001 / 0002 / 0003 / 0004 が実装を直接拘束する。
 - **Sprint 1B**: 0005 (LLM 役割) が起動。
 - **Sprint 2**: 0006 (TTS) が起動。
+- **全スプリント共通 (運用)**: 0008 (追記ログのシャーディング) が 2026-07-11 以降の証跡運用を拘束する。
 
 ## 関連の地図
 
@@ -36,4 +38,5 @@ ADR-0003 (Webhook) ───┐
 ADR-0004 (RSSHub) ─────┼─ collect/deliver の外部依存方針
 ADR-0005 (LLM役割) ────┼─ edit/script の抽象化 (1B)
 ADR-0006 (TTS) ────────┘─ tts の抽象化 (2)
+ADR-0008 (ログシャーディング) ─ 全スプリント共通の証跡運用
 ```

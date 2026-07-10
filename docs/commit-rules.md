@@ -19,7 +19,7 @@ uv run mypy src tests  # strict クリーン
 判断ルール:
 - 1つでも赤なら **未完了**。完了と報告してはならない (AGENTS.md §12.4 Goal-Driven Execution)。
 - テストを通すために**まず実装の誤りを疑う**。テストを書き換えて緑にする (テストを壊す) のは禁止 — 仕様が間違っている確証があり、かつ人間に確認した場合のみ。
-- 「ローカルで動いた気がする」は完了の根拠にならない。fresh な実行出力を `docs/TEST_LOG.md` に証跡として残す。
+- 「ローカルで動いた気がする」は完了の根拠にならない。fresh な実行出力を `docs/test-logs/` のチケットログに証跡として残す (ADR-0008、`docs/TEST_LOG.md` は凍結済み・新規追記禁止)。
 - 既存の lint/型エラーが**自分の変更由来か既存かを切り分ける** (例: `git stash` で退避して再実行)。既存の赤を新規変更の言い訳にしない。
 
 > なぜこのゲートが要るか: LLM は「もっともらしい完了報告」を生成しがちで、検証なしに done と言う失敗様式がある。本ゲートは「宣言」を「検証済み事実」に縛る。
@@ -44,8 +44,8 @@ uv run mypy src tests  # strict クリーン
 AGENTS.md §8.3 を実行手順として再掲 (上から順に):
 
 - [ ] §1 完了宣言ゲート (pytest / ruff / mypy strict) を **fresh 出力**で確認
-- [ ] `docs/TEST_LOG.md` に実行コマンドと結果を追記
-- [ ] `docs/PROJECT_STATE.md` を最新化 (現フェーズ・次アクション・人間判断待ち)
+- [ ] `docs/test-logs/` にチケットログ (実行コマンドと結果) を新規作成 (ADR-0008)
+- [ ] `docs/PROJECT_STATE.md` を impl ブランチで編集していないこと (マージ後に docs PR でオーケストレーターが更新, ADR-0008)
 - [ ] AGENTS.md §3「絶対NG」に抵触していないか自己点検
 - [ ] `git status` で `.env` / 秘密情報 / 生成 `*.mp3`・`*.mp4`・`*.db` を含めていないか確認
 - [ ] 変更が Ticket スコープに直接トレースできるか (無関係な整形・リファクタを混ぜない, AGENTS.md §12.3)
@@ -56,9 +56,9 @@ AGENTS.md §8.3 を実行手順として再掲 (上から順に):
 
 | 段階 | 完了条件 (要約) | 証跡 |
 |---|---|---|
-| 実装完了 | コード変更 + ローカルテスト緑 + 変更要約 | `docs/TEST_LOG.md` |
-| レビュー合格 | Codex が Critical/High 指摘ゼロ判定 | `docs/REVIEW_REPORT.md` (証跡欄必須) |
-| 検収可能 | Antigravity が DESIGN/差分/テスト/README の整合確認 | `docs/QA_REPORT.md` |
+| 実装完了 | コード変更 + ローカルテスト緑 + 変更要約 | `docs/test-logs/YYYY-MM-DD-T<NN>-<slug>.md` (ADR-0008) |
+| レビュー合格 | Codex が Critical/High 指摘ゼロ判定 | `docs/review-reports/YYYY-MM-DD-T<NN>-<slug>.md` (証跡欄必須, ADR-0008) |
+| 検収可能 | Antigravity が DESIGN/差分/テスト/README の整合確認 | `docs/qa-reports/YYYY-MM-DD-T<NN>-<slug>.md` (ADR-0008) |
 | 完了 | 上記すべて + **人間が merge 承認** | — |
 
 **各段階の DoD を満たさない限り次工程に進めない。**「一応動いた」を完了扱いしない (WORKFLOW §10)。

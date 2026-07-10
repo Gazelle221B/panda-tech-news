@@ -122,14 +122,15 @@ panda-tech-news/
 │   ├── domain/collection.md         # 収集コンテキストの用語・ルール・状態遷移
 │   ├── IMPLEMENTATION_PLAN.md       # T1〜T11 タスク分解
 │   ├── WORKFLOW.md                  # マルチエージェント契約 (ロール・I/O・DoD)
-│   ├── PROJECT_STATE.md             # 永続化された進捗 (全エージェント随時更新)
-│   ├── TEST_LOG.md / REVIEW_REPORT.md / QA_REPORT.md  # 証跡 (実装/レビュー/QA)
+│   ├── PROJECT_STATE.md             # 永続化された進捗 (impl ブランチでは編集不可, ADR-0008。マージ後 docs PR でまとめて更新)
+│   ├── TEST_LOG.md / REVIEW_REPORT.md / QA_REPORT.md  # 証跡 (2026-07-11 で凍結・新規追記禁止, ADR-0008)
+│   ├── test-logs/ / review-reports/ / qa-reports/  # ★ 証跡の現行置き場。1チケット1ファイル `YYYY-MM-DD-T<NN>-<slug>.md` (ADR-0008)
 │   ├── roadmap.md                   # Sprint 1A→1B→2→3→局化
 │   ├── architecture-podcast-station.md  # 長期ビジョン
 │   ├── design-inheritance-tc-newsflow.md # Go版からの継承パターン
 │   ├── source-selection-spike-v0.1.md   # 初期 11 ソース選定 (9 有効/2 保留)
 │   ├── hal-persona.md / show-format.md / editorial-policy.md  # 番組仕様
-│   └── adr/                         # INDEX.md (一覧ハブ) + TEMPLATE.md + ADR-0001〜0006 (Accepted)
+│   └── adr/                         # INDEX.md (一覧ハブ) + TEMPLATE.md + ADR-0001〜0008 (Accepted)
 ├── prompts/                 # 各エージェント宛 system プロンプト
 │   ├── architect.md  implement.md  review.md  qa.md
 ├── config/
@@ -202,8 +203,8 @@ panda-tech-news/
 - [ ] `uv run pytest` グリーン
 - [ ] `uv run ruff check .` クリーン
 - [ ] `uv run mypy src tests` strict クリーン
-- [ ] `docs/TEST_LOG.md` に実行ログを追記
-- [ ] `docs/PROJECT_STATE.md` を最新化
+- [ ] `docs/test-logs/` にチケットログを新規作成 (ADR-0008)
+- [ ] `docs/PROJECT_STATE.md` を impl ブランチで編集していないこと (マージ後に docs PR で更新, ADR-0008)
 - [ ] 「絶対 NG」(§3) に抵触していないか自己点検
 - [ ] `.env` / 秘密情報 / 生成 mp3・mp4 を含めていないか
 
@@ -242,9 +243,10 @@ panda-tech-news/
 | ロードマップ | [docs/roadmap.md](docs/roadmap.md) | Sprint 1A→1B→2→3→局化 |
 | Spike | [docs/source-selection-spike-v0.1.md](docs/source-selection-spike-v0.1.md) | 初期 11 ソース選定結果 |
 | 番組仕様 | [docs/hal-persona.md](docs/hal-persona.md), [docs/show-format.md](docs/show-format.md), [docs/editorial-policy.md](docs/editorial-policy.md) | HAL 人格 / 構成 / 編集方針 |
-| ADR | [docs/adr/INDEX.md](docs/adr/INDEX.md) | ADR 一覧ハブ (0001 Python単一 〜 0006 TTS抽象化)。新規は TEMPLATE.md から |
+| ADR | [docs/adr/INDEX.md](docs/adr/INDEX.md) | ADR 一覧ハブ (0001 Python単一 〜 0008 追記ログのシャーディング)。新規は TEMPLATE.md から |
 | プロンプト | [prompts/](prompts/) | 各エージェント宛 system 指示 |
-| 証跡 | [docs/TEST_LOG.md](docs/TEST_LOG.md) / [docs/REVIEW_REPORT.md](docs/REVIEW_REPORT.md) / [docs/QA_REPORT.md](docs/QA_REPORT.md) | 実装 / レビュー / QA の根拠 |
+| 証跡 (凍結・参照のみ) | [docs/TEST_LOG.md](docs/TEST_LOG.md) / [docs/REVIEW_REPORT.md](docs/REVIEW_REPORT.md) / [docs/QA_REPORT.md](docs/QA_REPORT.md) | 2026-07-11 以前の実装 / レビュー / QA の根拠。新規追記禁止 (ADR-0008) |
+| 証跡 (現行) | [docs/test-logs/](docs/test-logs/) / [docs/review-reports/](docs/review-reports/) / [docs/qa-reports/](docs/qa-reports/) | 1チケット1ファイルの実装 / レビュー / QA 証跡 (ADR-0008) |
 
 ## 11. AI エージェント向け運用ルール (本書まとめ)
 
