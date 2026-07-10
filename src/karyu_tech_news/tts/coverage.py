@@ -16,7 +16,7 @@ import re
 from collections import Counter
 from dataclasses import dataclass
 
-from karyu_tech_news.tts.normalize import _CHINESE_TITLE_SIGNAL_HAN, prepare_tts_text
+from karyu_tech_news.tts.normalize import CHINESE_TITLE_SIGNAL_HAN, prepare_tts_text
 
 # 残存 ASCII 単語トークン: 英字 2 文字以上で始まり、英数字が続いてよい。
 # 前後を英数字境界で挟まれない (長い識別子の内部を拾わない) ことを要求する。
@@ -62,12 +62,12 @@ class CoverageReport:
 def _cjk_simplified_tokens(text: str) -> list[str]:
     """簡体字シグナル文字を 1 文字以上含む漢字連続 run を抽出する.
 
-    `_CHINESE_TITLE_SIGNAL_HAN` (normalize.py が中国語原題 quote 検出用に精度調整
+    `CHINESE_TITLE_SIGNAL_HAN` (normalize.py が中国語原題 quote 検出用に精度調整
     した集合) を再利用する。日本語新字体と同形の共有字 (参/争/与 等) を含まないため、
     正しい日本語の漢字熟語を誤検出しない (normalize.py 側の precision-first 方針を継承)。
     """
     return [
-        tok for tok in _HAN_RUN_RE.findall(text) if any(ch in _CHINESE_TITLE_SIGNAL_HAN for ch in tok)
+        tok for tok in _HAN_RUN_RE.findall(text) if any(ch in CHINESE_TITLE_SIGNAL_HAN for ch in tok)
     ]
 
 
@@ -93,13 +93,14 @@ def analyze_coverage(
       「変換された」とみなす。dict 置換以外の前処理 (URL 除去等) による
       消失も広義の「変換」として数える (診断目的であり、厳密な dict 単体の
       ヒット率ではなく "算出可能な範囲" の近似値)。
+    - 残存 ASCII トークンは `reading_dict` に登録済みかどうかで除外しない
+      (T46 Copilot レビュー: 辞書登録済みなのに `prepare_tts_text()` 後もなお
+      ASCII のまま残るのは、置換ロジックの不具合を示す重要な異常であり、
+      観測対象から隠すべきではない)。
     """
     prepared = prepare_tts_text(raw_text, reading_dict)
 
-    dict_keys = set(reading_dict)
-    ascii_residual = Counter(
-        tok for tok in _ASCII_TOKEN_RE.findall(prepared) if tok not in dict_keys
-    )
+    ascii_residual = Counter(_ASCII_TOKEN_RE.findall(prepared))
     cjk_residual = Counter(_cjk_simplified_tokens(prepared))
 
     raw_candidates = _candidate_tokens(raw_text)

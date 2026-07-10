@@ -208,9 +208,12 @@ _SIMPLIFIED_HAN = frozenset(
     # 各字を日本語新字体と 1 字ずつ字形比較し、明確に異なるもののみ追加 (同形字は含めない)。
     "态势报线统经说视计讯论读类织页项顶竞"
 )
-_CHINESE_TITLE_SIGNAL_HAN = (_SIMPLIFIED_HAN | frozenset("刚个办兴广责问让适级头为")) - frozenset(
+# 公開名 (T46 Copilot レビュー: coverage.py が非公開シンボルに直接依存していた)。
+# 後方互換のため旧名 `_CHINESE_TITLE_SIGNAL_HAN` もエイリアスとして維持する。
+CHINESE_TITLE_SIGNAL_HAN = (_SIMPLIFIED_HAN | frozenset("刚个办兴广责问让适级头为")) - frozenset(
     "参争与"
 )
+_CHINESE_TITLE_SIGNAL_HAN = CHINESE_TITLE_SIGNAL_HAN
 CHINESE_TITLE_PLACEHOLDER = "この話題"
 
 

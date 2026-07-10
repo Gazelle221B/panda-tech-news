@@ -61,6 +61,16 @@ def test_detects_residual_simplified_chinese_token() -> None:
     assert report.cjk_residual_count >= 1
 
 
+def test_dict_registered_token_still_residual_is_reported() -> None:
+    # T46 Copilot レビュー: 辞書に登録済みでも境界条件 (normalize_text の
+    # 左境界は `-` の直前も除外するが _ASCII_TOKEN_RE は含む) により置換されない
+    # 「辞書はあるのに残存する」異常ケースは、辞書キー判定で隠さず検出対象に含める。
+    text = "同社は-OpenAIと提携した。"
+    report = analyze_coverage(text, {"OpenAI": "オープンエーアイ"})
+    assert report.ascii_residual_count >= 1
+    assert any(t.token == "OpenAI" for t in report.ascii_top_tokens)
+
+
 def test_top_n_limits_returned_tokens() -> None:
     text = " ".join(f"VendorAlpha{i} VendorBeta{i}" for i in range(5))
     report = analyze_coverage(text, {}, top_n=2)
