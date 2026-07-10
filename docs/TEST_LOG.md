@@ -1278,3 +1278,34 @@ libmp3lame assertion crash) → 修正 (上記 step 3) → 再レビューで実
 - **T44 (恒常日次配信スケジューラ)**: 3日限定 Month+Day ピンから平日 (月〜金) 06:30 発火の Weekday 方式へ plist を変更。`install.sh` / `uninstall.sh` を新設 (`__HOME__` プレースホルダを実 $HOME へ展開して `~/Library/LaunchAgents` へ配置、冪等、plutil lint 込み)。
 - **T47 (state.db バックアップ)**: `daily_pipeline.sh` の collect 前に `sqlite3 .backup` によるオンライン整合バックアップを挿入 (fail-open、7世代ローテーション、`data/backups/`)。実 state.db (17M) で `.backup` → `PRAGMA integrity_check`=ok・全9テーブル保持を確認。
 - 検証: `plutil -lint` OK、展開後 plist も lint OK、`bash -n` 全 OK、`shellcheck scripts/daily_pipeline.sh scripts/launchd/*.sh` clean。
+
+## 2026-07-10 — T45 store 層の逆向き依存解消 (DTO 境界導入)
+
+**対象**: `src/karyu_tech_news/store/repo.py` が `edit.judge.JudgedTopic` / `script.fallback.TopicScriptResult` /
+`script.generate.EpisodeScript` を直接 import していた逆向き依存を解消 (DESIGN.md §5)。
+
+**変更内容**:
+1. `src/karyu_tech_news/store/dto.py` (新規): 永続化専用 frozen dataclass `EpisodeDraftInput` /
+   `TopicCandidateInput` / `ScriptVersionInput` を定義。primitive 型のみで構成し edit/script を import しない。
+2. `src/karyu_tech_news/store/repo.py`: `create_episode_draft` / `insert_topic_candidates` /
+   `insert_script_versions` のシグネチャを DTO 受け取りへ変更。INSERT 内容・DB スキーマは無変更。
+3. `src/karyu_tech_news/script/runner.py` (`run_draft`): `JudgedTopic` / `EpisodeScript` /
+   `TopicScriptResult` → 上記 DTO への変換を呼び出し側で実施。
+4. `tests/test_store_1b.py`: repo 呼び出しに DTO を直接構築する形へ更新 (edit/script 型への依存を除去)。
+5. `tests/test_store_layering.py` (新規): ast ベースで `src/karyu_tech_news/store/*.py` が
+   `karyu_tech_news.edit` / `karyu_tech_news.script` を import しないことを検査する回帰テスト。
+
+**挙動不変の根拠**: `insert_topic_candidates` / `insert_script_versions` / `create_episode_draft` の
+DB へ書き込むフィールドと値は変更前と 1 対 1 対応 (呼び出し元で同じソース値から DTO を構築)。
+`collect.normalize.FetchResult` / `RawItem` の import は DESIGN.md §3.3 が定義する既存の主要データ型
+契約でありタスク範囲外のため維持 (`collect → store` は許可された向き)。
+
+**実行コマンド / 結果**:
+```bash
+uv run pytest -q          # 459 passed in 2.12s
+uv run ruff check .       # All checks passed!
+uv run mypy src tests     # Success: no issues found in 72 source files
+git diff --check          # (出力なし = clean)
+grep -n "from karyu_tech_news.edit\|from karyu_tech_news.script" src/karyu_tech_news/store/*.py
+                           # (出力なし = 除去済み)
+```

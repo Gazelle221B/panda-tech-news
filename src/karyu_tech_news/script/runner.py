@@ -35,6 +35,11 @@ from karyu_tech_news.llm.client import LLMError, LLMResponse
 from karyu_tech_news.llm.profile import ResolvedRoles
 from karyu_tech_news.script.fallback import generate_with_fallback
 from karyu_tech_news.script.generate import EpisodeScript, assemble_episode
+from karyu_tech_news.store.dto import (
+    EpisodeDraftInput,
+    ScriptVersionInput,
+    TopicCandidateInput,
+)
 from karyu_tech_news.store.repo import (
     create_episode_draft,
     insert_script_versions,
@@ -168,16 +173,49 @@ def run_draft(
         [(topic, result.body) for topic, result in results], variant, now
     )
 
-    draft = create_episode_draft(session, episode)
+    draft = create_episode_draft(
+        session,
+        EpisodeDraftInput(
+            generated_at=episode.generated_at,
+            variant=episode.variant,
+            title=episode.title,
+            estimated_minutes=episode.estimated_minutes,
+            notices=episode.notices,
+            markdown=episode.markdown,
+        ),
+    )
     draft_id = int(draft.id)
     positions = {
         topic.candidate.item_id: i for i, topic in enumerate(arranged, start=1)
     }
-    insert_topic_candidates(session, draft_id, judged, positions)
+    insert_topic_candidates(
+        session,
+        draft_id,
+        [
+            TopicCandidateInput(
+                item_id=topic.candidate.item_id,
+                prescore=topic.candidate.prescore,
+                llm_score=topic.llm_score,
+                tone=topic.tone.value,
+                source_tier=topic.candidate.tier,
+                corroboration_count=topic.corroboration_count,
+            )
+            for topic in judged
+        ],
+        positions,
+    )
     insert_script_versions(
         session,
         draft_id,
-        [(topic.candidate.item_id, result) for topic, result in results],
+        [
+            (
+                topic.candidate.item_id,
+                ScriptVersionInput(
+                    method=result.method, attempts=result.attempts, body=result.body
+                ),
+            )
+            for topic, result in results
+        ],
         now=now,
     )
     record_llm_run(

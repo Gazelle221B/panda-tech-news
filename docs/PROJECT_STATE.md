@@ -1,10 +1,11 @@
 # プロジェクト状態
 
-> 最終更新: 2026-07-09 / 更新者: Claude Code (T42 欠陥修正 + docs 更新)
+> 最終更新: 2026-07-10 / 更新者: Claude Code (T45 store 層 DTO 境界導入)
 > 本ファイルは全エージェントが随時更新する。**Antigravity の内部記憶ではなくここを真の記憶とする** (WORKFLOW §13)。
 
 ## 現在のフェーズ
 
+- **2026-07-10 更新 (Claude Code, T45 store 層の逆向き依存解消, branch `agent/T45-store-dto-impl`)**: `store/repo.py` が `edit.judge.JudgedTopic` / `script.fallback.TopicScriptResult` / `script.generate.EpisodeScript` を直接 import しており DESIGN.md §5「逆向き依存禁止 (collect → store ← deliver)」の最下層ハブ原則に反していた問題を解消。**方針 (A) 採用**: `store/dto.py` に永続化専用の軽量 frozen dataclass (`EpisodeDraftInput` / `TopicCandidateInput` / `ScriptVersionInput`) を新設し、`repo.py` の `create_episode_draft` / `insert_topic_candidates` / `insert_script_versions` はこれら primitive DTO のみを受け取るようシグネチャ変更。呼び出し側 `script/runner.py` (`run_draft`) で `JudgedTopic`/`EpisodeScript`/`TopicScriptResult` → DTO への変換を実施。方針 (B) (primitive 引数への平坦化) より DTO の方が呼び出し側の可読性・将来のフィールド追加時の後方互換性で優位と判断。DB スキーマ・INSERT 内容・item_key 生成・fail-open ロジックは無変更 (挙動不変)。`store/repo.py` に残る `collect.normalize.FetchResult`/`RawItem` への import (実際の向きは `store → collect.normalize`) は本 T45 のスコープ外として維持 — DESIGN.md §3.3 が定義する既存の主要データ型結合であり、この collect 型の DTO 化 (`ItemInput` 等) は別チケットで判断する (Codex T45 レビュー Medium)。回帰防止に `tests/test_store_layering.py` (ast ベースで `store/` 配下 (サブパッケージ含む rglob) の各モジュールが `karyu_tech_news.edit`/`karyu_tech_news.script` を絶対・相対いずれの import でも参照しないことをセグメント境界一致で検査) を追加。`tests/test_store_1b.py` も DTO を直接構築する形へ更新し、edit/script 型への依存を除去。fresh gate: `uv run pytest` **459 passed**、`uv run ruff check .` clean、`uv run mypy src tests` strict clean (72 files)、`git diff --check` clean、`grep -n "from karyu_tech_news.edit\|from karyu_tech_news.script" src/karyu_tech_news/store/*.py` 空。
 - **2026-07-09 更新 (Claude Code)**: (a) 旧称「T38 (TTS 読み上げハードニング)」が [PR #25](https://github.com/Gazelle221B/panda-tech-news/pull/25) の Sprint 3 (T38-T41) と採番衝突していることを発見し、本ファイル内の該当チケットを **T42** へ全面改称 (旧 T38 表記は本ファイル・TEST_LOG.md 内で置換済み、branch も実体 `agent/T42-tts-reading-impl` に合わせて記述統一)。(b) Codex 独立レビューで実証された欠陥 2 件を修正: ① `strip_script_markup` の箇条書き prefix 除去が `?` (最大1回) までしか効かず `- - Hook: abc` のような多重 prefix が素通り → prefix 除去を `*` (0回以上) に変更し回帰テスト追加。② `sanitize_chinese_title_quotes` が短い簡体字タイトル (例:「竞争」) を未収録字のため素通り → `_SIMPLIFIED_HAN` に `竞` を含む未収録18字 (`态势报线统经说视计讯论读类织页项顶竞`、いずれも日本語新字体と1字ずつ字形比較の上で選定・同形字は含めず) を追加し回帰テスト追加。(c) `docker-compose.yml` の healthcheck 修正は本ブランチから分離し **T43** として別チケット化。(d) 旧「人間 TODO」の launchd アンインストールは 2026-07-09 時点で `launchctl list` / `~/Library/LaunchAgents/` / `crontab -l` のいずれにも karyu 関連エントリが無いことを実機確認し**消化済み**と記録 (下記に反映)。(e) 人間判断待ちへ2件追加 (詳細は「人間判断待ちの事項」節): ① Sprint 3 ([PR #25](https://github.com/Gazelle221B/panda-tech-news/pull/25)、T38-T41) の着手 Go が出ていたかどうかの確認・記録。② 恒常日次配信スケジューラ (launchd) の再導入判断 — 現在自動配信は launchd 撤去済みで停止中、配信は手動 (`karyu produce` 等) のみ。
 - T42 追加修正 fresh gate: `uv run pytest tests/test_tts_normalize.py -q` **60 passed**、`uv run pytest tests/test_tts_normalize.py tests/test_tts_synthesize.py -q` **87 passed**、`uv run pytest` **458 passed in 2.40s**、`uv run ruff check .` clean、`uv run mypy src tests` strict clean (70 files)、`git diff --check` clean。証跡は `docs/TEST_LOG.md`「T42 追加修正」節。
 
@@ -86,6 +87,8 @@
 | Ticket T23 (TTSEngine Protocol + 設定駆動エンジン選択) | ✅ 実装完了 (2026-06-14)。`tts/engine.py` — Protocol (synthesize/voices/name/capabilities) + データモデル + MockTTSEngine + `select_engine` (FR-090)。エンジン非依存・モック駆動。pytest 257 緑 / ruff / mypy strict clean。Codex レビュー待ち |
 
 ## 作業中ブランチ
+
+`agent/T45-store-dto-impl` (origin/main `af356a5` (T42/PR #28 込み) から新規分岐。store/repo.py の逆向き依存解消 DTO リファクタ)
 
 `agent/T42-tts-reading-impl` (main `b8114bf` (T37/PR #24 込み) へ rebase 済み。TTS 読み上げハードニング: plain label 除去、英語技術語の読み辞書拡張、混在中国語 quote の発話退避 + 2026-07-09 追加修正: `strip_script_markup` 多重 prefix 除去、`sanitize_chinese_title_quotes` 短い簡体字タイトル未収録の補完)
 
