@@ -14,8 +14,8 @@
 |---|---|---|---|---|
 | **1A** | 収集基盤 | RSS/RSSHub→SQLite, source_health, fail-open, Discord収集サマリー | LLM/TTS/動画/YouTube | v0.2 |
 | **1B** | 台本生成 | LLM編集判定, Tier重みスコアリング, 3-5本選定, Markdown台本, A/B/C比較ログ, Discord台本投稿 | 音声化 | v0.3 |
-| **2** | 音声化 | TTS抽象化, Irodori接続, 文単位合成, 読み仮名辞書, mp3, BGM/ジングル仮ミックス | 動画/YouTube | v0.4 |
-| **3** | 配信 | 波形動画, YouTube限定公開, AI開示, 朝確認フロー, (必要ならBot化) | — | v0.5 |
+| **2** ✅ | 音声化 | TTS抽象化, Irodori接続, 文単位合成, 読み仮名辞書, mp3, BGM/ジングル仮ミックス | 動画/YouTube | v0.4 |
+| **3** (PR #25 DRAFT) | 配信 | 波形動画, YouTube限定公開, AI開示, 朝確認フロー, (必要ならBot化) | — | v0.5 |
 | **将来** | 局化 | 雑談番組, ボイスドラマ, 三番組統合, Spotify/Apple | — | — |
 
 ## Sprint 1A — 収集基盤 (✅ 完了 2026-06-04)
@@ -55,13 +55,20 @@
 - [x] Discord に台本投稿 (3日とも成功)
 - [~] 「音声化する価値がある」水準に近い — writer (DeepSeek) 300字超過で未達。2 defects 修正後に再評価 ([TEST_LOG](./TEST_LOG.md) T22 総括)
 
-## Sprint 2 — 音声化 (現在地: 着手中。T23 完了、T24/T29 は人間ブロッカー待ち)
+## Sprint 2 — 音声化 (✅ 完了。T23〜T31 main 到達、T33〜T37 で日次自動配信・品質ハードニング・運用文書まで反映済み)
 
 ゴール: mp3 完パケ。TTS 抽象化 + Irodori 接続 ([ADR-0006](./adr/ADR-0006-tts-irodori-abstraction.md))。
 
 主要タスク: `TTSEngine` インターフェース, Irodori-TTS-Server 接続 (OpenAI互換), 文単位合成+結合, 読み仮名辞書 (FR-092), 絵文字注釈レイヤー (tone→感情, [architecture §4](./architecture-podcast-station.md)), 構造化台本JSON, pydub+ffmpeg ミックス, ラウドネス正規化 -16 LUFS, mp3 192kbps/48kHz, Discord へ mp3 (25MB超なら R2/S3 リンク, 要件 §17.6)。
 
-## Sprint 3 — 配信
+### Sprint 2 実績
+- T23-T31: TTS 抽象化 / 実音声 (Kokoro+Irodori) / 構造化台本・読み仮名・絵文字・文単位合成 / ラウドネス -16LUFS・mp3 完パケ / BGM mixer / produce 永続化・Discord mp3 配信 — main 到達 (PR #13-#19)。
+- T33/T34/T35: 日次自動配信 (`collect→draft→produce→Discord`) + Irodori 600M VoiceDesign+caption 本採用 — main 到達 ([PR #22](https://github.com/Gazelle221B/panda-tech-news/pull/22), 2026-06-23)。日次 launchd は 3 日限定運用後の 2026-06-27 に撤去済み (現在手動運用のみ、恒常化は人間判断待ち)。
+- T36: 音声品質ハードニング (3秒無音検出・clip/LUFS gate・失敗通知) — main 到達 ([PR #23](https://github.com/Gazelle221B/panda-tech-news/pull/23), 2026-06-26)。
+- T37: agentic workflow docs 統合・ドリフト是正 — main 到達 ([PR #24](https://github.com/Gazelle221B/panda-tech-news/pull/24), 2026-06-29)。
+- 残課題 (人間判断): T32 話速の聴感判断 / BGM 素材ライセンス / A/B/C 既定 variant 確定 / 恒常スケジューラ再導入方針。
+
+## Sprint 3 — 配信 (現在地: [PR #25](https://github.com/Gazelle221B/panda-tech-news/pull/25) が T38-T41 実装で DRAFT、2026-07-05〜。人間 Go 判断の記録確認待ち)
 
 ゴール: YouTube 限定公開まで自動化。
 

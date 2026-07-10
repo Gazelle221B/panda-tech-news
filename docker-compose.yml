@@ -18,8 +18,11 @@ services:
       # Cookie 必須ルート (知乎等, Sprint 2 以降) を使う場合はここに追加:
       # ZHIHU_COOKIES: ${ZHIHU_COOKIES}
     restart: unless-stopped
+    # RSSHub 公式イメージに wget は含まれない (rsshub@latest で /usr/bin/curl のみ確認)。
+    # curl -fsS は HTTP 4xx/5xx を失敗扱いにする (接続不可・サーバエラー時のみ unhealthy)。30s 間隔・15s タイムアウト (起動 10〜30s を考慮)。
     healthcheck:
-      test: ["CMD", "wget", "--spider", "-q", "http://localhost:1200"]
+      test: ["CMD", "curl", "-fsS", "--max-time", "10", "http://localhost:1200/"]
       interval: 30s
-      timeout: 5s
+      timeout: 15s
+      start_period: 30s
       retries: 3
