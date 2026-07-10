@@ -2,66 +2,49 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
   "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <!--
-  華流テック通信 — 日次自動配信 launchd エージェント (T33)
+  華流テック通信 — 日次自動配信 launchd エージェント (T33 で導入 / T44 で恒常運用化)
 
-  collect→draft→produce(Irodori 参照音声)→Discord を平日朝 06:30 に 1 回実行する。
-  StartCalendarInterval を「毎週 Wed/Thu/Fri」ではなく Month+Day で 3 日ぴったりに
-  ピン留めし、2026-06-24 / 06-25 / 06-26 の各 06:30 のみ発火 → 以後ドーマント。
+  collect→draft→produce(Irodori 参照音声)→Discord を平日 (月〜金) 朝 06:30 に 1 回実行する。
+  T33 の 3 日限定 (Month+Day ピン) から、恒常運用のため Weekday 方式へ変更。
+  Weekday: 1=月 2=火 3=水 4=木 5=金 (0/7=日)。土日は発火しない。
 
-  インストール:  cp このファイル ~/Library/LaunchAgents/ && launchctl load それ
-  アンインストール: launchctl unload ~/Library/LaunchAgents/com.karyu.daily-pipeline.plist
-                    && rm ~/Library/LaunchAgents/com.karyu.daily-pipeline.plist
-  注意: Mac がスリープ中は発火せず、次回 wake 時に実行される (launchd は Mac を起こさない)。
+  インストール/アンインストールは scripts/launchd/install.sh / uninstall.sh を使う
+  (テンプレート内の __HOME__ プレースホルダを実 $HOME へ展開して ~/Library/LaunchAgents に配置する)。
 
-  ポータビリティ (Copilot 指摘): ProgramArguments は $HOME 経由でユーザー名非依存にした。
-  ただし launchd は StandardOutPath / StandardErrorPath では $HOME を展開しないため絶対パス必須。
-  ⚠ 別ユーザー/別配置で使う場合は、下記 StandardOutPath / StandardErrorPath の 2 行と、
-  プロジェクトが ~/projects/panda-tech-news 以外にあるなら ProgramArguments のサブパスを編集すること。
+  ポータビリティ: ProgramArguments は $HOME 経由でユーザー名非依存。ただし launchd は
+  StandardOutPath / StandardErrorPath で $HOME を展開しないため、install.sh が実 $HOME に
+  置換してから配置する (テンプレートは __HOME__ プレースホルダを持つ)。
+  注意: Mac がスリープ中は発火せず、次回 wake 時に catch-up 実行される (launchd は Mac を起こさない)。
+        平日朝に確実に配信したい場合は `pmset repeat wakeorpoweron MTWRF 06:25:00` 等で wake を確保する。
 -->
-<!-- このファイルはテンプレート。現運用中の live copy (~/Library/LaunchAgents) は 6/24-26 の
-     実行を安定させるため絶対パス版のまま (起動する daily_pipeline.sh は同一ファイル)。 -->
 <plist version="1.0">
 <dict>
   <key>Label</key>
   <string>com.karyu.daily-pipeline</string>
 
   <key>ProgramArguments</key>
-  <!-- $HOME でユーザー名をハードコードしない (launchd user agent は $HOME を設定する)。
-       スクリプトが自身の位置から PROJECT_DIR を解決し cwd も自分で cd するため WorkingDirectory 不要。 -->
   <array>
     <string>/bin/bash</string>
     <string>-c</string>
     <string>exec "$HOME/projects/panda-tech-news/scripts/daily_pipeline.sh"</string>
   </array>
 
+  <!-- 平日 (月〜金) 06:30 に発火。各 Weekday を個別 dict で列挙する。 -->
   <key>StartCalendarInterval</key>
   <array>
-    <dict>
-      <key>Month</key><integer>6</integer>
-      <key>Day</key><integer>24</integer>
-      <key>Hour</key><integer>6</integer>
-      <key>Minute</key><integer>30</integer>
-    </dict>
-    <dict>
-      <key>Month</key><integer>6</integer>
-      <key>Day</key><integer>25</integer>
-      <key>Hour</key><integer>6</integer>
-      <key>Minute</key><integer>30</integer>
-    </dict>
-    <dict>
-      <key>Month</key><integer>6</integer>
-      <key>Day</key><integer>26</integer>
-      <key>Hour</key><integer>6</integer>
-      <key>Minute</key><integer>30</integer>
-    </dict>
+    <dict><key>Weekday</key><integer>1</integer><key>Hour</key><integer>6</integer><key>Minute</key><integer>30</integer></dict>
+    <dict><key>Weekday</key><integer>2</integer><key>Hour</key><integer>6</integer><key>Minute</key><integer>30</integer></dict>
+    <dict><key>Weekday</key><integer>3</integer><key>Hour</key><integer>6</integer><key>Minute</key><integer>30</integer></dict>
+    <dict><key>Weekday</key><integer>4</integer><key>Hour</key><integer>6</integer><key>Minute</key><integer>30</integer></dict>
+    <dict><key>Weekday</key><integer>5</integer><key>Hour</key><integer>6</integer><key>Minute</key><integer>30</integer></dict>
   </array>
 
   <key>RunAtLoad</key>
   <false/>
 
   <key>StandardOutPath</key>
-  <string>/Users/kairyon/projects/panda-tech-news/data/logs/launchd_pipeline.out.log</string>
+  <string>__HOME__/projects/panda-tech-news/data/logs/launchd_pipeline.out.log</string>
   <key>StandardErrorPath</key>
-  <string>/Users/kairyon/projects/panda-tech-news/data/logs/launchd_pipeline.err.log</string>
+  <string>__HOME__/projects/panda-tech-news/data/logs/launchd_pipeline.err.log</string>
 </dict>
 </plist>
