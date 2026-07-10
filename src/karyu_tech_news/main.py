@@ -517,6 +517,7 @@ def produce(
     from karyu_tech_news.store.repo import init_db as init_database
     from karyu_tech_news.store.schema import EpisodeDraft
     from karyu_tech_news.tts.annotate import load_emoji_annotation
+    from karyu_tech_news.tts.coverage import analyze_coverage, format_coverage_summary
     from karyu_tech_news.tts.engine import TTSError, select_engine
     from karyu_tech_news.tts.normalize import load_reading_dict, strip_markdown_structure
     from karyu_tech_news.tts.quality import analyze_wav_signal
@@ -584,6 +585,20 @@ def produce(
             ],
         )
         reading_dict = load_reading_dict(reading_path) if reading_path.exists() else {}
+        # 読み辞書カバレッジ観測 (T46): TTS 合成前の情報出力のみ。既存の成功条件・
+        # fail-fast 挙動には影響しない (失敗しても合成は続行する, 観測は fail-open)。
+        try:
+            # 全セグメントを結合して観測する (現状 produce は単一セグメントだが、
+            # 将来 multi-segment 化しても先頭だけに縮退しないようにする)。
+            coverage_text = "\n".join(seg.text for seg in script.segments)
+            coverage = analyze_coverage(coverage_text, reading_dict)
+            typer.echo(format_coverage_summary(coverage))
+        except Exception as exc:  # noqa: BLE001
+            typer.secho(
+                f"WARN: 読み辞書カバレッジ観測に失敗 (続行): {type(exc).__name__}",
+                fg=typer.colors.YELLOW,
+                err=True,
+            )
         # tone 別絵文字スタイル (T27/T33+): エンジンが対応する場合のみ synthesize 内で文単位適用
         emoji_mapping = load_emoji_annotation(persona_file) if persona_file.exists() else None
         try:

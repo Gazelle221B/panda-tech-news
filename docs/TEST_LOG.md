@@ -1310,3 +1310,60 @@ git diff --check          # (出力なし = clean)
 grep -n "from karyu_tech_news.edit\|from karyu_tech_news.script" src/karyu_tech_news/store/*.py
                            # (出力なし = 除去済み)
 ```
+
+## 2026-07-10 — T46 読み辞書カバレッジ観測機構
+
+**対象**: `config/reading_dict.yaml` は新語が出るたび人手追記が必要で、未収録語のカバレッジが定量化できていなかった問題 (Codex 提案) への対応。`prepare_tts_text()` 適用前後の diff から、残存する未変換 ASCII 単語トークン・簡体字シグナルを含む残存 CJK トークンを検出し、前処理解消率とあわせてレポート化する**観測専用**モジュールを新設。辞書自動追記・自動翻字は行わない (スコープ外)。
+
+**実装**:
+- `src/karyu_tech_news/tts/coverage.py` (新設): `analyze_coverage(raw_text, reading_dict, *, top_n=10) -> CoverageReport` / `format_coverage_summary(report) -> str`。`prepare_tts_text()` を素通しでブラックボックス呼び出しし、`normalize.py` の内部処理順序には依存しない。CJK 簡体字シグナル検出は `normalize.py._CHINESE_TITLE_SIGNAL_HAN` (共有字 参/争/与 を除外済みの precision-tuned 集合) を再利用し、`_SIMPLIFIED_HAN` 単体使用時の誤検出 (例: 「参入」を簡体字残存トークンと誤判定) を回避した。
+- `main.py` `produce` コマンド: `reading_dict` ロード直後に `analyze_coverage` を呼び、`format_coverage_summary` の結果を `typer.echo` で出力。観測処理自体が例外を投げても `WARN` ログのみで続行し (fail-open)、既存の produce 成功条件・fail-fast 挙動 (欠落文検出・無音検出・LUFS/true peak ゲート) は変更していない。
+- `tests/test_tts_coverage.py` (新設, 9 tests): 残存 ASCII 検出 / クリーンテキストで 0 件 / 候補 0 件で preprocess_resolution_rate=None / preprocess_resolution_rate 算出 (部分ヒット・全ヒット) / quote 外の簡体字残存トークン検出 (参入の誤検出なしも実質確認) / top_n 制限 / summary フォーマット 2 パターン。
+
+**全体ゲート (fresh)**:
+- `uv run pytest` → **467 passed in 2.07s**
+- `uv run ruff check .` → **All checks passed**
+- `uv run mypy src tests` → **Success: no issues found in 72 source files**
+- `git diff --check` → **clean**
+
+## 2026-07-11 — PR #31 Copilot レビュー対応 (branch `agent/T46-dict-observability-impl`)
+
+**対象**: PR #31 Copilot レビュー指摘 5 件。
+
+**実装**:
+- `src/karyu_tech_news/tts/coverage.py`: `analyze_coverage()` の残存 ASCII 検出から `reading_dict` キー除外ロジックを撤去。辞書に登録済みでも `prepare_tts_text()` 後になお ASCII のまま残るケース (境界条件の不一致等で置換漏れが起きた真の異常) を隠さず観測対象に含めるよう修正。
+- `src/karyu_tech_news/tts/normalize.py`: 非公開シンボル `_CHINESE_TITLE_SIGNAL_HAN` を公開名 `CHINESE_TITLE_SIGNAL_HAN` としてエクスポートし、旧名は後方互換のためのエイリアスとして維持。`coverage.py` は公開名を参照するよう変更。
+- `docs/TEST_LOG.md` / `docs/PROJECT_STATE.md`: 「辞書ヒット率」表記を実装・CLI 出力に合わせて「前処理解消率」(`preprocess_resolution_rate`) に統一。
+- `tests/test_tts_coverage.py`: `test_dict_registered_token_still_residual_is_reported` を追加。`prepare_tts_text(text, {"OpenAI": "オープンエーアイ"})` に対し `"同社は-OpenAIと提携した。"` を投入すると、`normalize_text` の左境界 (`-` を除外) と `_ASCII_TOKEN_RE` の左境界 (英数字のみ除外) の差異により置換が起きず `OpenAI` が ASCII のまま残ることを実測で確認した上で、この残存が観測結果に含まれることを回帰テスト化。
+
+**全体ゲート (fresh)**:
+- `uv run pytest` → **468 passed in 2.20s**
+- `uv run ruff check .` → **All checks passed**
+- `uv run mypy src tests` → **Success: no issues found in 72 source files**
+## T48 mixer 実 BGM ミックス経路テスト追加 (実装者: Claude Code / 日付: 2026-07-10)
+
+**背景**: `src/karyu_tech_news/mix/mixer.py` の実 BGM オーバーレイ経路 (pydub でループ/フェード/overlay/export する本体、49-68 行) が passthrough (素材なし) 経路しかテストされておらず、カバレッジ 46%。BGM 素材投入時に本番で初めて走る未検証コードだった。
+
+**追加**: `tests/test_mix_mixer.py` (新規)。`pytest.importorskip("pydub")` で optional extra `tts` 未導入環境を自動 skip する流儀は `tests/test_mix_master.py` の ffmpeg skipif に合わせた。ダミー wav (無音ナレーション / 正弦波 BGM) を `tmp_path` に生成し実ミックス経路を検証:
+- 出力長がナレーション長に一致 (BGM 長に引きずられない)
+- 出力が正しい RIFF/WAVE コンテナ
+- BGM (2秒) がナレーション (6秒) より短い → 全編ループして敷かれる (中間区間の RMS で信号存在を確認)
+- BGM (5秒) がナレーション (1秒) より長い → 切り詰め
+- 前後フェード (端の RMS が中間より小さい)
+- `bgm_gain_db` が実際に音量を減衰させる (-18dB ≈ 振幅比 0.126、理論値と比較検証)
+- 非無音ナレーションへの overlay で波形が passthrough と変化する
+- fail-open 分岐: BGM 0フレーム / pydub ImportError (`builtins.__import__` を monkeypatch で強制) / デコード失敗 (壊れた音声) — いずれも `mix_bgm` が例外を投げず音声のみ返すことを確認
+
+**発見バグ (最小修正済み)**: `mix_bgm(fade_ms=0)` (フェード無効化のつもりの呼び出し) が pydub 内部の `fade_in(0)`/`fade_out(0)` で `TypeError: unsupported operand type(s) for -: 'NoneType' and 'int'` を送出し、fail-open で BGM がまるごと passthrough (無音扱い) に縮退することを発見。現行 `main.py` の呼び出しは `fade_ms` を上書きしないため本番導線には未到達だが、公開関数のシグネチャ上は妥当な呼び出しのため `mixer.py` に `if fade_ms > 0:` ガードを追加 (fade_ms<=0 のときはフェードをスキップして BGM 自体は正常に敷く)。
+
+**カバレッジ (mixer.py, fresh 実測)**:
+- Before (T48 着手前, `uv run --with pytest-cov pytest tests/ --cov=karyu_tech_news.mix.mixer`): **46%** (missing 49-68, 実ミックス経路まるごと)
+- After (同コマンド, pydub 導入下): **100%** (0 missing)
+- タスク指定コマンド `uv run --with pytest-cov pytest tests/test_mix*.py --cov=karyu_tech_news.mix.mixer --cov-report=term-missing -q` (glob が `test_mix*.py` のみを対象とし、`find_bgm` 系テストが `test_produce_pipeline.py` にあるため対象外) では **87%** (missing 30-33, 48 = `find_bgm` 本体 / `bgm_path=None` passthrough 行)。
+
+**全体ゲート (fresh)**:
+- `uv run pytest` → **458 passed, 1 skipped in 2.03s** (pydub 未導入のベース環境では `test_mix_mixer.py` が importorskip で 1 モジュールとして skip)
+- `uv run --with pydub --with audioop-lts pytest tests/test_mix_mixer.py tests/test_produce_pipeline.py tests/test_mix_master.py -q` → **61 passed** (pydub 導入下で実ミックス経路含め全緑)
+- `uv run ruff check .` → **All checks passed**
+- `uv run mypy src tests` → **Success: no issues found in 71 source files**
+- `git diff --check` → **clean**
