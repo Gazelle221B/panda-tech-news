@@ -45,7 +45,7 @@ launchctl load "$DEST"
 
 echo "インストール完了: ${DEST}"
 echo "登録確認:"
-launchctl list | grep "$LABEL" || echo "  (launchctl list に未表示 — load 直後は反映遅延の場合あり)"
+launchctl list | grep -F "$LABEL" || echo "  (launchctl list に未表示 — load 直後は反映遅延の場合あり)"
 echo
 echo "次回発火: 平日 (月〜金) 06:30。Mac がスリープ中は発火せず次回 wake 時に catch-up。"
 echo "確実な wake が必要なら: pmset repeat wakeorpoweron MTWRF 06:25:00 (要 sudo)"
