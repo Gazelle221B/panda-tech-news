@@ -1273,6 +1273,12 @@ libmp3lame assertion crash) → 修正 (上記 step 3) → 再レビューで実
 - `uv run mypy src tests` → **Success: no issues found in 70 source files**
 - `git diff --check` → **clean**
 
+## T44/T47 — 恒常スケジューラ再導入 + state.db バックアップ (2026-07-09)
+
+- **T44 (恒常日次配信スケジューラ)**: 3日限定 Month+Day ピンから平日 (月〜金) 06:30 発火の Weekday 方式へ plist を変更。`install.sh` / `uninstall.sh` を新設 (`__HOME__` プレースホルダを実 $HOME へ展開して `~/Library/LaunchAgents` へ配置、冪等、plutil lint 込み)。
+- **T47 (state.db バックアップ)**: `daily_pipeline.sh` の collect 前に `sqlite3 .backup` によるオンライン整合バックアップを挿入 (fail-open、7世代ローテーション、`data/backups/`)。実 state.db (17M) で `.backup` → `PRAGMA integrity_check`=ok・全9テーブル保持を確認。
+- 検証: `plutil -lint` OK、展開後 plist も lint OK、`bash -n` 全 OK、`shellcheck scripts/daily_pipeline.sh scripts/launchd/*.sh` clean。
+
 ## 2026-07-10 — T46 読み辞書カバレッジ観測機構
 
 **対象**: `config/reading_dict.yaml` は新語が出るたび人手追記が必要で、未収録語のカバレッジが定量化できていなかった問題 (Codex 提案) への対応。`prepare_tts_text()` 適用前後の diff から、残存する未変換 ASCII 単語トークン・簡体字シグナルを含む残存 CJK トークンを検出し、前処理解消率とあわせてレポート化する**観測専用**モジュールを新設。辞書自動追記・自動翻字は行わない (スコープ外)。
