@@ -11,7 +11,7 @@
 
 ## 変更内容
 
-1. `docs/adr/ADR-0008-append-log-sharding.md` 新規作成 (Status: Proposed)。
+1. `docs/adr/ADR-0008-append-log-sharding.md` 新規作成 (Status: Accepted)。
 2. `docs/test-logs/` / `docs/review-reports/` / `docs/qa-reports/` の3ディレクトリを新設。
 3. `docs/TEST_LOG.md` / `docs/REVIEW_REPORT.md` / `docs/QA_REPORT.md` の冒頭に凍結注記を追加 (既存本文は無変更)。
 4. `docs/PROJECT_STATE.md` 冒頭に運用変更注記を追加 (既存本文は無変更)。
