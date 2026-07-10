@@ -13,6 +13,7 @@ from __future__ import annotations
 import io
 import logging
 import math
+import shutil
 import struct
 import wave
 from pathlib import Path
@@ -21,8 +22,14 @@ import pytest
 
 from karyu_tech_news.mix.mixer import mix_bgm
 
-pydub = pytest.importorskip("pydub")
+pytest.importorskip("pydub")
 from pydub import AudioSegment  # noqa: E402  (importorskip 後の遅延 import)
+
+if shutil.which("ffmpeg") is None:
+    pytest.skip(
+        "ffmpeg 不在 (pydub の実ミックス経路は ffmpeg に依存するため skip)",
+        allow_module_level=True,
+    )
 
 
 def _tone_wav(
