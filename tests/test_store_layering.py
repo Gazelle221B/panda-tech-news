@@ -34,6 +34,13 @@ def _imported_modules(py_file: Path) -> set[str]:
             # は module 文字列 ("edit.judge") をそのまま見ることで edit/script リークを検出する。
             if node.module:
                 modules.add(node.module)
+            # `from karyu_tech_news import edit` / `from .. import script` のように、
+            # 禁止パッケージ名が imported name 側 (node.names) に出る形式も捕捉する。
+            # module + name を結合したフルパスと、name 単体の両方を候補に加える。
+            for alias in node.names:
+                if node.module:
+                    modules.add(f"{node.module}.{alias.name}")
+                modules.add(alias.name)
         elif isinstance(node, ast.Import):
             for alias in node.names:
                 modules.add(alias.name)
