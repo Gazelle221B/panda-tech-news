@@ -89,8 +89,10 @@ def test_sanitize_title_empty_falls_back() -> None:
 
 
 def test_credentials_from_env_missing(monkeypatch: pytest.MonkeyPatch) -> None:
+    # CLI を経由しないテストだが、docs/styleguide.md:158 の規約 (空文字固定) に合わせ
+    # delenv ではなく setenv(name, "") で統一する (PR #25 Copilot 指摘)。
     for name in ("YOUTUBE_CLIENT_ID", "YOUTUBE_CLIENT_SECRET", "YOUTUBE_REFRESH_TOKEN"):
-        monkeypatch.delenv(name, raising=False)
+        monkeypatch.setenv(name, "")
     with pytest.raises(YouTubeError, match="YOUTUBE_CLIENT_ID"):
         YouTubeCredentials.from_env()
 
