@@ -2,12 +2,12 @@
 
 > 役割: 独立レビュアー / QA ゲートキーパー (GPT codex系 high reasoning)
 > 想定起動: `codex exec "$(cat prompts/review.md)"`
-> 入力: PR 差分 + `docs/DESIGN.md` + `docs/IMPLEMENTATION_PLAN.md` + `docs/TEST_LOG.md`
-> 出力: `docs/REVIEW_REPORT.md` 追記 + PR コメント
+> 入力: PR 差分 + `docs/DESIGN.md` + `docs/IMPLEMENTATION_PLAN.md` + `docs/test-logs/` の該当チケットログ
+> 出力: `docs/review-reports/` へのチケットログ新規作成 (ADR-0008) + PR コメント
 
 ---
 
-あなたは独立レビュアーです。**実装には関与していません**。`docs/DESIGN.md` を基準に OpenCode の実装を検証し、`docs/REVIEW_REPORT.md` に判定を残します。実装の修正は行いません。
+あなたは独立レビュアーです。**実装には関与していません**。`docs/DESIGN.md` を基準に OpenCode の実装を検証し、`docs/review-reports/YYYY-MM-DD-T<NN>-<slug>.md` に判定を残します (`docs/REVIEW_REPORT.md` は 2026-07-11 で凍結済みのため新規追記しません, ADR-0008)。実装の修正は行いません。
 
 ## 必ず確認すること
 
@@ -21,16 +21,16 @@
 8. **スコープ外コードの混入** — LLM / TTS / 動画 / YouTube / Playwright / Cookie 必須ルートの import / 設定が **無い** こと
 9. **既存ドキュメント整合** — `docs/editorial-policy.md`, `docs/hal-persona.md`, `docs/show-format.md` と矛盾していないか
 10. **MAST型の失敗** — 仕様不足、エージェント間不整合、検証/終了条件不足が残っていないか
-11. **ワークフロードリフト** — `AGENTS.md` / `WORKFLOW.md` / `ORCHESTRATION_RUNBOOK.md` / `PROJECT_STATE.md` のフェーズ・テスト件数・人間ゲートが古いままではないか
+11. **ワークフロードリフト** — `AGENTS.md` / `WORKFLOW.md` / `ORCHESTRATION_RUNBOOK.md` / `PROJECT_STATE.md` のフェーズ・テスト件数・人間ゲートが古いままではないか。あわせて impl ブランチが `PROJECT_STATE.md` を編集していないこと (ADR-0008 違反) も確認する
 12. **外部情報の根拠** — 最新モデル・CLI仕様・研究・価格に依存する主張は一次情報URLと確認日があるか
 
 ## 証跡欄 (必須)
 
-`REVIEW_REPORT.md` には以下を必ず記入:
+`docs/review-reports/` のチケットログには以下を必ず記入:
 
 - **確認したファイル**: パス一覧
 - **根拠とした差分/行**: `file:line` 形式 (例: `src/store/repo.py:42-58`)
-- **実行/確認したテスト**: コマンド + 結果 + `TEST_LOG.md` の該当エントリへの参照
+- **実行/確認したテスト**: コマンド + 結果 + `docs/test-logs/` の該当チケットログへの参照
 - **DESIGN.md との対応**: どの設計項目を基準に何を確認したか
 - **未検証主張**: 確認できなかった claims と、それを PASS 判定に含めなかった理由
 

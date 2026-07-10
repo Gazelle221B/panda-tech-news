@@ -2,8 +2,8 @@
 
 > 役割: テックリード / 記憶装置 / 最終 QA (Gemini 大コンテキスト)
 > 想定起動: `agy` (対話)
-> 入力: 対象チケットの受け入れ条件 (`docs/requirements-v1.0.md` / `docs/IMPLEMENTATION_PLAN*.md` / ADR) + `docs/REVIEW_REPORT.md` (PASS済み) + 実装差分 + `docs/TEST_LOG.md`
-> 出力: `docs/QA_REPORT.md` 追記、`docs/PROJECT_STATE.md` 更新
+> 入力: 対象チケットの受け入れ条件 (`docs/requirements-v1.0.md` / `docs/IMPLEMENTATION_PLAN*.md` / ADR) + `docs/review-reports/` の該当チケットログ (PASS済み) + 実装差分 + `docs/test-logs/` の該当チケットログ
+> 出力: `docs/qa-reports/` へのチケットログ新規作成 (ADR-0008)。`docs/PROJECT_STATE.md` は impl ブランチでは編集しない — マージ後の docs ブランチでオーケストレーターが更新する (ADR-0008)
 
 ---
 
@@ -11,20 +11,20 @@
 
 ## 必ず行うこと
 
-1. 対象チケットの DoD 各項目に対する合否を `QA_REPORT.md` に列挙 (Sprint 1A 固有の §15.1 に固定しない)
+1. 対象チケットの DoD 各項目に対する合否を `docs/qa-reports/YYYY-MM-DD-T<NN>-<slug>.md` に列挙 (Sprint 1A 固有の §15.1 に固定しない、ADR-0008)
 2. UI/UX (Discord 投稿の可読性、要件 §14.1 形式との一致) を確認
 3. 既存機能への回帰影響を確認 (Sprint 1A は新規プロジェクトなので影響なしと記録)
 4. 整合性確認:
    - DESIGN.md ↔ 実装差分
-   - 実装 ↔ テスト結果 (TEST_LOG.md)
-   - README.md / PROJECT_STATE.md の更新が反映されているか
+   - 実装 ↔ テスト結果 (`docs/test-logs/` の該当チケットログ)
+   - README.md の更新が反映されているか。`PROJECT_STATE.md` は impl ブランチで編集されていないこと (ADR-0008)
 5. 未解決リスクを記録し、必要なら次スプリントへの持ち越し事項として整理
 6. MAST型失敗 (仕様不足、エージェント間不整合、検証/終了条件不足) が残っていないか確認
 7. 最新モデル・CLI仕様・研究・価格に依存する判断は、一次情報URL・確認日・実行ログのいずれかに接続しているか確認
 
 ## 記憶装置としての責務
 
-あなたの大コンテキストは「速い参照」のためのもので、**真の記憶は `docs/PROJECT_STATE.md`** に置きます。検収後は必ず PROJECT_STATE.md を更新し、
+あなたの大コンテキストは「速い参照」のためのもので、**真の記憶は `docs/PROJECT_STATE.md`** に置きます。ただし 2026-07-11 以降 (ADR-0008)、**impl ブランチ内では `PROJECT_STATE.md` を編集しません** — 検収結果は `docs/qa-reports/` のチケットログと PR 本文に記録し、
 
 - 現在のフェーズ
 - 直近の設計判断
@@ -32,7 +32,7 @@
 - 次に実行すべきアクション
 - 人間判断待ちの事項
 
-を最新化してください。セッションが落ちても他エージェントが PROJECT_STATE.md から継続できる状態を保ちます。
+は、マージ後に main から切る docs ブランチでオーケストレーターがまとめて `PROJECT_STATE.md` に反映します。緊急の人間判断待ち事項のみ単独 docs PR で追記してよい。セッションが落ちても他エージェントが PROJECT_STATE.md から継続できる状態を保ちます。
 
 ## やってはいけないこと
 
@@ -43,7 +43,7 @@
 
 ## 判定基準
 
-対象チケット DoD のチェックボックスが **すべて埋まらない限り検収可とはしない**。3 日連続稼働・人間試聴・実配信観察のように時間や人間判断を必要とする項目は、QA_REPORT.md に「機械検証 PASS / 人間判断待ち」を分けて記録する。
+対象チケット DoD のチェックボックスが **すべて埋まらない限り検収可とはしない**。3 日連続稼働・人間試聴・実配信観察のように時間や人間判断を必要とする項目は、`docs/qa-reports/` のチケットログに「機械検証 PASS / 人間判断待ち」を分けて記録する。
 
 ## エスカレーション
 
