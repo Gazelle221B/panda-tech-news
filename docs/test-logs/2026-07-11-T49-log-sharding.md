@@ -42,3 +42,22 @@ $ git diff --check
 
 - 本チケットはドキュメントのみの変更であり、コード (`src/` / `tests/`) は無変更。pytest/mypy の件数・ファイル数は直前の T45 (store DTO 境界導入, 2026-07-10) から変化なし。
 - 過去ログ (`docs/TEST_LOG.md` 等) の内容は意図的に移行・削除していない (ADR-0008 の不採用案 (c) を参照)。
+
+## Codex レビュー指摘対応 (2026-07-11, 同一ブランチ内修正)
+
+PR #33 の Codex レビュー FAIL (High 3 / Medium 2) への対応:
+
+1. **High — AGENTS.md 旧書き先の残存**: §7 ロール表 (旧 TEST_LOG/REVIEW_REPORT/QA_REPORT) → `docs/test-logs/` 等のチケットログに置換。§7「永続化 > 内部記憶」・§9 DoD「3日連続稼働」・§12.4 の多段タスク記録先も新方式へ。過去の事実記述 (§2 フェーズ履歴等) は保持。
+2. **High — §11「状態を必ず書く」の矛盾解消**: チケット進捗・証跡は `docs/test-logs/` + PR 本文へ、`PROJECT_STATE.md` はマージ後の docs ブランチでオーケストレーターが更新、緊急追記のみ単独 docs PR、と書き換え。あわせて ADR-0008「影響」節に「PR #33 自身は main から切った docs 専用ブランチであり、PROJECT_STATE.md への注記追加は本運用ルール自体の導入として行う (impl チケットではない)」旨を明記し自己矛盾を解消。
+3. **High — ADR-0008 Status**: `Proposed` → `Accepted (発効: PR #33 の人間マージ時点)` へ変更。`docs/adr/INDEX.md` の行も同期。
+4. **Medium — 他の恒久文書の旧書き先同期**: `docs/hal-persona.md` §6 (QA_REPORT.md → docs/qa-reports/)、`docs/IMPLEMENTATION_PLAN-2.md` T32 行 + 改訂フッター、`docs/IMPLEMENTATION_PLAN-1B.md` 改訂フッター、`docs/agentic-workflow-research-2026.md` 運用ルール5。歴史的記述 (完了済み T11/T22 の記録) は保持。
+5. **Medium — merge=union 棄却根拠の正確化**: 「union は git 組み込みの merge driver だが、GitHub の PR マージ判定・Web UI マージは `.gitattributes` の merge 属性 (union/カスタム driver とも) を尊重しない」に表現を修正し、一次資料を脚注で引用 (GitHub community discussion #9288、確認日 2026-07-11。実例として kubernetes/kubernetes#70576)。本リポジトリでの実測 (並行 PR #29〜#32 の再コンフリクト) も根拠に追記。
+
+### 再ゲート (fresh 実行)
+
+```
+uv run pytest         → 459 passed
+uv run ruff check .   → All checks passed!
+uv run mypy src tests → Success: no issues found in 72 source files
+git diff --check      → クリーン
+```

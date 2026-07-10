@@ -49,7 +49,7 @@
 ### 3.4 スコープ膨張 NG (フェーズ境界)
 **Sprint 1B で以下を導入してはならない**: TTS / 音声処理 / 動画生成 / YouTube 投稿 / Playwright / 中国 IP プロキシ / Cookie 必須ルート。
 LLM 実 API は人間の契約・キー設定により T13 完了済み (2026-06-12)。**コスト上限 (要件 §9.7 月1,500-3,000円) を超える呼び出し方の変更は人間判断**。
-「ついでに〜したい」と思ったら即停止し、`docs/PROJECT_STATE.md` の「人間判断待ち」へエスカレーション (WORKFLOW §4 区分 E)。
+「ついでに〜したい」と思ったら即停止し、`docs/PROJECT_STATE.md` の「人間判断待ち」へエスカレーション (WORKFLOW §4 区分 E。追記は impl ブランチではなく単独 docs PR で, ADR-0008)。
 
 ### 3.5 コンテンツ NG
 - **中国メディア記事本文の転載禁止**。要約と HAL の解説のみ (要件 §9.6 法務)。
@@ -160,13 +160,13 @@ panda-tech-news/
 |---|---|---|---|
 | 人間 (プロダクトオーナー) | — | 要件・スコープ定義、merge 承認 | `docs/requirements-v1.0.md` |
 | Claude Code (Opus, アーキテクト) | Claude Code | 上流設計、難所エスカレーション | `docs/DESIGN.md`, `docs/IMPLEMENTATION_PLAN.md`, `docs/adr/` |
-| OpenCode (実装ミドルチーム) | OpenCode + 低コストモデル | 実装の主軸 | コード, `docs/TEST_LOG.md` |
-| Codex (専任レビュアー) | Codex CLI + GPT-5 high reasoning | 独立レビュー (実装には関与しない) | `docs/REVIEW_REPORT.md` |
-| Antigravity (テックリード / QA) | agy + Gemini 大コンテキスト | 最終 QA、状態保持の補助 | `docs/QA_REPORT.md` |
+| OpenCode (実装ミドルチーム) | OpenCode + 低コストモデル | 実装の主軸 | コード, `docs/test-logs/` のチケットログ (ADR-0008) |
+| Codex (専任レビュアー) | Codex CLI + GPT-5 high reasoning | 独立レビュー (実装には関与しない) | `docs/review-reports/` のチケットログ (ADR-0008) |
+| Antigravity (テックリード / QA) | agy + Gemini 大コンテキスト | 最終 QA、状態保持の補助 | `docs/qa-reports/` のチケットログ (ADR-0008) |
 
-**永続化 > 内部記憶**: 状態は必ず `docs/PROJECT_STATE.md` に書く。モデルの内部記憶を真実の源にしない (WORKFLOW §13)。
+**永続化 > 内部記憶**: 状態は必ずリポジトリ内のファイルに書く。モデルの内部記憶を真実の源にしない (WORKFLOW §13)。チケットの進捗・証跡は `docs/test-logs/` 等のチケットログと PR 本文へ。`docs/PROJECT_STATE.md` はマージ後の docs ブランチでオーケストレーターが更新する (ADR-0008)。
 
-**2026-06-29 研究反映済みの運用補正** ([docs/agentic-workflow-research-2026.md](docs/agentic-workflow-research-2026.md)): 単一オーケストレーターが計画・統合・完了判定を所有する。並列エージェントは探索・レビュー・QA・独立ファイルに限定し、同じファイル群への並列書き込みは禁止。agmsg は通知/ポインタの transport であり、`PROJECT_STATE.md` / `REVIEW_REPORT.md` / `QA_REPORT.md` / PR review / 人間 merge の権威を置き換えない。
+**2026-06-29 研究反映済みの運用補正** ([docs/agentic-workflow-research-2026.md](docs/agentic-workflow-research-2026.md)): 単一オーケストレーターが計画・統合・完了判定を所有する。並列エージェントは探索・レビュー・QA・独立ファイルに限定し、同じファイル群への並列書き込みは禁止。agmsg は通知/ポインタの transport であり、`PROJECT_STATE.md` / `docs/review-reports/` / `docs/qa-reports/` (ADR-0008) / PR review / 人間 merge の権威を置き換えない。
 
 **エスカレーション分類** (WORKFLOW §4):
 - A. 実装失敗 → OpenCode 差し戻し
@@ -218,7 +218,7 @@ panda-tech-news/
 - 同一ソース 2 回 collect で items が増えない (`UNIQUE(source_id, item_key)`)
 - 1 ソースで例外発生時、他ソースが完走し `source_health.consecutive_failures` が増加
 - Discord に要件 §14.1 形式のサマリーが届く
-- 3 日連続稼働 (`docs/TEST_LOG.md` に証跡)
+- 3 日連続稼働 (`docs/test-logs/` のチケットログに証跡, ADR-0008。2026-07-11 以前の証跡は凍結済み `docs/TEST_LOG.md` を参照)
 
 ## 10. ドキュメント地図 (詳細は各 md へ)
 
@@ -252,8 +252,8 @@ panda-tech-news/
 
 1. **作業開始時に必ず読む**: 本書 → `docs/PROJECT_STATE.md` → `docs/ORCHESTRATION_RUNBOOK.md` (自律運用の操作手順) → `docs/DESIGN.md` → 該当 Ticket の `docs/IMPLEMENTATION_PLAN.md` 該当行。
 2. **判断ログを残す**: 設計判断・代替案検討は ADR (`docs/adr/ADR-000N-*.md`) に追記。
-3. **状態を必ず書く**: 進捗更新・人間判断待ち事項は `docs/PROJECT_STATE.md` へ。
-4. **疑ったら止める**: 絶対 NG (§3) に抵触する/しそうなら実装を止め、`docs/PROJECT_STATE.md` の「人間判断待ち」にエスカレーション理由を書く。
+3. **状態を必ず書く**: チケットの進捗・証跡は `docs/test-logs/` のチケットログと PR 本文へ (ADR-0008)。`docs/PROJECT_STATE.md` は impl ブランチでは編集せず、マージ後に main から切る docs ブランチでオーケストレーターが更新する。人間判断待ちの緊急追記のみ単独 docs PR で行ってよい。
+4. **疑ったら止める**: 絶対 NG (§3) に抵触する/しそうなら実装を止め、`docs/PROJECT_STATE.md` の「人間判断待ち」にエスカレーション理由を書く (追記は単独 docs PR で, ADR-0008)。
 5. **Sprint 越境禁止**: Sprint 1A の DoD (§9) を満たすまで 1B 以降の機能 (LLM/TTS/動画/YouTube) を導入しない。
 6. **ドキュメントは Single Source of Truth**: 議論や決定は md に書く。チャット会話の合意のみで実装を進めない。
 7. **言語**: 日本語で応答 (英語のみのドキュメント作成は例外)。
@@ -264,7 +264,7 @@ panda-tech-news/
 **勝手に仮定しない。混乱を隠さない。トレードオフを提示する。**
 
 本プロジェクトでの具体化:
-- **DESIGN.md を読まずに実装着手しない**。設計矛盾を発見したら実装を止め、`docs/PROJECT_STATE.md`「人間判断待ち」へ追記 (WORKFLOW §4 区分 B「設計失敗」)。
+- **DESIGN.md を読まずに実装着手しない**。設計矛盾を発見したら実装を止め、`docs/PROJECT_STATE.md`「人間判断待ち」へ追記 (WORKFLOW §4 区分 B「設計失敗」。追記は単独 docs PR で, ADR-0008)。
 - 複数解釈があれば全部出す。例: 取得失敗時の表現を「例外を raise」/「`FetchResult.error` に包む」のどちらにするか — 後者が fail-open に合致するが、判断根拠を ADR か実装コメントに残す。
 - 不明点はチケット着手前に列挙し、Codex レビュー前に Q&A を済ませる (「レビューで初出の疑問」は要件失敗 C の兆候)。
 
@@ -282,7 +282,7 @@ panda-tech-news/
 本プロジェクトでの具体化:
 - `agent/T<N>-impl` ブランチ内では Ticket #N に直接トレースできない変更を禁止。Ticket #3 (フェッチャ) で `config.py` の既存型ヒントをついでに整理するのは NG。
 - 既存スタイルに合わせる (§5 のレイヤー逆向き依存禁止、ruff 100 文字行長、mypy strict 既存設定を変更しない)。
-- 未関連の dead code を見つけても**削除せず**、`docs/PROJECT_STATE.md`「人間判断待ち」へ記載に留める。
+- 未関連の dead code を見つけても**削除せず**、`docs/PROJECT_STATE.md`「人間判断待ち」へ記載に留める (追記は単独 docs PR で, ADR-0008)。
 - 自分の変更で orphan になった import/関数/変数のみ削除可。事前から残っていた死コードに手を出さない。
 
 ### 12.4 Goal-Driven Execution — 目標駆動実行
@@ -293,9 +293,9 @@ panda-tech-news/
 - 命令形 → 検証可能形へ変換:
   - 「fail-open を実装」→「1 ソースが例外を投げても他ソースが完走し、`source_health.consecutive_failures` が +1 されるテストを書き緑にする」
   - 「dedupe を入れる」→「同一 `(source_id, item_key)` を 2 回 insert すると 1 行のままになるテストを書く」
-- 多段タスクは `1. ... → verify: ...` 形式を `docs/TEST_LOG.md` に記録 (例: `1. fetcher.py → verify: pytest tests/test_fetcher.py -q が緑`)。
+- 多段タスクは `1. ... → verify: ...` 形式を `docs/test-logs/` のチケットログに記録 (例: `1. fetcher.py → verify: pytest tests/test_fetcher.py -q が緑`, ADR-0008)。
 - pytest + ruff + mypy strict が**3 つとも緑**になるまで自走可能。「ローカルで動いた気がする」で止めない。
 
 ---
 
-> 改訂方針: 重大な設計判断は ADR を追加 → 本書 §3 / §5 / §10 を更新。`docs/PROJECT_STATE.md` の「直近の設計判断」も同期。
+> 改訂方針: 重大な設計判断は ADR を追加 → 本書 §3 / §5 / §10 を更新。`docs/PROJECT_STATE.md` の「直近の設計判断」も同期 (マージ後の docs ブランチで, ADR-0008)。

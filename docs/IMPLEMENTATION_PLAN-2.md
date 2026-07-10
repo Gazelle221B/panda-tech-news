@@ -59,7 +59,7 @@ mix/master.py         # -16 LUFS 正規化 + mp3 192kbps/48kHz 出力
 | T29 | ✅ **実装済 (2026-06-18)** BGM 仮ミックス。**判断: 素材非依存設計** — `assets/bgm/` に素材があれば pydub で全編に低音量 BGM (-18dB) を敷き、無ければ素通し (passthrough)。pydub 未導入・デコード失敗も fail-open。素材ライセンス (§6 人間ゲート) を待たずコードを通せる (T30 を BGM から切り離したのと同手法)。pydub は optional extra `tts` | `mix/mixer.py` | T28 (素材は **§6**) |
 | T30 | ✅ **実装済 (2026-06-17)** ラウドネス正規化 -16 LUFS + mp3 192kbps/48kHz (FR-102/103)。ffmpeg `loudnorm` 2-pass (pass1 測定→pass2 線形補正→pass3 出力再測定で証跡化) を subprocess 実行。**判断: T29(BGM) に先行実装** — マスタリングは入力 wav 単体で完結し BGM 素材 (人間ゲート §6) に非依存なため「素の音声→完パケ mp3」のE2E経路を先行開通。**pydub は足さず ffmpeg 単体**で完結 (依存最小 §5)。実 smoke: 実エピソード wav -20.17→**-16.30 LUFS** / TP -1.71 dBTP / 73s=1.7MB | `mix/master.py` | **T28** (T29 とは独立) |
 | T31 | ✅ **実装済 (2026-06-18)** `audio_versions` 永続化 + CLI `produce` + Discord mp3 添付。produce: 保存済み台本→構造化→文単位合成→BGMミックス→-16LUFS mp3→記録→(Discord)。**T36 契約更新**: 文単位の合成失敗は `synthesize_script` 内では fail-open で最後まで試し欠落数を集計するが、produce 境界では `skipped_sentences > 0` を不完全音声として fail-fast し、mp3 生成・DB 記録・Discord 投稿を行わない。BGM無し・Discord失敗は fail-open で続行。文単位で無音/実質無音/低有音率 chunk を落とし、concat 後に有効音声が 0 文、TTS 合成 wav が実質無音/長時間無音、または実運用尺 (>=5s) で post-encode LUFS/true peak が測定不能・true peak が -1.0 dBTP 超なら mp3 を成功扱いせず fail-fast。`post_audio` は 25MB 超でメッセージに degrade・秘密非漏洩。**配信=Discord 添付** (人間判断、実測1.7MB/73s が 25MB 内。R2/S3 は将来)。**実 produce: 実 draft→643s/192k/48kHz/-16.3 LUFS/15.4MB**。Codex PASS + QA PASS ([PR #18](https://github.com/Gazelle221B/panda-tech-news/pull/18)) | `store/` `main.py` `deliver/discord.py` `tts/synthesize.py` | T30, T29 |
-| T32 | 3日間の音声品質観察 (固有名詞読み/話速/BGM 音量/「配信する価値」評価) | `docs/TEST_LOG.md` | T31 |
+| T32 | 3日間の音声品質観察 (固有名詞読み/話速/BGM 音量/「配信する価値」評価) | `docs/test-logs/` のチケットログ (ADR-0008) | T31 |
 
 > **運用メモ (Kokoro ローカル実行, T24)**: `tts/kokoro.py` のモデル/voices パスは環境変数 `KOKORO_MODEL_PATH` / `KOKORO_VOICES_PATH` で指定する設計 (未設定時はカレントディレクトリ相対の既定値を探すため、`uv run karyu produce --engine kokoro` は T36 以降、無音 mp3 を残さず非 0 終了しうる)。モデル本体は人間が `~/.cache/karyu-tts/kokoro-v1.0.onnx` / `voices-v1.0.bin` に DL 済み (2026-06-17)。ローカルで kokoro エンジンを動かす際は `.env.example` の該当項目をコピーして `.env` に設定すること。
 
@@ -102,4 +102,4 @@ mix/master.py         # -16 LUFS 正規化 + mp3 192kbps/48kHz 出力
 - **生成 mp3/wav を git にコミットしない** (`data/` `assets/` は管理外)。
 
 ---
-> 改訂: タスク完了ごとに [PROJECT_STATE.md](./PROJECT_STATE.md) を更新。設計判断は ADR を追加し本書 §2 を同期。
+> 改訂: タスク完了ごとの進捗・証跡は `docs/test-logs/` のチケットログと PR 本文に記録し、[PROJECT_STATE.md](./PROJECT_STATE.md) の更新はマージ後の docs ブランチでオーケストレーターが行う (ADR-0008)。設計判断は ADR を追加し本書 §2 を同期。
