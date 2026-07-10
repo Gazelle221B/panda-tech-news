@@ -10,10 +10,11 @@ from sqlalchemy import Engine, inspect, select
 from sqlalchemy.orm import Session
 
 from karyu_tech_news.config import SourceCategory, SourceConfig, SourceTier
-from karyu_tech_news.edit.judge import JudgedTopic, Tone
-from karyu_tech_news.edit.prescore import ScoredCandidate
-from karyu_tech_news.script.fallback import TopicScriptResult
-from karyu_tech_news.script.generate import EpisodeScript
+from karyu_tech_news.store.dto import (
+    EpisodeDraftInput,
+    ScriptVersionInput,
+    TopicCandidateInput,
+)
 from karyu_tech_news.store.repo import (
     create_db_engine,
     create_episode_draft,
@@ -75,35 +76,23 @@ def _add_item(session: Session, source_id: str = "src-a", title: str = "話題")
     return int(item.id)
 
 
-def _judged(item_id: int) -> JudgedTopic:
-    return JudgedTopic(
-        candidate=ScoredCandidate(
-            item_id=item_id,
-            source_id="src-a",
-            title="話題",
-            summary="",
-            link="https://example.com/1",
-            published_at=None,
-            fetched_at=NOW,
-            tier=1,
-            category="AI",
-            canonical_url_hash="",
-            prescore=40,
-        ),
+def _judged(item_id: int) -> TopicCandidateInput:
+    return TopicCandidateInput(
+        item_id=item_id,
+        prescore=40,
         llm_score=80,
-        tone=Tone.BRIGHT,
+        tone="bright",
+        source_tier=1,
         corroboration_count=2,
     )
 
 
-def _episode() -> EpisodeScript:
-    return EpisodeScript(
+def _episode() -> EpisodeDraftInput:
+    return EpisodeDraftInput(
         title="華流テック通信 — HAL Daily Briefing",
         generated_at=NOW,
         variant="A",
-        headlines=["話題"],
         markdown="# 台本本文",
-        sources=[("話題", "https://example.com/1")],
         estimated_minutes=5,
         notices=["噂レベルの情報を含みます: 話題 (Tier4)"],
     )
@@ -221,11 +210,10 @@ def test_insert_script_versions_persists(session: Session) -> None:
     draft = create_episode_draft(session, _episode())
     session.flush()
 
-    result = TopicScriptResult(
+    result = ScriptVersionInput(
         body="**Hook:** a\n**Insight:** b\n**Action:** c",
         method="llm_retry",
         attempts=2,
-        violations_first=["300 文字超過"],
     )
     insert_script_versions(session, int(draft.id), [(item_id, result)], now=NOW)
     session.flush()

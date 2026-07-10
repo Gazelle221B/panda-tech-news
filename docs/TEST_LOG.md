@@ -1279,6 +1279,37 @@ libmp3lame assertion crash) → 修正 (上記 step 3) → 再レビューで実
 - **T47 (state.db バックアップ)**: `daily_pipeline.sh` の collect 前に `sqlite3 .backup` によるオンライン整合バックアップを挿入 (fail-open、7世代ローテーション、`data/backups/`)。実 state.db (17M) で `.backup` → `PRAGMA integrity_check`=ok・全9テーブル保持を確認。
 - 検証: `plutil -lint` OK、展開後 plist も lint OK、`bash -n` 全 OK、`shellcheck scripts/daily_pipeline.sh scripts/launchd/*.sh` clean。
 
+## 2026-07-10 — T45 store 層の逆向き依存解消 (DTO 境界導入)
+
+**対象**: `src/karyu_tech_news/store/repo.py` が `edit.judge.JudgedTopic` / `script.fallback.TopicScriptResult` /
+`script.generate.EpisodeScript` を直接 import していた逆向き依存を解消 (DESIGN.md §5)。
+
+**変更内容**:
+1. `src/karyu_tech_news/store/dto.py` (新規): 永続化専用 frozen dataclass `EpisodeDraftInput` /
+   `TopicCandidateInput` / `ScriptVersionInput` を定義。primitive 型のみで構成し edit/script を import しない。
+2. `src/karyu_tech_news/store/repo.py`: `create_episode_draft` / `insert_topic_candidates` /
+   `insert_script_versions` のシグネチャを DTO 受け取りへ変更。INSERT 内容・DB スキーマは無変更。
+3. `src/karyu_tech_news/script/runner.py` (`run_draft`): `JudgedTopic` / `EpisodeScript` /
+   `TopicScriptResult` → 上記 DTO への変換を呼び出し側で実施。
+4. `tests/test_store_1b.py`: repo 呼び出しに DTO を直接構築する形へ更新 (edit/script 型への依存を除去)。
+5. `tests/test_store_layering.py` (新規): ast ベースで `src/karyu_tech_news/store/*.py` が
+   `karyu_tech_news.edit` / `karyu_tech_news.script` を import しないことを検査する回帰テスト。
+
+**挙動不変の根拠**: `insert_topic_candidates` / `insert_script_versions` / `create_episode_draft` の
+DB へ書き込むフィールドと値は変更前と 1 対 1 対応 (呼び出し元で同じソース値から DTO を構築)。
+`collect.normalize.FetchResult` / `RawItem` の import は DESIGN.md §3.3 が定義する既存の主要データ型
+契約でありタスク範囲外のため維持 (`collect → store` は許可された向き)。
+
+**実行コマンド / 結果**:
+```bash
+uv run pytest -q          # 459 passed in 2.12s
+uv run ruff check .       # All checks passed!
+uv run mypy src tests     # Success: no issues found in 72 source files
+git diff --check          # (出力なし = clean)
+grep -n "from karyu_tech_news.edit\|from karyu_tech_news.script" src/karyu_tech_news/store/*.py
+                           # (出力なし = 除去済み)
+```
+
 ## 2026-07-10 — T46 読み辞書カバレッジ観測機構
 
 **対象**: `config/reading_dict.yaml` は新語が出るたび人手追記が必要で、未収録語のカバレッジが定量化できていなかった問題 (Codex 提案) への対応。`prepare_tts_text()` 適用前後の diff から、残存する未変換 ASCII 単語トークン・簡体字シグナルを含む残存 CJK トークンを検出し、前処理解消率とあわせてレポート化する**観測専用**モジュールを新設。辞書自動追記・自動翻字は行わない (スコープ外)。
