@@ -1279,6 +1279,66 @@ libmp3lame assertion crash) → 修正 (上記 step 3) → 再レビューで実
 - **T47 (state.db バックアップ)**: `daily_pipeline.sh` の collect 前に `sqlite3 .backup` によるオンライン整合バックアップを挿入 (fail-open、7世代ローテーション、`data/backups/`)。実 state.db (17M) で `.backup` → `PRAGMA integrity_check`=ok・全9テーブル保持を確認。
 - 検証: `plutil -lint` OK、展開後 plist も lint OK、`bash -n` 全 OK、`shellcheck scripts/daily_pipeline.sh scripts/launchd/*.sh` clean。
 
+## 2026-07-10 — T45 store 層の逆向き依存解消 (DTO 境界導入)
+
+**対象**: `src/karyu_tech_news/store/repo.py` が `edit.judge.JudgedTopic` / `script.fallback.TopicScriptResult` /
+`script.generate.EpisodeScript` を直接 import していた逆向き依存を解消 (DESIGN.md §5)。
+
+**変更内容**:
+1. `src/karyu_tech_news/store/dto.py` (新規): 永続化専用 frozen dataclass `EpisodeDraftInput` /
+   `TopicCandidateInput` / `ScriptVersionInput` を定義。primitive 型のみで構成し edit/script を import しない。
+2. `src/karyu_tech_news/store/repo.py`: `create_episode_draft` / `insert_topic_candidates` /
+   `insert_script_versions` のシグネチャを DTO 受け取りへ変更。INSERT 内容・DB スキーマは無変更。
+3. `src/karyu_tech_news/script/runner.py` (`run_draft`): `JudgedTopic` / `EpisodeScript` /
+   `TopicScriptResult` → 上記 DTO への変換を呼び出し側で実施。
+4. `tests/test_store_1b.py`: repo 呼び出しに DTO を直接構築する形へ更新 (edit/script 型への依存を除去)。
+5. `tests/test_store_layering.py` (新規): ast ベースで `src/karyu_tech_news/store/*.py` が
+   `karyu_tech_news.edit` / `karyu_tech_news.script` を import しないことを検査する回帰テスト。
+
+**挙動不変の根拠**: `insert_topic_candidates` / `insert_script_versions` / `create_episode_draft` の
+DB へ書き込むフィールドと値は変更前と 1 対 1 対応 (呼び出し元で同じソース値から DTO を構築)。
+`collect.normalize.FetchResult` / `RawItem` の import は DESIGN.md §3.3 が定義する既存の主要データ型
+契約でありタスク範囲外のため維持 (`collect → store` は許可された向き)。
+
+**実行コマンド / 結果**:
+```bash
+uv run pytest -q          # 459 passed in 2.12s
+uv run ruff check .       # All checks passed!
+uv run mypy src tests     # Success: no issues found in 72 source files
+git diff --check          # (出力なし = clean)
+grep -n "from karyu_tech_news.edit\|from karyu_tech_news.script" src/karyu_tech_news/store/*.py
+                           # (出力なし = 除去済み)
+```
+
+## 2026-07-10 — T46 読み辞書カバレッジ観測機構
+
+**対象**: `config/reading_dict.yaml` は新語が出るたび人手追記が必要で、未収録語のカバレッジが定量化できていなかった問題 (Codex 提案) への対応。`prepare_tts_text()` 適用前後の diff から、残存する未変換 ASCII 単語トークン・簡体字シグナルを含む残存 CJK トークンを検出し、前処理解消率とあわせてレポート化する**観測専用**モジュールを新設。辞書自動追記・自動翻字は行わない (スコープ外)。
+
+**実装**:
+- `src/karyu_tech_news/tts/coverage.py` (新設): `analyze_coverage(raw_text, reading_dict, *, top_n=10) -> CoverageReport` / `format_coverage_summary(report) -> str`。`prepare_tts_text()` を素通しでブラックボックス呼び出しし、`normalize.py` の内部処理順序には依存しない。CJK 簡体字シグナル検出は `normalize.py._CHINESE_TITLE_SIGNAL_HAN` (共有字 参/争/与 を除外済みの precision-tuned 集合) を再利用し、`_SIMPLIFIED_HAN` 単体使用時の誤検出 (例: 「参入」を簡体字残存トークンと誤判定) を回避した。
+- `main.py` `produce` コマンド: `reading_dict` ロード直後に `analyze_coverage` を呼び、`format_coverage_summary` の結果を `typer.echo` で出力。観測処理自体が例外を投げても `WARN` ログのみで続行し (fail-open)、既存の produce 成功条件・fail-fast 挙動 (欠落文検出・無音検出・LUFS/true peak ゲート) は変更していない。
+- `tests/test_tts_coverage.py` (新設, 9 tests): 残存 ASCII 検出 / クリーンテキストで 0 件 / 候補 0 件で preprocess_resolution_rate=None / preprocess_resolution_rate 算出 (部分ヒット・全ヒット) / quote 外の簡体字残存トークン検出 (参入の誤検出なしも実質確認) / top_n 制限 / summary フォーマット 2 パターン。
+
+**全体ゲート (fresh)**:
+- `uv run pytest` → **467 passed in 2.07s**
+- `uv run ruff check .` → **All checks passed**
+- `uv run mypy src tests` → **Success: no issues found in 72 source files**
+- `git diff --check` → **clean**
+
+## 2026-07-11 — PR #31 Copilot レビュー対応 (branch `agent/T46-dict-observability-impl`)
+
+**対象**: PR #31 Copilot レビュー指摘 5 件。
+
+**実装**:
+- `src/karyu_tech_news/tts/coverage.py`: `analyze_coverage()` の残存 ASCII 検出から `reading_dict` キー除外ロジックを撤去。辞書に登録済みでも `prepare_tts_text()` 後になお ASCII のまま残るケース (境界条件の不一致等で置換漏れが起きた真の異常) を隠さず観測対象に含めるよう修正。
+- `src/karyu_tech_news/tts/normalize.py`: 非公開シンボル `_CHINESE_TITLE_SIGNAL_HAN` を公開名 `CHINESE_TITLE_SIGNAL_HAN` としてエクスポートし、旧名は後方互換のためのエイリアスとして維持。`coverage.py` は公開名を参照するよう変更。
+- `docs/TEST_LOG.md` / `docs/PROJECT_STATE.md`: 「辞書ヒット率」表記を実装・CLI 出力に合わせて「前処理解消率」(`preprocess_resolution_rate`) に統一。
+- `tests/test_tts_coverage.py`: `test_dict_registered_token_still_residual_is_reported` を追加。`prepare_tts_text(text, {"OpenAI": "オープンエーアイ"})` に対し `"同社は-OpenAIと提携した。"` を投入すると、`normalize_text` の左境界 (`-` を除外) と `_ASCII_TOKEN_RE` の左境界 (英数字のみ除外) の差異により置換が起きず `OpenAI` が ASCII のまま残ることを実測で確認した上で、この残存が観測結果に含まれることを回帰テスト化。
+
+**全体ゲート (fresh)**:
+- `uv run pytest` → **468 passed in 2.20s**
+- `uv run ruff check .` → **All checks passed**
+- `uv run mypy src tests` → **Success: no issues found in 72 source files**
 ## T48 mixer 実 BGM ミックス経路テスト追加 (実装者: Claude Code / 日付: 2026-07-10)
 
 **背景**: `src/karyu_tech_news/mix/mixer.py` の実 BGM オーバーレイ経路 (pydub でループ/フェード/overlay/export する本体、49-68 行) が passthrough (素材なし) 経路しかテストされておらず、カバレッジ 46%。BGM 素材投入時に本番で初めて走る未検証コードだった。
