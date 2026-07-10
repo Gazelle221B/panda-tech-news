@@ -2,7 +2,7 @@
 
 > **本ファイルは 2026-07-11 で凍結。以後の新規追記は禁止**。1チケット1ファイルで `docs/qa-reports/` に記録する ([ADR-0008](./adr/ADR-0008-append-log-sharding.md))。既存内容はそのまま保持 (移行・削除しない)。
 > 検収者: Antigravity (テックリード / Gemini 大コンテキスト)
-> 参照: [requirements-v1.0.md](./requirements-v1.0.md) §15.1, [DESIGN.md](./DESIGN.md), [REVIEW_REPORT.md](./REVIEW_REPORT.md)
+> 参照: [requirements-v1.0.md](./requirements-v1.0.md) §15.1, [DESIGN.md](./DESIGN.md), `docs/review-reports/` の該当チケットログ (ADR-0008。2026-07-11 以前の分は [REVIEW_REPORT.md](./REVIEW_REPORT.md) を参照)
 > 役割: Codex レビュー合格後、人間 merge 承認前の最終 QA。
 
 QA の目的は **「受け入れ条件 (要件側) を満たしているか」** を確認することで、Codex のレビュー (実装が DESIGN に従っているか) とは別軸。
