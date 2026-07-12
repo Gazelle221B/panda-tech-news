@@ -10,9 +10,9 @@
 
 ## ステータス
 
-- フェーズ: **Sprint 3 (配信) 実装完了 — v0.5 経路 (mp3 → 波形動画 mp4 → YouTube 限定公開 → 朝確認 → approve 公開) をコード実装済み**。実アップロード smoke は YouTube OAuth セットアップ (人間) 待ち。Sprint 1A/1B/2 (T1〜T37) は main 到達済み。
-- 品質: Sprint 3 追加後も pytest / ruff / mypy strict / shellcheck 緑。新規依存ゼロ (httpx + ffmpeg のみ, [ADR-0007](docs/adr/ADR-0007-youtube-httpx-cli-approval.md))。
-- 次アクション: **YouTube OAuth セットアップ (下記) → 実アップロード smoke、T32 人間試聴、日次配信の恒久運用判断、BGM 素材ライセンス、variant 既定確定** ([docs/PROJECT_STATE.md](docs/PROJECT_STATE.md))
+- フェーズ: **Sprint 3 (配信) main 到達 (2026-07-12, PR #25 マージ) — ロードマップ全スプリント (1A/1B/2/3) のコード完成**。v0.5 経路 (mp3 → 波形動画 mp4 → YouTube 限定公開 → 朝確認 → approve 公開) 実装済み。実アップロード smoke は YouTube OAuth セットアップ ([#35](https://github.com/Gazelle221B/panda-tech-news/issues/35)) 待ち。
+- 品質: pytest **538 passed** / ruff / mypy strict (82 files) / shellcheck 緑 (2026-07-12 実測)。新規依存ゼロ (httpx + ffmpeg のみ, [ADR-0007](docs/adr/ADR-0007-youtube-httpx-cli-approval.md))。独立レビュー 3 ラウンド + QA PASS。
+- 次アクション: **人間判断・作業は全件 Issue 化済み ([`human-decision` ラベル](https://github.com/Gazelle221B/panda-tech-news/issues?q=is%3Aissue+is%3Aopen+label%3Ahuman-decision) #34〜#41 + バグ #42)**。筆頭は [#35 YouTube OAuth セットアップ](https://github.com/Gazelle221B/panda-tech-news/issues/35) と [#34 T32 人間試聴](https://github.com/Gazelle221B/panda-tech-news/issues/34) ([docs/PROJECT_STATE.md](docs/PROJECT_STATE.md))
 
 ## ドキュメント地図
 
