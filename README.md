@@ -66,6 +66,7 @@ docker compose up -d rsshub                         # 掘金など RSSHub 経由
 uv run python -m karyu_tech_news --help
 uv run python -m karyu_tech_news validate-sources  # ソース定義をスキーマ検証
 uv run python -m karyu_tech_news init-db           # SQLite 初期化
+uv run python scripts/generate_bgm.py              # 暫定BGM (コード生成, algorave風) を assets/bgm/ へ生成 (Issue #36)
 uv run python -m karyu_tech_news collect --post    # 収集 → SQLite → Discord 投稿
 uv run python -m karyu_tech_news draft --dry-run   # 台本候補の確認 (LLM 不使用)
 uv run python -m karyu_tech_news draft --post      # LLM 台本生成 → Discord (要 API キー)
