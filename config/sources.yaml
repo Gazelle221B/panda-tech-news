@@ -107,3 +107,15 @@ sources:
     enabled: true
     requires_cookie: false
     notes: "RSSHub経由。掘金の週次人気AI記事。通常カテゴリと重複する可能性あり。"
+
+  # ===== Tier3 Game/Subculture 予備 (1本, Spike §3 B案): 独立2ソース確認必須 =====
+  # 番組アークの close (bright) 枠強化。docs/proposals/game-subculture-source-v0.1.md 参照。
+  # Issue #38 (2026-07-12 人間判断「追加して」) で有効化決定 (T51)。
+  - id: indienova-article
+    name: IndieNova 文章
+    url: "http://localhost:1200/indienova/article"
+    tier: 3
+    category: Game
+    enabled: true
+    requires_cookie: false
+    notes: "インディーゲーム/サブカル。arc close=bright 用。2026-06-12 セルフホスト RSSHub 検証 HTTP 200 (12件)。yystv・gcores は同時検証で HTTP 503 のため不採用 (Spike v0.1 参照)。Issue #38 で人間が有効化を決定 (2026-07-12)。"
