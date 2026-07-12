@@ -14,10 +14,12 @@ httpx で OAuth token refresh / resumable upload / privacy 変更を直接実装
   approve 操作のみ (IMPLEMENTATION_PLAN-3 §8)。
 - **秘密をログ・例外に出さない (要件 §9.5)**: トークンはリクエスト側にのみ存在する。
   例外メッセージには status code と、JSON 本文から安全なキー (`error` / `error_description`)
-  のみを抽出した要約だけ含める (Codex レビュー Medium)。本文をそのまま含めない。
+  のみを抽出した要約だけ含める (Codex レビュー Medium)。本文をそのまま含めない。抽出した値
+  自体にトークン様の文字列 (20 文字以上の英数字/URL-safe 記号の連続) が紛れていても
+  `[REDACTED]` に伏せる (Codex 再レビュー Medium)。
 - **resumable upload の Location ヘッダは信頼せず検証する**: Bearer token 付き PUT を送る前に
-  scheme=https かつ host が `googleapis.com` (またはそのサブドメイン) であることを確認する
-  (Codex レビュー High)。
+  scheme=https・host が `googleapis.com` (またはそのサブドメイン)・port が既定 (443/省略)
+  であることを確認する (Codex レビュー High + 再レビュー Medium の port 検証追加)。
 - videos.update は part 指定フィールドの**全置換**のため、privacy 変更は videos.list で
   現 status を取得してから差し替えて送る (ADR-0007 影響欄)。
 - HTTP は全てタイムアウト必須 (AGENTS §3.3 の精神)。
@@ -26,6 +28,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from typing import Any
@@ -111,6 +114,16 @@ class YouTubeUploadResult(BaseModel):
 
 _SAFE_ERROR_KEYS = ("error", "error_description")
 
+# 安全キーの値内に紛れ込みうるトークン様の文字列を伏せる (Codex 再レビュー Medium)。
+# access token / refresh token は概ね base64url 相当の記号のみで 20 文字を大きく超える
+# ため、それらしき連続文字列は長さで機械的に検出して置換する (厳密なトークン形式判定はしない)。
+_TOKEN_LIKE_PATTERN = re.compile(r"[A-Za-z0-9\-._~+/]{20,}")
+
+
+def _redact_token_like(text: str) -> str:
+    """20 文字以上連続する英数字/URL-safe 記号の並びを `[REDACTED]` に置換する."""
+    return _TOKEN_LIKE_PATTERN.sub("[REDACTED]", text)
+
 
 def _error_detail(resp: httpx.Response) -> str:
     """例外メッセージ用の安全な要約 (URL・トークンを含めない).
@@ -119,6 +132,8 @@ def _error_detail(resp: httpx.Response) -> str:
     がそのまま漏れうるため (Codex レビュー Medium)、JSON らしき本文からは安全な
     キー (`error` / `error_description`) の値のみを抽出する。JSON でない本文や
     安全キーが無い本文は含めず、HTTP status + content-type だけに留める。
+    抽出した値自体にもトークン様の文字列が紛れうるため `_redact_token_like` で
+    伏せてから切り詰める (Codex 再レビュー Medium)。
     """
     content_type = resp.headers.get("content-type", "不明")
     try:
@@ -132,12 +147,12 @@ def _error_detail(resp: httpx.Response) -> str:
     for key in _SAFE_ERROR_KEYS:
         value = body.get(key)
         if isinstance(value, str):
-            parts.append(f"{key}={value[:_BODY_SNIPPET_LEN]}")
+            parts.append(f"{key}={_redact_token_like(value)[:_BODY_SNIPPET_LEN]}")
         elif isinstance(value, dict):
             # Google API 形式: {"error": {"code": ..., "message": ...}}
             message = value.get("message")
             if isinstance(message, str):
-                parts.append(f"{key}.message={message[:_BODY_SNIPPET_LEN]}")
+                parts.append(f"{key}.message={_redact_token_like(message)[:_BODY_SNIPPET_LEN]}")
             code = value.get("code")
             if isinstance(code, int):
                 parts.append(f"{key}.code={code}")
@@ -230,18 +245,26 @@ def _build_upload_metadata(
 
 
 def _validate_upload_location(location: str) -> None:
-    """resumable upload の Location ヘッダを検証する (Codex レビュー High).
+    """resumable upload の Location ヘッダを検証する (Codex レビュー High + 再レビュー Medium).
 
     Google の応答とはいえ Location ヘッダの値を無条件に信頼して Bearer token 付き
-    PUT を送るのは token 送信先の検証を放棄することになるため、scheme=https かつ
-    host が `googleapis.com` (またはそのサブドメイン) であることを確認してからで
-    ないと使わない (`evil-googleapis.com` のような偽装ホストは拒否する)。
+    PUT を送るのは token 送信先の検証を放棄することになるため、scheme=https・host が
+    `googleapis.com` (またはそのサブドメイン)・port が既定 (443 または省略) である
+    ことを確認してからでないと使わない。port は origin の一部であり、host/scheme が
+    正しくても非標準 port (`https://www.googleapis.com:444/...` 等) を許すと検証の
+    意味が薄れるため明示的にチェックする (Codex 再レビュー Medium)。
+    `evil-googleapis.com` のような偽装ホストは host チェックで拒否する。
     メッセージには URL 全体ではなく host のみを含める (クエリパラメータ等を漏らさない)。
     """
     parsed = urlparse(location)
     host = parsed.hostname or ""
     is_valid_host = host == _ALLOWED_UPLOAD_HOST or host.endswith(f".{_ALLOWED_UPLOAD_HOST}")
-    if parsed.scheme != "https" or not is_valid_host:
+    try:
+        port = parsed.port
+    except ValueError:
+        port = -1  # port 表記が不正 (数値にキャストできない) → 無効値として扱う
+    is_valid_port = port is None or port == 443
+    if parsed.scheme != "https" or not is_valid_host or not is_valid_port:
         raise YouTubeError(f"アップロード先 URL が不正です (host={host or '(不明)'})")
 
 
@@ -262,12 +285,16 @@ def _put_range(location: str, access_token: str, path: Path, start: int, size: i
         )
 
 
-def _query_upload_offset(location: str, access_token: str, size: int) -> int:
-    """resumable upload の再開位置を照会する (Google resumable protocol, Codex レビュー Medium).
+def _query_upload_offset(location: str, access_token: str, size: int) -> httpx.Response:
+    """resumable upload の再開状況を照会する (Google resumable protocol, Codex レビュー Medium).
 
     空の PUT (`Content-Range: bytes */<size>`) を送ると、受信済みバイトがあれば
-    308 + `Range` ヘッダ、完了済みなら 200/201 が返る。4xx を含むそれ以外の応答は
-    再開できないとみなし即座に YouTubeError で fail-fast する (リトライしない)。
+    308 + `Range` ヘッダ、完了済みなら 200/201 (video リソースの JSON 本文付き) が
+    返る。4xx を含むそれ以外の応答は再開できないとみなし即座に YouTubeError で
+    fail-fast する (リトライしない)。完了 (200/201) か再開 (308) かの判定は呼び出し側
+    (`_upload_bytes`) に委ねる (Codex 再レビュー Medium: 応答をここで `size` という
+    単なる offset に潰すと、200/201 の video JSON 本文が失われて呼び出し側が完了を
+    検出できなくなるため、応答そのものを返す)。
     """
     try:
         resp = httpx.put(
@@ -281,45 +308,61 @@ def _query_upload_offset(location: str, access_token: str, size: int) -> int:
         )
     except httpx.HTTPError as exc:
         raise YouTubeError(f"アップロード再開位置の照会に接続失敗: {type(exc).__name__}") from exc
-    if resp.status_code in (200, 201):
-        return size  # 既に完了済み
-    if resp.status_code == 308:
-        range_header = resp.headers.get("Range", "")
-        if range_header:
-            try:
-                return int(range_header.rsplit("-", 1)[1]) + 1
-            except (ValueError, IndexError):
-                return 0
-        return 0  # 受信済みバイト無し (Range ヘッダ省略)
+    if resp.status_code in (200, 201, 308):
+        return resp
     raise YouTubeError(f"アップロード再開位置の照会失敗: {_error_detail(resp)}")
+
+
+def _resume_offset_from_range(resp: httpx.Response) -> int:
+    """308 応答の `Range` ヘッダから次に送るべき開始バイト位置を求める."""
+    range_header = resp.headers.get("Range", "")
+    if range_header:
+        try:
+            return int(range_header.rsplit("-", 1)[1]) + 1
+        except (ValueError, IndexError):
+            return 0
+    return 0  # 受信済みバイト無し (Range ヘッダ省略)
 
 
 def _upload_bytes(access_token: str, location: str, path: Path, size: int) -> httpx.Response:
     """resumable アップロード本体 (Codex レビュー Medium: 切断/5xx からの再開).
 
     1. 先頭から PUT する。
-    2. 失敗 (接続失敗 or 5xx) したら再開位置を照会し、残りだけを再送する。
+    2. 失敗 (接続失敗 or 5xx) したら再開状況を照会する。200/201 (video JSON 付き) なら
+       既に完了しているのでその応答をそのまま最終結果として返す (Codex 再レビュー
+       Medium: 完了エッジケース)。308 なら `Range` ヘッダから再開位置を求め、残りだけ
+       再送する。308 で全量受信済みを示す (次の開始位置が末尾以上になる) 場合も、
+       不正な負レンジ PUT (`bytes <size>-<size-1>/<size>`) は送らずに再照会を待つ
+       (同じく完了エッジケースの防御)。
     3. 4xx は再開不能なので即 fail-fast (リトライしない)。
     4. リトライは最大 `MAX_UPLOAD_RETRIES` 回 (FR-013 に合わせる)。
     """
     start = 0
     last_error = "(不明)"
     for attempt in range(MAX_UPLOAD_RETRIES + 1):
-        try:
-            resp = _put_range(location, access_token, path, start, size)
-        except httpx.HTTPError as exc:
-            last_error = f"接続失敗: {type(exc).__name__}"
-        else:
-            if resp.status_code in (200, 201):
-                return resp
-            if resp.status_code >= 500:
-                last_error = _error_detail(resp)
+        if start < size:
+            try:
+                resp = _put_range(location, access_token, path, start, size)
+            except httpx.HTTPError as exc:
+                last_error = f"接続失敗: {type(exc).__name__}"
             else:
-                # 4xx は再開不能 (fail-fast)
-                raise YouTubeError(f"動画データ送信失敗: {_error_detail(resp)}")
+                if resp.status_code in (200, 201):
+                    return resp
+                if resp.status_code >= 500:
+                    last_error = _error_detail(resp)
+                else:
+                    # 4xx は再開不能 (fail-fast)
+                    raise YouTubeError(f"動画データ送信失敗: {_error_detail(resp)}")
+        else:
+            # 直前の再開照会が全量受信済みを示したが 200/201 を得られなかった防御分岐。
+            # データは送らず、次のループで再照会のみ行う。
+            last_error = "再開照会が全量受信済みを示したものの完了応答を得られませんでした"
         if attempt >= MAX_UPLOAD_RETRIES:
             break
-        start = _query_upload_offset(location, access_token, size)
+        status_resp = _query_upload_offset(location, access_token, size)
+        if status_resp.status_code in (200, 201):
+            return status_resp  # 既に完了済み (Codex 再レビュー Medium)
+        start = _resume_offset_from_range(status_resp)
     raise YouTubeError(f"動画データ送信失敗 ({MAX_UPLOAD_RETRIES + 1}回試行): {last_error}")
 
 

@@ -181,6 +181,22 @@ def test_error_detail_non_json_body_omits_body() -> None:
     assert "content-type" in detail
 
 
+def test_error_detail_redacts_token_like_strings_in_safe_key_values() -> None:
+    """安全キー (error_description 等) の値自体に紛れたトークン様文字列も伏せる (Codex 再レビュー Medium)."""
+    leaked_token = "ya29.a0AeXRPp8SECRET1234567890ABCDEFtokenvalue"
+    resp = _Resp(
+        400,
+        {
+            "error": "invalid_grant",
+            "error_description": f"token {leaked_token} was rejected",
+        },
+    )
+    detail = yt._error_detail(resp)  # type: ignore[arg-type]
+    assert leaked_token not in detail
+    assert "[REDACTED]" in detail
+    assert "invalid_grant" in detail
+
+
 def test_refresh_access_token_error_does_not_leak_body_secrets(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -322,6 +338,24 @@ def test_upload_video_rejects_non_https_location(
     assert calls == []
 
 
+def test_upload_video_rejects_non_standard_port(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """host/scheme が正しくても非標準 port は拒否する (Codex 再レビュー Medium)."""
+    monkeypatch.setattr(
+        httpx,
+        "post",
+        lambda *a, **k: _Resp(
+            200, headers={"Location": "https://www.googleapis.com:444/upload"}
+        ),
+    )
+    calls: list[str] = []
+    monkeypatch.setattr(httpx, "put", lambda *a, **k: calls.append("put"))
+    with pytest.raises(YouTubeError, match="不正です"):
+        upload_video("at", _mp4(tmp_path), title="t")
+    assert calls == []
+
+
 # ---- resumable upload の再開・リトライ (Codex レビュー Medium) ----
 
 
@@ -402,6 +436,62 @@ def test_upload_video_status_query_4xx_fails_fast(
     with pytest.raises(YouTubeError, match="再開位置の照会失敗"):
         upload_video("at", _mp4(tmp_path), title="t")
     assert put_attempts == ["bytes 0-127/128", "bytes */128"]
+
+
+def test_upload_video_status_query_200_treated_as_complete_without_extra_put(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """再開位置照会が 200 + video JSON を返したら、それを完了応答として採用し追加 PUT はしない
+    (Codex 再レビュー Medium: 完了エッジケース)."""
+    monkeypatch.setattr(
+        httpx,
+        "post",
+        lambda *a, **k: _Resp(200, headers={"Location": "https://www.googleapis.com/upload/s5"}),
+    )
+    put_ranges: list[str] = []
+
+    def fake_put(url: str, **kwargs: Any) -> _Resp:
+        content_range = kwargs["headers"]["Content-Range"]
+        if content_range.startswith("bytes */"):
+            # サーバ側は既に処理完了しており、再開照会に対し video リソースを返す
+            return _Resp(200, {"id": "vid42", "status": {"privacyStatus": "unlisted"}})
+        put_ranges.append(content_range)
+        return _Resp(503, {"error": "backend_unavailable"})
+
+    monkeypatch.setattr(httpx, "put", fake_put)
+    result = upload_video("at", _mp4(tmp_path), title="t")
+    assert result.video_id == "vid42"
+    # 実データ PUT は最初の (失敗した) 1 回のみ。完了検出後に再送していない。
+    assert put_ranges == ["bytes 0-127/128"]
+
+
+def test_upload_video_full_range_308_does_not_send_invalid_put(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """308 が全量受信済みを示す Range (`bytes=0-127`, size=128) を返しても、
+    start==size となる不正な負レンジ PUT は送らない (Codex 再レビュー Medium の防御)."""
+    monkeypatch.setattr(
+        httpx,
+        "post",
+        lambda *a, **k: _Resp(200, headers={"Location": "https://www.googleapis.com/upload/s6"}),
+    )
+    put_ranges: list[str] = []
+
+    def fake_put(url: str, **kwargs: Any) -> _Resp:
+        content_range = kwargs["headers"]["Content-Range"]
+        if content_range.startswith("bytes */"):
+            # Google の想定では起こらないはずだが、防御的に扱う異常系: 全量受信済みの
+            # Range を返しつつ 308 のまま (video JSON を伴わない)
+            return _Resp(308, headers={"Range": "bytes=0-127"})
+        put_ranges.append(content_range)
+        return _Resp(503, {"error": "backend_unavailable"})
+
+    monkeypatch.setattr(httpx, "put", fake_put)
+    with pytest.raises(YouTubeError, match="動画データ送信失敗"):
+        upload_video("at", _mp4(tmp_path), title="t")
+    # start(=128) == size(=128) になった以降、負レンジ (bytes 128-127/128 等) を送っていない
+    assert put_ranges == ["bytes 0-127/128"]
+    assert all(not r.startswith("bytes 128-") for r in put_ranges)
 
 
 # ---- privacy 変更 (approve フロー) ----
