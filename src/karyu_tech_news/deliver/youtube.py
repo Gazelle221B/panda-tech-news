@@ -13,7 +13,11 @@ httpx で OAuth token refresh / resumable upload / privacy 変更を直接実装
 - **限定公開が既定 (FR-120)**: privacyStatus の既定は unlisted。public 化は人間の
   approve 操作のみ (IMPLEMENTATION_PLAN-3 §8)。
 - **秘密をログ・例外に出さない (要件 §9.5)**: トークンはリクエスト側にのみ存在する。
-  例外メッセージには status code とレスポンス本文冒頭 (Google のエラー説明) だけ含める。
+  例外メッセージには status code と、JSON 本文から安全なキー (`error` / `error_description`)
+  のみを抽出した要約だけ含める (Codex レビュー Medium)。本文をそのまま含めない。
+- **resumable upload の Location ヘッダは信頼せず検証する**: Bearer token 付き PUT を送る前に
+  scheme=https かつ host が `googleapis.com` (またはそのサブドメイン) であることを確認する
+  (Codex レビュー High)。
 - videos.update は part 指定フィールドの**全置換**のため、privacy 変更は videos.list で
   現 status を取得してから差し替えて送る (ADR-0007 影響欄)。
 - HTTP は全てタイムアウト必須 (AGENTS §3.3 の精神)。
@@ -53,6 +57,11 @@ UPLOAD_TIMEOUT = 900.0  # 数百 MB 級でも完了する余裕 (通常エピソ
 _BODY_SNIPPET_LEN = 200
 
 VALID_PRIVACY = ("public", "unlisted", "private")
+
+# resumable upload の Location ヘッダ検証 (Codex レビュー High)。完全一致 or サブドメインのみ許可。
+_ALLOWED_UPLOAD_HOST = "googleapis.com"
+# データ送信のリトライ上限 (FR-013 の「取得は最大2回リトライ」に合わせる, Codex レビュー Medium)。
+MAX_UPLOAD_RETRIES = 2
 
 
 class YouTubeError(Exception):
@@ -100,10 +109,41 @@ class YouTubeUploadResult(BaseModel):
     title: str
 
 
+_SAFE_ERROR_KEYS = ("error", "error_description")
+
+
 def _error_detail(resp: httpx.Response) -> str:
-    """例外メッセージ用の安全な要約 (URL・トークンを含めない)."""
-    body = resp.text[:_BODY_SNIPPET_LEN].replace("\n", " ")
-    return f"HTTP {resp.status_code}: {body}"
+    """例外メッセージ用の安全な要約 (URL・トークンを含めない).
+
+    レスポンス本文をそのまま例外メッセージへ含めると、本文中の値 (トークンの反射等)
+    がそのまま漏れうるため (Codex レビュー Medium)、JSON らしき本文からは安全な
+    キー (`error` / `error_description`) の値のみを抽出する。JSON でない本文や
+    安全キーが無い本文は含めず、HTTP status + content-type だけに留める。
+    """
+    content_type = resp.headers.get("content-type", "不明")
+    try:
+        body = resp.json()
+    except ValueError:
+        return f"HTTP {resp.status_code} (content-type={content_type})"
+    if not isinstance(body, dict):
+        return f"HTTP {resp.status_code} (content-type={content_type})"
+
+    parts: list[str] = []
+    for key in _SAFE_ERROR_KEYS:
+        value = body.get(key)
+        if isinstance(value, str):
+            parts.append(f"{key}={value[:_BODY_SNIPPET_LEN]}")
+        elif isinstance(value, dict):
+            # Google API 形式: {"error": {"code": ..., "message": ...}}
+            message = value.get("message")
+            if isinstance(message, str):
+                parts.append(f"{key}.message={message[:_BODY_SNIPPET_LEN]}")
+            code = value.get("code")
+            if isinstance(code, int):
+                parts.append(f"{key}.code={code}")
+    if not parts:
+        return f"HTTP {resp.status_code} (content-type={content_type})"
+    return f"HTTP {resp.status_code}: {', '.join(parts)}"
 
 
 def _parse_json(resp: httpx.Response, context: str) -> dict[str, Any]:
@@ -189,6 +229,100 @@ def _build_upload_metadata(
     }
 
 
+def _validate_upload_location(location: str) -> None:
+    """resumable upload の Location ヘッダを検証する (Codex レビュー High).
+
+    Google の応答とはいえ Location ヘッダの値を無条件に信頼して Bearer token 付き
+    PUT を送るのは token 送信先の検証を放棄することになるため、scheme=https かつ
+    host が `googleapis.com` (またはそのサブドメイン) であることを確認してからで
+    ないと使わない (`evil-googleapis.com` のような偽装ホストは拒否する)。
+    メッセージには URL 全体ではなく host のみを含める (クエリパラメータ等を漏らさない)。
+    """
+    parsed = urlparse(location)
+    host = parsed.hostname or ""
+    is_valid_host = host == _ALLOWED_UPLOAD_HOST or host.endswith(f".{_ALLOWED_UPLOAD_HOST}")
+    if parsed.scheme != "https" or not is_valid_host:
+        raise YouTubeError(f"アップロード先 URL が不正です (host={host or '(不明)'})")
+
+
+def _put_range(location: str, access_token: str, path: Path, start: int, size: int) -> httpx.Response:
+    """`start` バイト目以降を PUT する (resumable の実データ送信)."""
+    with path.open("rb") as f:
+        f.seek(start)
+        return httpx.put(
+            location,
+            content=f,
+            headers={
+                "Authorization": f"Bearer {access_token}",
+                "Content-Type": "video/mp4",
+                "Content-Range": f"bytes {start}-{size - 1}/{size}",
+                "Content-Length": str(size - start),
+            },
+            timeout=UPLOAD_TIMEOUT,
+        )
+
+
+def _query_upload_offset(location: str, access_token: str, size: int) -> int:
+    """resumable upload の再開位置を照会する (Google resumable protocol, Codex レビュー Medium).
+
+    空の PUT (`Content-Range: bytes */<size>`) を送ると、受信済みバイトがあれば
+    308 + `Range` ヘッダ、完了済みなら 200/201 が返る。4xx を含むそれ以外の応答は
+    再開できないとみなし即座に YouTubeError で fail-fast する (リトライしない)。
+    """
+    try:
+        resp = httpx.put(
+            location,
+            headers={
+                "Authorization": f"Bearer {access_token}",
+                "Content-Range": f"bytes */{size}",
+                "Content-Length": "0",
+            },
+            timeout=REQUEST_TIMEOUT,
+        )
+    except httpx.HTTPError as exc:
+        raise YouTubeError(f"アップロード再開位置の照会に接続失敗: {type(exc).__name__}") from exc
+    if resp.status_code in (200, 201):
+        return size  # 既に完了済み
+    if resp.status_code == 308:
+        range_header = resp.headers.get("Range", "")
+        if range_header:
+            try:
+                return int(range_header.rsplit("-", 1)[1]) + 1
+            except (ValueError, IndexError):
+                return 0
+        return 0  # 受信済みバイト無し (Range ヘッダ省略)
+    raise YouTubeError(f"アップロード再開位置の照会失敗: {_error_detail(resp)}")
+
+
+def _upload_bytes(access_token: str, location: str, path: Path, size: int) -> httpx.Response:
+    """resumable アップロード本体 (Codex レビュー Medium: 切断/5xx からの再開).
+
+    1. 先頭から PUT する。
+    2. 失敗 (接続失敗 or 5xx) したら再開位置を照会し、残りだけを再送する。
+    3. 4xx は再開不能なので即 fail-fast (リトライしない)。
+    4. リトライは最大 `MAX_UPLOAD_RETRIES` 回 (FR-013 に合わせる)。
+    """
+    start = 0
+    last_error = "(不明)"
+    for attempt in range(MAX_UPLOAD_RETRIES + 1):
+        try:
+            resp = _put_range(location, access_token, path, start, size)
+        except httpx.HTTPError as exc:
+            last_error = f"接続失敗: {type(exc).__name__}"
+        else:
+            if resp.status_code in (200, 201):
+                return resp
+            if resp.status_code >= 500:
+                last_error = _error_detail(resp)
+            else:
+                # 4xx は再開不能 (fail-fast)
+                raise YouTubeError(f"動画データ送信失敗: {_error_detail(resp)}")
+        if attempt >= MAX_UPLOAD_RETRIES:
+            break
+        start = _query_upload_offset(location, access_token, size)
+    raise YouTubeError(f"動画データ送信失敗 ({MAX_UPLOAD_RETRIES + 1}回試行): {last_error}")
+
+
 def upload_video(
     access_token: str,
     mp4_path: Path | str,
@@ -236,23 +370,9 @@ def upload_video(
     location = initiate.headers.get("Location", "")
     if not location:
         raise YouTubeError("アップロード開始応答に Location ヘッダがありません")
+    _validate_upload_location(location)
 
-    try:
-        with path.open("rb") as f:
-            put = httpx.put(
-                location,
-                content=f,
-                headers={
-                    "Authorization": f"Bearer {access_token}",
-                    "Content-Type": "video/mp4",
-                    "Content-Length": str(size),
-                },
-                timeout=UPLOAD_TIMEOUT,
-            )
-    except httpx.HTTPError as exc:
-        raise YouTubeError(f"動画データ送信の接続失敗: {type(exc).__name__}") from exc
-    if put.status_code not in (200, 201):
-        raise YouTubeError(f"動画データ送信失敗: {_error_detail(put)}")
+    put = _upload_bytes(access_token, location, path, size)
 
     body = _parse_json(put, "アップロード")
     video_id = body.get("id", "")

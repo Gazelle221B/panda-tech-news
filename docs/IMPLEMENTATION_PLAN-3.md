@@ -84,7 +84,7 @@ repo 関数: `insert_video_version` / `get_latest_audio_version` / `get_latest_u
 | T38 | `video/render.py` 波形動画生成 + テスト | — | filter/引数構築の純テスト + 実 ffmpeg で小さな mp3 → mp4 統合テスト (ffmpeg 不在は skip)。mp4 が非空で生成される |
 | T39 | `deliver/youtube.py` OAuth + resumable upload + privacy 変更 + `youtube-auth` CLI + テスト | — | httpx モックで token refresh / upload / 開示文言強制 / privacy 変更 / エラー正規化が緑 |
 | T40 | `video_versions` + repo + `publish` / `approve` CLI + Discord 朝確認 + テスト | T38, T39 | CLI 統合テスト (render/upload をモック) で DB 記録・dry-run・fail 経路が緑 |
-| T41 | docs 同期 (.env.example / README / AGENTS / PROJECT_STATE / TEST_LOG / ADR INDEX) + daily_pipeline オプトイン | T40 | shellcheck / plutil 相当の静的チェック緑、ドキュメントドリフトなし |
+| T41 | docs 同期 (.env.example / README / AGENTS / ADR INDEX) + `docs/test-logs/` のチケットログ + PR 本文へ記録 (ADR-0008。`PROJECT_STATE.md` はマージ後 docs ブランチで更新) + daily_pipeline オプトイン | T40 | shellcheck / plutil 相当の静的チェック緑、ドキュメントドリフトなし |
 
 ## 5. テスト方針
 

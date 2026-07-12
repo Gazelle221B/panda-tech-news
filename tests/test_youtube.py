@@ -154,6 +154,50 @@ def test_refresh_access_token_broken_json(monkeypatch: pytest.MonkeyPatch) -> No
         refresh_access_token(_creds())
 
 
+# ---- 例外メッセージの本文 redaction (Codex レビュー Medium) ----
+
+
+def test_error_detail_excludes_non_safe_body_content() -> None:
+    """安全キー (error/error_description) 以外の本文フィールドは要約に含めない."""
+    resp = _Resp(
+        400,
+        {
+            "error": "invalid_grant",
+            "access_token": "ya29.a0Aef8-SECRET-SHOULD-NOT-LEAK",
+            "some_debug_field": "Authorization: Bearer ya29.SECRET",
+        },
+    )
+    detail = yt._error_detail(resp)  # type: ignore[arg-type]
+    assert "SECRET" not in detail
+    assert "invalid_grant" in detail
+    assert "HTTP 400" in detail
+
+
+def test_error_detail_non_json_body_omits_body() -> None:
+    """JSON でない本文はキーを抽出できないため、本文自体を含めない."""
+    resp = _BrokenJSONResp(500)
+    detail = yt._error_detail(resp)  # type: ignore[arg-type]
+    assert detail.startswith("HTTP 500")
+    assert "content-type" in detail
+
+
+def test_refresh_access_token_error_does_not_leak_body_secrets(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """トークン値が例外メッセージに反射しない (Codex レビュー Medium の回帰テスト)."""
+    monkeypatch.setattr(
+        httpx,
+        "post",
+        lambda *a, **k: _Resp(
+            400,
+            {"error": "invalid_grant", "access_token": "ya29.SECRET-TOKEN-VALUE"},
+        ),
+    )
+    with pytest.raises(YouTubeError) as exc_info:
+        refresh_access_token(_creds())
+    assert "SECRET-TOKEN-VALUE" not in str(exc_info.value)
+
+
 # ---- upload (resumable 2 段階) ----
 
 
@@ -170,10 +214,11 @@ def test_upload_video_success(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -
         captured["metadata"] = kwargs["json"]
         captured["headers"] = kwargs["headers"]
         assert "uploadType=resumable" in url
-        return _Resp(200, headers={"Location": "https://upload.example/session1"})
+        return _Resp(200, headers={"Location": "https://www.googleapis.com/upload/session1"})
 
     def fake_put(url: str, **kwargs: Any) -> _Resp:
         captured["put_url"] = url
+        captured["content_range"] = kwargs["headers"]["Content-Range"]
         return _Resp(200, {"id": "vid42", "status": {"privacyStatus": "unlisted"}})
 
     monkeypatch.setattr(httpx, "post", fake_post)
@@ -192,7 +237,8 @@ def test_upload_video_success(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -
     assert meta["status"]["selfDeclaredMadeForKids"] is False
     # FR-120: 既定は限定公開
     assert meta["status"]["privacyStatus"] == DEFAULT_PRIVACY
-    assert captured["put_url"] == "https://upload.example/session1"
+    assert captured["put_url"] == "https://www.googleapis.com/upload/session1"
+    assert captured["content_range"] == "bytes 0-127/128"
     assert captured["headers"]["X-Upload-Content-Type"] == "video/mp4"
 
 
@@ -223,14 +269,139 @@ def test_upload_video_missing_location(
 
 
 def test_upload_video_put_fails(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """PUT が全リトライで 5xx のまま → 再開位置照会を挟みつつ最終的に YouTubeError."""
     monkeypatch.setattr(
         httpx,
         "post",
-        lambda *a, **k: _Resp(200, headers={"Location": "https://u.example/s"}),
+        lambda *a, **k: _Resp(200, headers={"Location": "https://www.googleapis.com/upload/s"}),
     )
-    monkeypatch.setattr(httpx, "put", lambda *a, **k: _Resp(500, {"error": "backend"}))
+
+    def fake_put(url: str, **kwargs: Any) -> _Resp:
+        content_range = kwargs["headers"]["Content-Range"]
+        if content_range.startswith("bytes */"):
+            return _Resp(308, headers={})  # 再開位置照会: 進捗無しとして返す
+        return _Resp(500, {"error": "backend"})
+
+    monkeypatch.setattr(httpx, "put", fake_put)
     with pytest.raises(YouTubeError, match="動画データ送信失敗"):
         upload_video("at", _mp4(tmp_path), title="t")
+
+
+# ---- upload URL 検証 (Codex レビュー High) ----
+
+
+def test_upload_video_rejects_malicious_location_host(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(
+        httpx,
+        "post",
+        lambda *a, **k: _Resp(
+            200, headers={"Location": "https://evil-googleapis.com/upload"}
+        ),
+    )
+    calls: list[str] = []
+    monkeypatch.setattr(httpx, "put", lambda *a, **k: calls.append("put"))
+    with pytest.raises(YouTubeError, match="evil-googleapis.com"):
+        upload_video("at", _mp4(tmp_path), title="t")
+    assert calls == []  # host が不正な場合は PUT を送らない
+
+
+def test_upload_video_rejects_non_https_location(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(
+        httpx,
+        "post",
+        lambda *a, **k: _Resp(200, headers={"Location": "http://www.googleapis.com/upload"}),
+    )
+    calls: list[str] = []
+    monkeypatch.setattr(httpx, "put", lambda *a, **k: calls.append("put"))
+    with pytest.raises(YouTubeError, match="不正です"):
+        upload_video("at", _mp4(tmp_path), title="t")
+    assert calls == []
+
+
+# ---- resumable upload の再開・リトライ (Codex レビュー Medium) ----
+
+
+def test_upload_video_retries_after_503_then_succeeds(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """1回目 PUT が 503 → 再開位置照会 308 (Range: bytes=0-99) → 残り再送で成功."""
+    monkeypatch.setattr(
+        httpx,
+        "post",
+        lambda *a, **k: _Resp(200, headers={"Location": "https://www.googleapis.com/upload/s1"}),
+    )
+    calls: list[str] = []
+
+    def fake_put(url: str, **kwargs: Any) -> _Resp:
+        content_range = kwargs["headers"]["Content-Range"]
+        calls.append(content_range)
+        if content_range == "bytes 0-127/128":
+            return _Resp(503, {"error": "backend_unavailable"})
+        if content_range == "bytes */128":
+            return _Resp(308, headers={"Range": "bytes=0-99"})
+        if content_range == "bytes 100-127/128":
+            return _Resp(200, {"id": "vid42", "status": {"privacyStatus": "unlisted"}})
+        raise AssertionError(f"unexpected Content-Range: {content_range}")
+
+    monkeypatch.setattr(httpx, "put", fake_put)
+    result = upload_video("at", _mp4(tmp_path), title="t")
+    assert result.video_id == "vid42"
+    assert calls == ["bytes 0-127/128", "bytes */128", "bytes 100-127/128"]
+
+
+def test_upload_video_gives_up_after_max_retries(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """3回 (初回 + 最大2回リトライ, FR-013) 失敗し続けたら YouTubeError."""
+    monkeypatch.setattr(
+        httpx,
+        "post",
+        lambda *a, **k: _Resp(200, headers={"Location": "https://www.googleapis.com/upload/s2"}),
+    )
+    put_attempts: list[str] = []
+    status_queries: list[str] = []
+
+    def fake_put(url: str, **kwargs: Any) -> _Resp:
+        content_range = kwargs["headers"]["Content-Range"]
+        if content_range.startswith("bytes */"):
+            status_queries.append(content_range)
+            return _Resp(308, headers={})  # Range ヘッダ省略 = 受信済みバイト無し
+        put_attempts.append(content_range)
+        return _Resp(503, {"error": "backend_unavailable"})
+
+    monkeypatch.setattr(httpx, "put", fake_put)
+    with pytest.raises(YouTubeError, match="動画データ送信失敗"):
+        upload_video("at", _mp4(tmp_path), title="t")
+    assert len(put_attempts) == 3
+    assert len(status_queries) == 2
+
+
+def test_upload_video_status_query_4xx_fails_fast(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """再開位置照会が 404 (再開不能) なら即 fail、追加のリトライは行わない."""
+    monkeypatch.setattr(
+        httpx,
+        "post",
+        lambda *a, **k: _Resp(200, headers={"Location": "https://www.googleapis.com/upload/s3"}),
+    )
+    put_attempts: list[str] = []
+
+    def fake_put(url: str, **kwargs: Any) -> _Resp:
+        content_range = kwargs["headers"]["Content-Range"]
+        put_attempts.append(content_range)
+        if content_range.startswith("bytes */"):
+            return _Resp(404, {"error": "not_found"})
+        return _Resp(503, {"error": "backend_unavailable"})
+
+    monkeypatch.setattr(httpx, "put", fake_put)
+    with pytest.raises(YouTubeError, match="再開位置の照会失敗"):
+        upload_video("at", _mp4(tmp_path), title="t")
+    assert put_attempts == ["bytes 0-127/128", "bytes */128"]
 
 
 # ---- privacy 変更 (approve フロー) ----
