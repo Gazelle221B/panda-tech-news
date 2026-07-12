@@ -13,12 +13,13 @@ architecture-podcast-station §4 の決定:
 from __future__ import annotations
 
 from datetime import datetime
+from pathlib import Path
 from typing import Literal
 
 from pydantic import BaseModel, Field
 
 from karyu_tech_news.edit.judge import JudgedTopic
-from karyu_tech_news.script.generate import CLOSING_PHRASE, OPENING_PHRASE
+from karyu_tech_news.script.generate import DEFAULT_SHOW_FORMAT_PATH, load_show_phrases
 
 SegmentKind = Literal["intro", "topic", "outro"]
 
@@ -63,13 +64,25 @@ def build_structured_script(
     topics: list[tuple[JudgedTopic, str]],
     variant: str,
     generated_at: datetime,
+    *,
+    show_format_path: Path = DEFAULT_SHOW_FORMAT_PATH,
 ) -> StructuredScript:
     """検証済みトピック台本を intro / topic× / outro の segment 列に構造化する.
 
     決定的コード (LLM 不使用)。tone は各 `JudgedTopic` から引き継ぎ、BGM は tone から導く。
+    intro の発話テキストはタイトルコール + オープニング挨拶の連結 (T54, hal-persona §4)。
+    2 フレーズとも「。」で終わるため、`synthesize_script` の文分割で自然に 2 文として
+    読まれる (segment を分けなくても不自然な連結にならない)。挨拶フレーズの取得元は
+    `script/generate.py::load_show_phrases` (fail-open) と同一。
     """
+    phrases = load_show_phrases(show_format_path)
     segments: list[Segment] = [
-        Segment(kind="intro", text=OPENING_PHRASE, tone=_INTRO_TONE, bgm="intro")
+        Segment(
+            kind="intro",
+            text=f"{phrases.title_call}{phrases.opening}",
+            tone=_INTRO_TONE,
+            bgm="intro",
+        )
     ]
     for topic, body in topics:
         tone = topic.tone.value
@@ -77,7 +90,7 @@ def build_structured_script(
             Segment(kind="topic", text=body, tone=tone, bgm=_bgm_for_tone(tone))
         )
     segments.append(
-        Segment(kind="outro", text=CLOSING_PHRASE, tone=_OUTRO_TONE, bgm="outro")
+        Segment(kind="outro", text=phrases.closing, tone=_OUTRO_TONE, bgm="outro")
     )
     return StructuredScript(
         variant=variant, generated_at=generated_at, segments=segments

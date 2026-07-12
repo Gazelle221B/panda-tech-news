@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from pathlib import Path
 from unittest.mock import MagicMock
 
 from karyu_tech_news.edit.judge import JudgedTopic, Tone
@@ -14,6 +15,7 @@ from karyu_tech_news.script.generate import (
     assemble_episode,
     build_writer_prompts,
     generate_topic_script,
+    load_show_phrases,
     script_char_count,
     validate_topic_script,
 )
@@ -195,9 +197,10 @@ def test_assemble_episode_builds_markdown() -> None:
         ("話題B", "https://example.com/2"),
     ]
     assert episode.estimated_minutes >= 1
-    # 暫定オープニング/クロージング (hal-persona §4)
-    assert "華流テック通信、本日のHAL Daily Briefingです。" in episode.markdown
-    assert "以上、本日の華流テックでした。" in episode.markdown
+    # 確定タイトルコール/オープニング/クロージング (hal-persona §4, Issue #39, T54)
+    assert "華流テック通信、HAL Daily Briefing — 中華圏テックの今を、5分で。" in episode.markdown
+    assert "キャスターのHALです。支度の手を止めずに" in episode.markdown
+    assert "今日の華流テック通信は以上です。それでは皆さん、良い一日を。HALでした。" in episode.markdown
 
 
 def test_assemble_episode_tier4_notice() -> None:
@@ -220,3 +223,110 @@ def test_assemble_episode_headlines() -> None:
     ]
     episode = assemble_episode(topics, variant="C", generated_at=NOW)
     assert episode.headlines == ["話題A", "話題B"]
+
+
+# ---------- load_show_phrases (T54, Issue #39 固定句の YAML 配線) ----------
+
+
+def test_load_show_phrases_reads_real_show_format_yaml() -> None:
+    """実 config/show_format.yaml から確定フレーズ 3 種を読み込む."""
+    phrases = load_show_phrases()
+    assert phrases.title_call == "華流テック通信、HAL Daily Briefing — 中華圏テックの今を、5分で。"
+    assert phrases.opening.startswith("キャスターのHALです。")
+    assert phrases.closing.startswith("今日の華流テック通信は以上です。")
+
+
+def test_load_show_phrases_reads_custom_path(tmp_path: Path) -> None:
+    """任意の show_format_path (`phrases` セクション) を正しく読む."""
+    custom = tmp_path / "show_format.yaml"
+    custom.write_text(
+        "phrases:\n"
+        '  title_call: "カスタムタイトルコール"\n'
+        '  opening: "カスタムオープニング"\n'
+        '  closing: "カスタムクロージング"\n',
+        encoding="utf-8",
+    )
+    phrases = load_show_phrases(custom)
+    assert phrases == ("カスタムタイトルコール", "カスタムオープニング", "カスタムクロージング")
+
+
+def test_load_show_phrases_missing_file_fails_open_to_defaults(tmp_path: Path) -> None:
+    """ファイルが存在しない場合、確定フレーズの既定値へ fail-open する (番組を止めない)."""
+    phrases = load_show_phrases(tmp_path / "nope.yaml")
+    assert phrases.title_call == "華流テック通信、HAL Daily Briefing — 中華圏テックの今を、5分で。"
+    assert phrases.opening.startswith("キャスターのHALです。")
+    assert phrases.closing.startswith("今日の華流テック通信は以上です。")
+
+
+def test_load_show_phrases_missing_phrases_section_fails_open(tmp_path: Path) -> None:
+    """`phrases` セクション自体が無い YAML でも fail-open で既定値になる."""
+    custom = tmp_path / "show_format.yaml"
+    custom.write_text("delivery:\n  cadence: weekdays\n", encoding="utf-8")
+    phrases = load_show_phrases(custom)
+    assert phrases.title_call == "華流テック通信、HAL Daily Briefing — 中華圏テックの今を、5分で。"
+
+
+def test_load_show_phrases_partial_fields_fall_back_individually(tmp_path: Path) -> None:
+    """個別フィールドが欠落していても、そのフィールドだけ既定値にフォールバックする."""
+    custom = tmp_path / "show_format.yaml"
+    custom.write_text(
+        'phrases:\n  opening: "カスタムオープニングのみ"\n',
+        encoding="utf-8",
+    )
+    phrases = load_show_phrases(custom)
+    assert phrases.opening == "カスタムオープニングのみ"
+    assert phrases.title_call == "華流テック通信、HAL Daily Briefing — 中華圏テックの今を、5分で。"
+    assert phrases.closing.startswith("今日の華流テック通信は以上です。")
+
+
+def test_load_show_phrases_broken_yaml_fails_open(tmp_path: Path) -> None:
+    """YAML パース不能でも例外を投げず既定値へ fail-open する."""
+    custom = tmp_path / "show_format.yaml"
+    custom.write_text("phrases: [unterminated", encoding="utf-8")
+    phrases = load_show_phrases(custom)
+    assert phrases.title_call == "華流テック通信、HAL Daily Briefing — 中華圏テックの今を、5分で。"
+
+
+def test_load_show_phrases_non_utf8_file_fails_open(tmp_path: Path) -> None:
+    """非 UTF-8 破損ファイル (UnicodeDecodeError) でも例外を投げず既定値へ fail-open する
+    (GrokBuild レビュー Low: OSError の派生ではないため個別捕捉が必要だった)."""
+    custom = tmp_path / "show_format.yaml"
+    custom.write_bytes(b"phrases:\n  opening: \xff\xfe\x00broken")
+    phrases = load_show_phrases(custom)
+    assert phrases.title_call == "華流テック通信、HAL Daily Briefing — 中華圏テックの今を、5分で。"
+    assert phrases.opening.startswith("キャスターのHALです。")
+    assert phrases.closing.startswith("今日の華流テック通信は以上です。")
+
+
+def test_load_show_phrases_non_string_field_falls_back_to_default(tmp_path: Path) -> None:
+    """フィールドの型が str でない (例: opening: 123) 場合も既定値へフォールバックする
+    (GrokBuild レビュー Low: fail-open 契約の型不正ケースを固定するテスト)."""
+    custom = tmp_path / "show_format.yaml"
+    custom.write_text(
+        "phrases:\n"
+        "  title_call: 42\n"
+        "  opening: 123\n"
+        '  closing: "テスト用クロージングのみ str"\n',
+        encoding="utf-8",
+    )
+    phrases = load_show_phrases(custom)
+    assert phrases.title_call == "華流テック通信、HAL Daily Briefing — 中華圏テックの今を、5分で。"
+    assert phrases.opening.startswith("キャスターのHALです。")
+    assert phrases.closing == "テスト用クロージングのみ str"  # str 型のフィールドは正常に反映される
+
+
+def test_assemble_episode_respects_custom_show_format_path(tmp_path: Path) -> None:
+    """assemble_episode の show_format_path 経由で固定句が差し替わる (ハードコードではない証明)."""
+    custom = tmp_path / "show_format.yaml"
+    custom.write_text(
+        "phrases:\n"
+        '  title_call: "テスト用タイトルコール"\n'
+        '  opening: "テスト用オープニング"\n'
+        '  closing: "テスト用クロージング"\n',
+        encoding="utf-8",
+    )
+    topics = [(_topic(1, title="話題A"), VALID_BODY)]
+    episode = assemble_episode(topics, variant="A", generated_at=NOW, show_format_path=custom)
+    assert "テスト用タイトルコール" in episode.markdown
+    assert "テスト用オープニング" in episode.markdown
+    assert "テスト用クロージング" in episode.markdown

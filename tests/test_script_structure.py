@@ -7,6 +7,7 @@ LLM はプレーンテキスト台本を出し、コード側で segment 構造�
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from pathlib import Path
 
 from karyu_tech_news.edit.judge import JudgedTopic, Tone
 from karyu_tech_news.edit.prescore import ScoredCandidate
@@ -111,3 +112,38 @@ def test_segment_serializes_kind_as_type_alias() -> None:
     # architecture §4 の JSON 契約: segment field は "type" (by_alias=True)
     seg = Segment(kind="topic", text="x", tone="neutral", bgm="neutral")
     assert seg.model_dump(by_alias=True)["type"] == "topic"
+
+
+# ---------- 確定挨拶フレーズの反映 (T54, Issue #39) ----------
+
+
+def test_intro_segment_carries_title_call_and_opening() -> None:
+    """intro segment はタイトルコール + オープニング挨拶の連結 (両方とも「。」で終わる)."""
+    script = build_structured_script([(_topic(1), BODY)], variant="A", generated_at=NOW)
+    intro = script.segments[0]
+    assert "華流テック通信、HAL Daily Briefing — 中華圏テックの今を、5分で。" in intro.text
+    assert "キャスターのHALです。支度の手を止めずに" in intro.text
+
+
+def test_outro_segment_carries_confirmed_closing() -> None:
+    script = build_structured_script([(_topic(1), BODY)], variant="A", generated_at=NOW)
+    outro = script.segments[-1]
+    assert outro.text.startswith("今日の華流テック通信は以上です。")
+
+
+def test_build_structured_script_respects_custom_show_format_path(tmp_path: Path) -> None:
+    """show_format_path 経由で intro/outro の固定句が差し替わる (ハードコードではない証明)."""
+    custom = tmp_path / "show_format.yaml"
+    custom.write_text(
+        "phrases:\n"
+        '  title_call: "テスト用タイトルコール"\n'
+        '  opening: "テスト用オープニング"\n'
+        '  closing: "テスト用クロージング"\n',
+        encoding="utf-8",
+    )
+    script = build_structured_script(
+        [(_topic(1), BODY)], variant="A", generated_at=NOW, show_format_path=custom
+    )
+    assert "テスト用タイトルコール" in script.segments[0].text
+    assert "テスト用オープニング" in script.segments[0].text
+    assert script.segments[-1].text == "テスト用クロージング"
