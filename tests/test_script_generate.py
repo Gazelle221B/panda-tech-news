@@ -287,6 +287,34 @@ def test_load_show_phrases_broken_yaml_fails_open(tmp_path: Path) -> None:
     assert phrases.title_call == "華流テック通信、HAL Daily Briefing — 中華圏テックの今を、5分で。"
 
 
+def test_load_show_phrases_non_utf8_file_fails_open(tmp_path: Path) -> None:
+    """非 UTF-8 破損ファイル (UnicodeDecodeError) でも例外を投げず既定値へ fail-open する
+    (GrokBuild レビュー Low: OSError の派生ではないため個別捕捉が必要だった)."""
+    custom = tmp_path / "show_format.yaml"
+    custom.write_bytes(b"phrases:\n  opening: \xff\xfe\x00broken")
+    phrases = load_show_phrases(custom)
+    assert phrases.title_call == "華流テック通信、HAL Daily Briefing — 中華圏テックの今を、5分で。"
+    assert phrases.opening.startswith("キャスターのHALです。")
+    assert phrases.closing.startswith("今日の華流テック通信は以上です。")
+
+
+def test_load_show_phrases_non_string_field_falls_back_to_default(tmp_path: Path) -> None:
+    """フィールドの型が str でない (例: opening: 123) 場合も既定値へフォールバックする
+    (GrokBuild レビュー Low: fail-open 契約の型不正ケースを固定するテスト)."""
+    custom = tmp_path / "show_format.yaml"
+    custom.write_text(
+        "phrases:\n"
+        "  title_call: 42\n"
+        "  opening: 123\n"
+        '  closing: "テスト用クロージングのみ str"\n',
+        encoding="utf-8",
+    )
+    phrases = load_show_phrases(custom)
+    assert phrases.title_call == "華流テック通信、HAL Daily Briefing — 中華圏テックの今を、5分で。"
+    assert phrases.opening.startswith("キャスターのHALです。")
+    assert phrases.closing == "テスト用クロージングのみ str"  # str 型のフィールドは正常に反映される
+
+
 def test_assemble_episode_respects_custom_show_format_path(tmp_path: Path) -> None:
     """assemble_episode の show_format_path 経由で固定句が差し替わる (ハードコードではない証明)."""
     custom = tmp_path / "show_format.yaml"

@@ -102,6 +102,15 @@ pytest は本チケットのブランチ切り出し時点の main (538 passed, 
 (load_show_phrases 系 7 + assemble_episode 差し替え 1 + structure.py 系 2... 内訳は上記「4. テスト」
 参照、実数は生成側 7 + 構造化側 3 の計 10)。
 
+### レビュー Low 2 件の反映 (2026-07-12, GrokBuild PASS)
+
+1. `load_show_phrases` の except 節に `UnicodeError` を追加。`read_text(encoding="utf-8")` は非
+   UTF-8 破損ファイルで `UnicodeDecodeError` (`OSError` 非派生) を送出し、旧コードでは fail-open が
+   破れて draft が落ちる経路が残っていた。
+2. 型不正 (`opening: 123` 等の非 str 値) が既定値へフォールバックすることを固定する回帰テストと、
+   非 UTF-8 破損ファイルの fail-open を確認する回帰テストを追加 (計2件、fresh ゲート: pytest
+   **550 passed, 1 skipped**、ruff/mypy strict 82 files clean、`git diff --check` clean)。
+
 ## 保守側に倒した判断
 
 - **`config/hal_persona.yaml` の `phrases` フィールドも更新した**: 指示は `config/show_format.yaml`

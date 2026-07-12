@@ -56,13 +56,15 @@ class ShowPhrases(NamedTuple):
 def load_show_phrases(path: Path = DEFAULT_SHOW_FORMAT_PATH) -> ShowPhrases:
     """show_format.yaml の `phrases` (固定挨拶句) を読む (T54, Issue #39).
 
-    ファイル欠落・YAML 破損・`phrases` セクション欠落・個別フィールド欠落は、
+    ファイル欠落・YAML 破損・非 UTF-8 破損・`phrases` セクション欠落・個別フィールド欠落は、
     いずれも fail-open で既定句 (確定文言そのもの) にフォールバックする
     (AGENTS §3.3 の「1 箇所の失敗で全体を止めない」精神を config 読み込みにも適用)。
     """
     try:
         raw = yaml.safe_load(path.read_text(encoding="utf-8"))
-    except (OSError, yaml.YAMLError):
+    except (OSError, UnicodeError, yaml.YAMLError):
+        # UnicodeError (UnicodeDecodeError) は非 UTF-8 破損ファイルの read_text で送出され、
+        # OSError の派生ではないため個別に捕捉しないと fail-open が破れる (GrokBuild レビュー Low)。
         raw = None
     phrases = raw.get("phrases") if isinstance(raw, dict) else None
     phrases = phrases if isinstance(phrases, dict) else {}
