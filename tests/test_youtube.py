@@ -1,0 +1,640 @@
+"""deliver.youtube のユニットテスト (Sprint 3 T39, FR-120/121/122).
+
+実 YouTube API は叩かない (IMPLEMENTATION_PLAN-3 §8)。httpx をモジュール境界で
+モックし、resumable の 2 段階・AI 開示強制・privacy 変更・エラー正規化を検証する。
+"""
+from __future__ import annotations
+
+import json
+import threading
+from pathlib import Path
+from typing import Any
+
+import httpx
+import pytest
+
+import karyu_tech_news.deliver.youtube as yt
+from karyu_tech_news.deliver.youtube import (
+    AI_DISCLOSURE,
+    DEFAULT_PRIVACY,
+    YouTubeCredentials,
+    YouTubeError,
+    build_auth_url,
+    ensure_disclosure,
+    exchange_code_for_refresh_token,
+    extract_code,
+    get_video_status,
+    refresh_access_token,
+    sanitize_title,
+    set_privacy_status,
+    upload_video,
+    wait_for_oauth_code,
+)
+
+
+class _Resp:
+    """httpx.Response の必要最小スタブ."""
+
+    def __init__(
+        self,
+        status_code: int = 200,
+        json_data: dict[str, Any] | None = None,
+        headers: dict[str, str] | None = None,
+    ) -> None:
+        self.status_code = status_code
+        self._json = json_data if json_data is not None else {}
+        self.headers = headers or {}
+        self.text = json.dumps(self._json, ensure_ascii=False)
+
+    def json(self) -> dict[str, Any]:
+        return self._json
+
+
+# ---- FR-121: AI 開示の強制 ----
+
+
+def test_ensure_disclosure_prepends_when_missing() -> None:
+    out = ensure_disclosure("今日のトピックです。")
+    assert out.startswith(AI_DISCLOSURE)
+    assert "今日のトピック" in out
+
+
+def test_ensure_disclosure_keeps_existing() -> None:
+    desc = f"前置き\n{AI_DISCLOSURE}\n本文"
+    assert ensure_disclosure(desc) == desc
+
+
+def test_ensure_disclosure_empty_description() -> None:
+    assert ensure_disclosure("") == AI_DISCLOSURE
+    assert ensure_disclosure("   ") == AI_DISCLOSURE
+
+
+# ---- タイトル正規化 ----
+
+
+def test_sanitize_title_replaces_angle_brackets() -> None:
+    assert sanitize_title("<新モデル> a>b") == "〈新モデル〉 a〉b"
+
+
+def test_sanitize_title_truncates_codepoints() -> None:
+    long_title = "あ" * 150
+    assert len(sanitize_title(long_title)) == 100
+
+
+def test_sanitize_title_empty_falls_back() -> None:
+    assert sanitize_title("  ") == "華流テック通信"
+
+
+# ---- 認証情報 ----
+
+
+def test_credentials_from_env_missing(monkeypatch: pytest.MonkeyPatch) -> None:
+    # CLI を経由しないテストだが、docs/styleguide.md:158 の規約 (空文字固定) に合わせ
+    # delenv ではなく setenv(name, "") で統一する (PR #25 Copilot 指摘)。
+    for name in ("YOUTUBE_CLIENT_ID", "YOUTUBE_CLIENT_SECRET", "YOUTUBE_REFRESH_TOKEN"):
+        monkeypatch.setenv(name, "")
+    with pytest.raises(YouTubeError, match="YOUTUBE_CLIENT_ID"):
+        YouTubeCredentials.from_env()
+
+
+def test_credentials_from_env_ok(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("YOUTUBE_CLIENT_ID", "cid")
+    monkeypatch.setenv("YOUTUBE_CLIENT_SECRET", "sec")
+    monkeypatch.setenv("YOUTUBE_REFRESH_TOKEN", "ref")
+    creds = YouTubeCredentials.from_env()
+    assert creds.client_id == "cid"
+
+
+def _creds() -> YouTubeCredentials:
+    return YouTubeCredentials(client_id="cid", client_secret="sec", refresh_token="ref")
+
+
+# ---- token refresh ----
+
+
+def test_refresh_access_token_ok(monkeypatch: pytest.MonkeyPatch) -> None:
+    def fake_post(url: str, **kwargs: Any) -> _Resp:
+        assert url == yt.TOKEN_URL
+        assert kwargs["data"]["grant_type"] == "refresh_token"
+        assert kwargs["timeout"] is not None
+        return _Resp(200, {"access_token": "at-123"})
+
+    monkeypatch.setattr(httpx, "post", fake_post)
+    assert refresh_access_token(_creds()) == "at-123"
+
+
+def test_refresh_access_token_http_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        httpx, "post", lambda *a, **k: _Resp(400, {"error": "invalid_grant"})
+    )
+    with pytest.raises(YouTubeError, match="HTTP 400"):
+        refresh_access_token(_creds())
+
+
+def test_refresh_access_token_connection_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    def boom(*a: Any, **k: Any) -> _Resp:
+        raise httpx.ConnectError("down")
+
+    monkeypatch.setattr(httpx, "post", boom)
+    with pytest.raises(YouTubeError, match="接続失敗"):
+        refresh_access_token(_creds())
+
+
+class _BrokenJSONResp(_Resp):
+    """200 だが本文が JSON でない応答 (プロキシの HTML 等)."""
+
+    def json(self) -> dict[str, Any]:
+        raise ValueError("not json")
+
+
+def test_refresh_access_token_broken_json(monkeypatch: pytest.MonkeyPatch) -> None:
+    """200 応答の JSON 破損も YouTubeError に正規化する (traceback で落とさない)."""
+    monkeypatch.setattr(httpx, "post", lambda *a, **k: _BrokenJSONResp(200))
+    with pytest.raises(YouTubeError, match="JSON ではありません"):
+        refresh_access_token(_creds())
+
+
+# ---- 例外メッセージの本文 redaction (Codex レビュー Medium) ----
+
+
+def test_error_detail_excludes_non_safe_body_content() -> None:
+    """安全キー (error/error_description) 以外の本文フィールドは要約に含めない."""
+    resp = _Resp(
+        400,
+        {
+            "error": "invalid_grant",
+            "access_token": "ya29.a0Aef8-SECRET-SHOULD-NOT-LEAK",
+            "some_debug_field": "Authorization: Bearer ya29.SECRET",
+        },
+    )
+    detail = yt._error_detail(resp)  # type: ignore[arg-type]
+    assert "SECRET" not in detail
+    assert "invalid_grant" in detail
+    assert "HTTP 400" in detail
+
+
+def test_error_detail_non_json_body_omits_body() -> None:
+    """JSON でない本文はキーを抽出できないため、本文自体を含めない."""
+    resp = _BrokenJSONResp(500)
+    detail = yt._error_detail(resp)  # type: ignore[arg-type]
+    assert detail.startswith("HTTP 500")
+    assert "content-type" in detail
+
+
+def test_error_detail_redacts_token_like_strings_in_safe_key_values() -> None:
+    """安全キー (error_description 等) の値自体に紛れたトークン様文字列も伏せる (Codex 再レビュー Medium)."""
+    leaked_token = "ya29.a0AeXRPp8SECRET1234567890ABCDEFtokenvalue"
+    resp = _Resp(
+        400,
+        {
+            "error": "invalid_grant",
+            "error_description": f"token {leaked_token} was rejected",
+        },
+    )
+    detail = yt._error_detail(resp)  # type: ignore[arg-type]
+    assert leaked_token not in detail
+    assert "[REDACTED]" in detail
+    assert "invalid_grant" in detail
+
+
+def test_refresh_access_token_error_does_not_leak_body_secrets(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """トークン値が例外メッセージに反射しない (Codex レビュー Medium の回帰テスト)."""
+    monkeypatch.setattr(
+        httpx,
+        "post",
+        lambda *a, **k: _Resp(
+            400,
+            {"error": "invalid_grant", "access_token": "ya29.SECRET-TOKEN-VALUE"},
+        ),
+    )
+    with pytest.raises(YouTubeError) as exc_info:
+        refresh_access_token(_creds())
+    assert "SECRET-TOKEN-VALUE" not in str(exc_info.value)
+
+
+# ---- upload (resumable 2 段階) ----
+
+
+def _mp4(tmp_path: Path) -> Path:
+    p = tmp_path / "ep.mp4"
+    p.write_bytes(b"\x00" * 128)
+    return p
+
+
+def test_upload_video_success(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    captured: dict[str, Any] = {}
+
+    def fake_post(url: str, **kwargs: Any) -> _Resp:
+        captured["metadata"] = kwargs["json"]
+        captured["headers"] = kwargs["headers"]
+        assert "uploadType=resumable" in url
+        return _Resp(200, headers={"Location": "https://www.googleapis.com/upload/session1"})
+
+    def fake_put(url: str, **kwargs: Any) -> _Resp:
+        captured["put_url"] = url
+        captured["content_range"] = kwargs["headers"]["Content-Range"]
+        return _Resp(200, {"id": "vid42", "status": {"privacyStatus": "unlisted"}})
+
+    monkeypatch.setattr(httpx, "post", fake_post)
+    monkeypatch.setattr(httpx, "put", fake_put)
+
+    result = upload_video(
+        "at", _mp4(tmp_path), title="今日の華流テック", description="本日の3本です。"
+    )
+    assert result.video_id == "vid42"
+    assert result.url.endswith("vid42")
+    assert result.privacy_status == "unlisted"
+    # FR-121: 開示文言とプラットフォームフラグの二重開示
+    meta = captured["metadata"]
+    assert AI_DISCLOSURE in meta["snippet"]["description"]
+    assert meta["status"]["containsSyntheticMedia"] is True
+    assert meta["status"]["selfDeclaredMadeForKids"] is False
+    # FR-120: 既定は限定公開
+    assert meta["status"]["privacyStatus"] == DEFAULT_PRIVACY
+    assert captured["put_url"] == "https://www.googleapis.com/upload/session1"
+    assert captured["content_range"] == "bytes 0-127/128"
+    assert captured["headers"]["X-Upload-Content-Type"] == "video/mp4"
+
+
+def test_upload_video_missing_file(tmp_path: Path) -> None:
+    with pytest.raises(YouTubeError, match="mp4 が見つかりません"):
+        upload_video("at", tmp_path / "none.mp4", title="t")
+
+
+def test_upload_video_invalid_privacy(tmp_path: Path) -> None:
+    with pytest.raises(YouTubeError, match="privacyStatus"):
+        upload_video("at", _mp4(tmp_path), title="t", privacy="secret")
+
+
+def test_upload_video_initiate_fails(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(httpx, "post", lambda *a, **k: _Resp(403, {"error": "quota"}))
+    with pytest.raises(YouTubeError, match="アップロード開始失敗"):
+        upload_video("at", _mp4(tmp_path), title="t")
+
+
+def test_upload_video_missing_location(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(httpx, "post", lambda *a, **k: _Resp(200, headers={}))
+    with pytest.raises(YouTubeError, match="Location"):
+        upload_video("at", _mp4(tmp_path), title="t")
+
+
+def test_upload_video_put_fails(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """PUT が全リトライで 5xx のまま → 再開位置照会を挟みつつ最終的に YouTubeError."""
+    monkeypatch.setattr(
+        httpx,
+        "post",
+        lambda *a, **k: _Resp(200, headers={"Location": "https://www.googleapis.com/upload/s"}),
+    )
+
+    def fake_put(url: str, **kwargs: Any) -> _Resp:
+        content_range = kwargs["headers"]["Content-Range"]
+        if content_range.startswith("bytes */"):
+            return _Resp(308, headers={})  # 再開位置照会: 進捗無しとして返す
+        return _Resp(500, {"error": "backend"})
+
+    monkeypatch.setattr(httpx, "put", fake_put)
+    with pytest.raises(YouTubeError, match="動画データ送信失敗"):
+        upload_video("at", _mp4(tmp_path), title="t")
+
+
+# ---- upload URL 検証 (Codex レビュー High) ----
+
+
+def test_upload_video_rejects_malicious_location_host(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(
+        httpx,
+        "post",
+        lambda *a, **k: _Resp(
+            200, headers={"Location": "https://evil-googleapis.com/upload"}
+        ),
+    )
+    calls: list[str] = []
+    monkeypatch.setattr(httpx, "put", lambda *a, **k: calls.append("put"))
+    with pytest.raises(YouTubeError, match="evil-googleapis.com"):
+        upload_video("at", _mp4(tmp_path), title="t")
+    assert calls == []  # host が不正な場合は PUT を送らない
+
+
+def test_upload_video_rejects_non_https_location(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(
+        httpx,
+        "post",
+        lambda *a, **k: _Resp(200, headers={"Location": "http://www.googleapis.com/upload"}),
+    )
+    calls: list[str] = []
+    monkeypatch.setattr(httpx, "put", lambda *a, **k: calls.append("put"))
+    with pytest.raises(YouTubeError, match="不正です"):
+        upload_video("at", _mp4(tmp_path), title="t")
+    assert calls == []
+
+
+def test_upload_video_rejects_non_standard_port(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """host/scheme が正しくても非標準 port は拒否する (Codex 再レビュー Medium)."""
+    monkeypatch.setattr(
+        httpx,
+        "post",
+        lambda *a, **k: _Resp(
+            200, headers={"Location": "https://www.googleapis.com:444/upload"}
+        ),
+    )
+    calls: list[str] = []
+    monkeypatch.setattr(httpx, "put", lambda *a, **k: calls.append("put"))
+    with pytest.raises(YouTubeError, match="不正です"):
+        upload_video("at", _mp4(tmp_path), title="t")
+    assert calls == []
+
+
+# ---- resumable upload の再開・リトライ (Codex レビュー Medium) ----
+
+
+def test_upload_video_retries_after_503_then_succeeds(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """1回目 PUT が 503 → 再開位置照会 308 (Range: bytes=0-99) → 残り再送で成功."""
+    monkeypatch.setattr(
+        httpx,
+        "post",
+        lambda *a, **k: _Resp(200, headers={"Location": "https://www.googleapis.com/upload/s1"}),
+    )
+    calls: list[str] = []
+
+    def fake_put(url: str, **kwargs: Any) -> _Resp:
+        content_range = kwargs["headers"]["Content-Range"]
+        calls.append(content_range)
+        if content_range == "bytes 0-127/128":
+            return _Resp(503, {"error": "backend_unavailable"})
+        if content_range == "bytes */128":
+            return _Resp(308, headers={"Range": "bytes=0-99"})
+        if content_range == "bytes 100-127/128":
+            return _Resp(200, {"id": "vid42", "status": {"privacyStatus": "unlisted"}})
+        raise AssertionError(f"unexpected Content-Range: {content_range}")
+
+    monkeypatch.setattr(httpx, "put", fake_put)
+    result = upload_video("at", _mp4(tmp_path), title="t")
+    assert result.video_id == "vid42"
+    assert calls == ["bytes 0-127/128", "bytes */128", "bytes 100-127/128"]
+
+
+def test_upload_video_gives_up_after_max_retries(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """3回 (初回 + 最大2回リトライ, FR-013) 失敗し続けたら YouTubeError."""
+    monkeypatch.setattr(
+        httpx,
+        "post",
+        lambda *a, **k: _Resp(200, headers={"Location": "https://www.googleapis.com/upload/s2"}),
+    )
+    put_attempts: list[str] = []
+    status_queries: list[str] = []
+
+    def fake_put(url: str, **kwargs: Any) -> _Resp:
+        content_range = kwargs["headers"]["Content-Range"]
+        if content_range.startswith("bytes */"):
+            status_queries.append(content_range)
+            return _Resp(308, headers={})  # Range ヘッダ省略 = 受信済みバイト無し
+        put_attempts.append(content_range)
+        return _Resp(503, {"error": "backend_unavailable"})
+
+    monkeypatch.setattr(httpx, "put", fake_put)
+    with pytest.raises(YouTubeError, match="動画データ送信失敗"):
+        upload_video("at", _mp4(tmp_path), title="t")
+    assert len(put_attempts) == 3
+    assert len(status_queries) == 2
+
+
+def test_upload_video_status_query_4xx_fails_fast(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """再開位置照会が 404 (再開不能) なら即 fail、追加のリトライは行わない."""
+    monkeypatch.setattr(
+        httpx,
+        "post",
+        lambda *a, **k: _Resp(200, headers={"Location": "https://www.googleapis.com/upload/s3"}),
+    )
+    put_attempts: list[str] = []
+
+    def fake_put(url: str, **kwargs: Any) -> _Resp:
+        content_range = kwargs["headers"]["Content-Range"]
+        put_attempts.append(content_range)
+        if content_range.startswith("bytes */"):
+            return _Resp(404, {"error": "not_found"})
+        return _Resp(503, {"error": "backend_unavailable"})
+
+    monkeypatch.setattr(httpx, "put", fake_put)
+    with pytest.raises(YouTubeError, match="再開位置の照会失敗"):
+        upload_video("at", _mp4(tmp_path), title="t")
+    assert put_attempts == ["bytes 0-127/128", "bytes */128"]
+
+
+def test_upload_video_status_query_200_treated_as_complete_without_extra_put(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """再開位置照会が 200 + video JSON を返したら、それを完了応答として採用し追加 PUT はしない
+    (Codex 再レビュー Medium: 完了エッジケース)."""
+    monkeypatch.setattr(
+        httpx,
+        "post",
+        lambda *a, **k: _Resp(200, headers={"Location": "https://www.googleapis.com/upload/s5"}),
+    )
+    put_ranges: list[str] = []
+
+    def fake_put(url: str, **kwargs: Any) -> _Resp:
+        content_range = kwargs["headers"]["Content-Range"]
+        if content_range.startswith("bytes */"):
+            # サーバ側は既に処理完了しており、再開照会に対し video リソースを返す
+            return _Resp(200, {"id": "vid42", "status": {"privacyStatus": "unlisted"}})
+        put_ranges.append(content_range)
+        return _Resp(503, {"error": "backend_unavailable"})
+
+    monkeypatch.setattr(httpx, "put", fake_put)
+    result = upload_video("at", _mp4(tmp_path), title="t")
+    assert result.video_id == "vid42"
+    # 実データ PUT は最初の (失敗した) 1 回のみ。完了検出後に再送していない。
+    assert put_ranges == ["bytes 0-127/128"]
+
+
+def test_upload_video_full_range_308_does_not_send_invalid_put(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """308 が全量受信済みを示す Range (`bytes=0-127`, size=128) を返しても、
+    start==size となる不正な負レンジ PUT は送らない (Codex 再レビュー Medium の防御)."""
+    monkeypatch.setattr(
+        httpx,
+        "post",
+        lambda *a, **k: _Resp(200, headers={"Location": "https://www.googleapis.com/upload/s6"}),
+    )
+    put_ranges: list[str] = []
+
+    def fake_put(url: str, **kwargs: Any) -> _Resp:
+        content_range = kwargs["headers"]["Content-Range"]
+        if content_range.startswith("bytes */"):
+            # Google の想定では起こらないはずだが、防御的に扱う異常系: 全量受信済みの
+            # Range を返しつつ 308 のまま (video JSON を伴わない)
+            return _Resp(308, headers={"Range": "bytes=0-127"})
+        put_ranges.append(content_range)
+        return _Resp(503, {"error": "backend_unavailable"})
+
+    monkeypatch.setattr(httpx, "put", fake_put)
+    with pytest.raises(YouTubeError, match="動画データ送信失敗"):
+        upload_video("at", _mp4(tmp_path), title="t")
+    # start(=128) == size(=128) になった以降、負レンジ (bytes 128-127/128 等) を送っていない
+    assert put_ranges == ["bytes 0-127/128"]
+    assert all(not r.startswith("bytes 128-") for r in put_ranges)
+
+
+# ---- privacy 変更 (approve フロー) ----
+
+
+def test_get_video_status_ok(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        httpx,
+        "get",
+        lambda *a, **k: _Resp(
+            200, {"items": [{"status": {"privacyStatus": "unlisted", "license": "youtube"}}]}
+        ),
+    )
+    status = get_video_status("at", "vid42")
+    assert status["privacyStatus"] == "unlisted"
+
+
+def test_get_video_status_not_found(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(httpx, "get", lambda *a, **k: _Resp(200, {"items": []}))
+    with pytest.raises(YouTubeError, match="動画が見つかりません"):
+        get_video_status("at", "ghost")
+
+
+def test_set_privacy_status_sends_only_mutable_fields(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    sent: dict[str, Any] = {}
+    monkeypatch.setattr(
+        httpx,
+        "get",
+        lambda *a, **k: _Resp(
+            200,
+            {
+                "items": [
+                    {
+                        "status": {
+                            "privacyStatus": "unlisted",
+                            "selfDeclaredMadeForKids": False,
+                            "publishAt": "2026-07-07T00:00:00Z",
+                            # videos.list が返す read-only フィールド (送り返すと
+                            # invalidVideoMetadata になりうる)
+                            "uploadStatus": "processed",
+                            "license": "youtube",
+                        }
+                    }
+                ]
+            },
+        ),
+    )
+
+    def fake_put(url: str, **kwargs: Any) -> _Resp:
+        sent["payload"] = kwargs["json"]
+        return _Resp(200, {"status": {"privacyStatus": "public"}})
+
+    monkeypatch.setattr(httpx, "put", fake_put)
+    assert set_privacy_status("at", "vid42", "public") == "public"
+    payload = sent["payload"]
+    assert payload["id"] == "vid42"
+    assert payload["status"]["privacyStatus"] == "public"
+    # mutable フィールドは維持
+    assert payload["status"]["selfDeclaredMadeForKids"] is False
+    assert payload["status"]["license"] == "youtube"
+    # read-only / 予約公開フィールドは送らない
+    assert "uploadStatus" not in payload["status"]
+    assert "publishAt" not in payload["status"]
+
+
+def test_set_privacy_status_invalid(monkeypatch: pytest.MonkeyPatch) -> None:
+    with pytest.raises(YouTubeError, match="privacyStatus"):
+        set_privacy_status("at", "vid42", "hidden")
+
+
+# ---- 初回 OAuth 補助 ----
+
+
+def test_build_auth_url_offline_consent() -> None:
+    url = build_auth_url("cid", "http://127.0.0.1:8765")
+    assert url.startswith(yt.AUTH_URL)
+    assert "access_type=offline" in url
+    assert "prompt=consent" in url
+    assert "client_id=cid" in url
+
+
+def test_extract_code_from_url_and_raw() -> None:
+    assert extract_code("http://127.0.0.1:8765/?code=abc&scope=x") == "abc"
+    assert extract_code("  rawcode  ") == "rawcode"
+    with pytest.raises(YouTubeError, match="code"):
+        extract_code("http://127.0.0.1:8765/?error=access_denied")
+
+
+def test_exchange_code_for_refresh_token(monkeypatch: pytest.MonkeyPatch) -> None:
+    def fake_post(url: str, **kwargs: Any) -> _Resp:
+        assert kwargs["data"]["grant_type"] == "authorization_code"
+        return _Resp(200, {"refresh_token": "rt-1", "access_token": "at-1"})
+
+    monkeypatch.setattr(httpx, "post", fake_post)
+    assert exchange_code_for_refresh_token("cid", "sec", "code", "http://x") == "rt-1"
+
+
+def test_exchange_code_without_refresh_token(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(httpx, "post", lambda *a, **k: _Resp(200, {"access_token": "a"}))
+    with pytest.raises(YouTubeError, match="refresh_token"):
+        exchange_code_for_refresh_token("cid", "sec", "code", "http://x")
+
+
+def _free_port() -> int:
+    import socket
+
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        return int(s.getsockname()[1])
+
+
+def test_wait_for_oauth_code_receives(tmp_path: Path) -> None:
+    port = _free_port()
+    result: list[str] = []
+
+    def serve() -> None:
+        result.append(wait_for_oauth_code(port, timeout_seconds=10.0))
+
+    t = threading.Thread(target=serve)
+    t.start()
+    try:
+        resp = httpx.get(f"http://127.0.0.1:{port}/?code=xyz", timeout=10.0)
+        assert resp.status_code == 200
+    finally:
+        t.join(timeout=15.0)
+    assert result == ["xyz"]
+
+
+def test_wait_for_oauth_code_timeout() -> None:
+    port = _free_port()
+    with pytest.raises(YouTubeError, match="受信できませんでした"):
+        wait_for_oauth_code(port, timeout_seconds=0.2)
+
+
+def test_wait_for_oauth_code_port_in_use() -> None:
+    """ポート使用中は生の OSError でなく YouTubeError で案内する."""
+    import socket
+
+    with socket.socket() as blocker:
+        blocker.bind(("127.0.0.1", 0))
+        blocker.listen(1)
+        port = int(blocker.getsockname()[1])
+        with pytest.raises(YouTubeError, match="待受できません"):
+            wait_for_oauth_code(port, timeout_seconds=0.2)
