@@ -111,6 +111,7 @@ def test_publish_failure_propagates_return_code(tmp_path: Path) -> None:
     log_text = _log_text(tmp_path)
     assert "karyu_tech_news publish --post" in log_text
     assert "WARNING: publish 失敗 (rc=9)" in log_text
-    # notify_failure の成功ログは label を無視した固定文言 (既存のスクリプト側の挙動。
-    # 本チケットのスコープ外のため修正はせず、Discord 通知が実行された事実だけを確認する)。
     assert "Discord failure alert: sent" in log_text
+    # notify_failure() の成功ログが label を正しく反映していること (T50, Issue #42:
+    # 以前は label を無視した "produce 失敗通知" 固定文言だった)。
+    assert "publish 失敗通知: 処理完了" in log_text

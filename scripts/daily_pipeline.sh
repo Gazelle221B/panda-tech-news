@@ -119,9 +119,9 @@ ok = post_summary(webhook_url, content)
 print("Discord failure alert: " + ("sent" if ok else "failed"))
 PY
   then
-    log "produce 失敗通知: 処理完了"
+    log "${label} 失敗通知: 処理完了"
   else
-    log "WARNING: produce 失敗通知コマンドが失敗"
+    log "WARNING: ${label} 失敗通知コマンドが失敗"
   fi
 }
 
