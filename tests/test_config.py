@@ -152,16 +152,23 @@ def test_load_sources_roundtrip(tmp_path: Path) -> None:
 
 
 def test_load_real_project_sources() -> None:
-    """実 config/sources.yaml が検証を通り、確定構成 (11本中9有効) であること."""
+    """実 config/sources.yaml が検証を通り、確定構成 (12本中10有効) であること.
+
+    T51 (Issue #38, 2026-07-12 人間判断「追加して」) で Tier3 に IndieNova (Game) を
+    enabled で追加し、11本中9有効 → 12本中10有効に更新。
+    """
     sf = load_sources(DEFAULT_SOURCES_PATH)
-    assert len(sf.sources) == 11
-    assert len(sf.enabled_sources()) == 9
+    assert len(sf.sources) == 12
+    assert len(sf.enabled_sources()) == 10
     disabled_ids = {s.id for s in sf.sources if not s.enabled}
     assert disabled_ids == {"jiqizhixin-rss", "huxiu-rss"}
-    # Tier 構成: Tier1×5, Tier2×4(2有効), Tier3×2
+    # Tier 構成: Tier1×5, Tier2×4(2有効), Tier3×3(全有効)
     assert len(sf.by_tier(SourceTier.OFFICIAL)) == 5
     assert len([s for s in sf.enabled_sources() if s.tier is SourceTier.SEMI_OFFICIAL]) == 2
-    assert len(sf.by_tier(SourceTier.COMMUNITY)) == 2
+    assert len(sf.by_tier(SourceTier.COMMUNITY)) == 3
+    # Game/Subculture 予備枠 (bright アーク強化, docs/proposals/game-subculture-source-v0.1.md)
+    game_ids = {s.id for s in sf.enabled_sources() if s.category is SourceCategory.GAME}
+    assert game_ids == {"indienova-article"}
 
 
 # ---------- Settings ----------

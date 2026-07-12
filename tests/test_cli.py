@@ -26,10 +26,13 @@ def test_version_command() -> None:
 
 
 def test_validate_sources_real_config() -> None:
-    """実 config/sources.yaml が検証を通り、9 enabled / 2 disabled を報告する."""
+    """実 config/sources.yaml が検証を通り、10 enabled / 2 disabled を報告する.
+
+    T51 (Issue #38) で IndieNova (Game, enabled) を追加し 11 本 → 12 本、9 enabled → 10 enabled。
+    """
     result = runner.invoke(app, ["validate-sources"])
     assert result.exit_code == 0
-    assert "OK: 11 sources loaded (9 enabled, 2 disabled)" in result.output
+    assert "OK: 12 sources loaded (10 enabled, 2 disabled)" in result.output
 
 
 def test_validate_sources_verbose_shows_disabled() -> None:
