@@ -16,6 +16,15 @@ length:
   topics_min: 3
   topics_max: 5
 
+# 番組固定挨拶フレーズ (確定, Issue #39 2026-07-12人間選定)。
+# script/generate.py の load_show_phrases() が読み、opening/closing 生成に反映する
+# (T54)。フィールド欠落・ファイル欠落時は generate.py 内の既定値へ fail-open する。
+# 詳細・トーン指定・選定根拠は docs/hal-persona.md §4 参照。
+phrases:
+  title_call: "華流テック通信、HAL Daily Briefing — 中華圏テックの今を、5分で。"
+  opening: "キャスターのHALです。支度の手を止めずに、今朝の中華圏テック、要点だけボクと一緒に追いかけましょう。"
+  closing: "今日の華流テック通信は以上です。それでは皆さん、良い一日を。HALでした。"
+
 # Discover Daily 準拠の構成。各 segment は音響合成レイヤーが時間軸に並べる。
 segments:
   - { type: cold_open,        sec: 15, note: "今日の目玉トピック匂わせ" }

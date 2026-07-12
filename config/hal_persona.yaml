@@ -19,9 +19,12 @@ voice:
   emotion_level: B                # A=ほぼ読み / B=自然な驚き・感心 / C=Vtuber寄り
   reference_seiyuu: [緒方恵美, 坂本真綾, 石川由依, 榊原優希]   # 方向性の参照のみ。無断クローン禁止
 
-phrases:                          # 暫定。確定は Sprint 1B 以降 (要件 §16)
-  opening: "華流テック通信、本日のHAL Daily Briefingです。"
-  closing: "以上、本日の華流テックでした。"
+phrases:                          # 確定 (Issue #39, 2026-07-12)。ドキュメント用ミラー。
+  # コードは config/show_format.yaml の phrases を読む (script/generate.py, T54)。
+  # この YAML の phrases はコードから未参照 (hal-persona.md §4 の機械可読控え)。
+  title_call: "華流テック通信、HAL Daily Briefing — 中華圏テックの今を、5分で。"
+  opening: "キャスターのHALです。支度の手を止めずに、今朝の中華圏テック、要点だけボクと一緒に追いかけましょう。"
+  closing: "今日の華流テック通信は以上です。それでは皆さん、良い一日を。HALでした。"
   rumor_marker: "これは噂レベルですが —"
   topic_transitions: ["続いては、", "もう一つ、", "最後は、"]
 

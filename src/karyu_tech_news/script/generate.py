@@ -12,9 +12,13 @@ from __future__ import annotations
 
 import math
 from datetime import datetime
+from pathlib import Path
+from typing import NamedTuple
 
+import yaml
 from pydantic import BaseModel
 
+from karyu_tech_news.config import PROJECT_ROOT
 from karyu_tech_news.edit.judge import ChatClient, JudgedTopic
 
 TOPIC_CHAR_LIMIT = 300  # show_format.yaml topic_structure.char_limit_jp (空白除く)。ハード検証値
@@ -26,9 +30,52 @@ PROMPT_SUMMARY_LIMIT = 420
 CHARS_PER_MINUTE = 300  # 日本語読み上げの目安 (推定尺用)
 
 SHOW_TITLE = "華流テック通信 — HAL Daily Briefing"
-OPENING_PHRASE = "華流テック通信、本日のHAL Daily Briefingです。"  # hal-persona §4 (暫定)
-CLOSING_PHRASE = "以上、本日の華流テックでした。"  # hal-persona §4 (暫定)
 RUMOR_MARKER = "噂"  # 「これは噂レベルですが — 」等の明示を要求 (editorial-policy §10)
+
+DEFAULT_SHOW_FORMAT_PATH = PROJECT_ROOT / "config" / "show_format.yaml"
+
+# 確定挨拶フレーズ (Issue #39, 2026-07-12 人間選定, T54) の既定値。
+# config/show_format.yaml の `phrases` セクションが読めない/フィールド欠落の場合の
+# fail-open フォールバック (ハードコードは避けたいが、ファイル I/O が失敗しても
+# 番組を止めないための最終防衛線として確定文言そのものを既定にする)。
+_DEFAULT_TITLE_CALL = "華流テック通信、HAL Daily Briefing — 中華圏テックの今を、5分で。"
+_DEFAULT_OPENING_PHRASE = (
+    "キャスターのHALです。支度の手を止めずに、今朝の中華圏テック、要点だけボクと一緒に追いかけましょう。"
+)
+_DEFAULT_CLOSING_PHRASE = "今日の華流テック通信は以上です。それでは皆さん、良い一日を。HALでした。"
+
+
+class ShowPhrases(NamedTuple):
+    """番組固定挨拶フレーズ 3 種 (hal-persona §4)."""
+
+    title_call: str
+    opening: str
+    closing: str
+
+
+def load_show_phrases(path: Path = DEFAULT_SHOW_FORMAT_PATH) -> ShowPhrases:
+    """show_format.yaml の `phrases` (固定挨拶句) を読む (T54, Issue #39).
+
+    ファイル欠落・YAML 破損・`phrases` セクション欠落・個別フィールド欠落は、
+    いずれも fail-open で既定句 (確定文言そのもの) にフォールバックする
+    (AGENTS §3.3 の「1 箇所の失敗で全体を止めない」精神を config 読み込みにも適用)。
+    """
+    try:
+        raw = yaml.safe_load(path.read_text(encoding="utf-8"))
+    except (OSError, yaml.YAMLError):
+        raw = None
+    phrases = raw.get("phrases") if isinstance(raw, dict) else None
+    phrases = phrases if isinstance(phrases, dict) else {}
+
+    def _pick(key: str, default: str) -> str:
+        value = phrases.get(key)
+        return value if isinstance(value, str) and value.strip() else default
+
+    return ShowPhrases(
+        title_call=_pick("title_call", _DEFAULT_TITLE_CALL),
+        opening=_pick("opening", _DEFAULT_OPENING_PHRASE),
+        closing=_pick("closing", _DEFAULT_CLOSING_PHRASE),
+    )
 
 # editorial-policy §10 / hal-persona §3 の禁止表現 (決定的チェック分)
 FORBIDDEN_PHRASES = ("中国すごい", "日本終わった", "中国製は粗悪", "以下は要約です")
@@ -136,12 +183,18 @@ def assemble_episode(
     topics: list[tuple[JudgedTopic, str]],
     variant: str,
     generated_at: datetime,
+    *,
+    show_format_path: Path = DEFAULT_SHOW_FORMAT_PATH,
 ) -> EpisodeScript:
     """検証済みトピック台本を 1 エピソードの Markdown に組み立てる (決定的コード).
 
     形式は要件 §14.2 / show-format §8 の投稿項目に対応:
-    タイトル・生成日時・トピック見出し・台本本文・ソース一覧・profile・推定尺・注意事項。
+    タイトル・生成日時・タイトルコール・オープニング挨拶・トピック見出し・台本本文・
+    ソース一覧・profile・推定尺・注意事項。挨拶フレーズは `show_format_path` の
+    `phrases` から読む (T54, 既定は `config/show_format.yaml`。fail-open は
+    `load_show_phrases` 参照)。
     """
+    phrases = load_show_phrases(show_format_path)
     headlines = [t.candidate.title for t, _ in topics]
     sources = [(t.candidate.title, t.candidate.link) for t, _ in topics]
     notices = [
@@ -154,14 +207,15 @@ def assemble_episode(
         f"# {SHOW_TITLE}",
         f"生成日時: {generated_at.strftime('%Y-%m-%d %H:%M')} / LLM profile: {variant}",
         "",
-        OPENING_PHRASE,
+        phrases.title_call,
+        phrases.opening,
         "",
     ]
     for i, (topic, body) in enumerate(topics, start=1):
         lines.append(f"## {i}. {topic.candidate.title}")
         lines.append(body)
         lines.append("")
-    lines.append(CLOSING_PHRASE)
+    lines.append(phrases.closing)
     lines.append("")
     lines.append("---")
     lines.append("### ソース一覧")
