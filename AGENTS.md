@@ -23,7 +23,7 @@
 - **Sprint 2 (音声化) ほぼ完了** — TTS 抽象化 (T23) / 構造化台本・読み仮名・絵文字・文単位合成 (T25-T28) / 実音声 Kokoro+Irodori アダプタ (T24) / ラウドネス -16LUFS・mp3 完パケ (T30) / BGM mixer 素材非依存 (T29) / produce 完パケ+`audio_versions` 永続化+Discord mp3 配信 (T31) を実装。実 produce で完パケ mp3 生成を実証 (draft→503〜643s/-16.3LUFS)。**残: T32 話速調整 (実音声の聴感判断 = 人間) / BGM 素材ライセンス / variant 既定確定**。
 - **2026-06-21 ミスマージ解消確認**: T29/T31 (旧 PR #18) は新 PR #19 (`main` ベースで再ランディング) が人間マージ済み。`gh` の表示のみに頼らず `origin/main` の生ログで squash コミット (#19) の到達を直接検証済み。fresh 全ゲート再検証 (pytest 365 / ruff / mypy strict 68 files) 緑。旧土台ブランチ `agent/T30-impl` (remote) は内容の main 到達確認後に削除済み。詳細は [docs/PROJECT_STATE.md](docs/PROJECT_STATE.md) 改訂履歴。
 - **2026-06-24〜26 — T33/T34/T35 main 到達、T36 音声品質ハードニング (PR #23) マージ済 2026-06-26**: `collect→draft→produce→Discord` の日次自動配信、Irodori **600M VoiceDesign + caption**、launchd PATH 修正、中国語原題の発話退避、produce fail-fast、3 秒無音検出、clip/LUFS gate、daily pipeline 失敗通知まで反映済み。日次自動配信 launchd は 3 日限定運用後に撤去済み (2026-06-27) — **現在は手動実行のみ**、恒常再導入は人間判断待ち。続く T37 (workflow docs 統合, agentic-workflow-research-2026 反映) は [PR #24](https://github.com/Gazelle221B/panda-tech-news/pull/24) で 2026-06-29 マージ済み。**残: T32 人間試聴、日次配信の恒久運用判断、BGM 素材ライセンス、variant 既定確定**。
-- **2026-07-06 — Sprint 3 (配信) 実装完了 (T38〜T41, branch `agent/T38-sprint3-impl`, [PR #25](https://github.com/Gazelle221B/panda-tech-news/pull/25) DRAFT)**: `publish` (mp3→showwaves 波形動画 mp4→YouTube **限定公開** アップロード→`video_versions` 永続化→Discord 朝確認) / `approve` (人間確認後の public 化) / `youtube-auth` (初回 OAuth) を実装。AI 開示 (FR-121) はコードで強制、新規依存ゼロ ([ADR-0007](docs/adr/ADR-0007-youtube-httpx-cli-approval.md))。**残: 人間 Go 判断の記録確認 (§3.4)、YouTube OAuth セットアップ + 実アップロード smoke (人間、README 手順)**。
+- **2026-07-12 — Sprint 3 (配信) main 到達 (T38〜T41, [PR #25](https://github.com/Gazelle221B/panda-tech-news/pull/25) マージ済み) — ロードマップ全スプリントのコード完成**: `publish` (mp3→showwaves 波形動画 mp4→YouTube **限定公開** アップロード→`video_versions` 永続化→Discord 朝確認) / `approve` (人間確認後の public 化) / `youtube-auth` (初回 OAuth)。AI 開示 (FR-121) はコードで強制、新規依存ゼロ ([ADR-0007](docs/adr/ADR-0007-youtube-httpx-cli-approval.md))。人間 Go はプロダクトオーナー指示 (2026-07-12) を追認 Go として PR #25 コメントに記録済み。独立レビュー 3 ラウンド + Antigravity QA PASS (証跡: docs/review-reports/ / docs/qa-reports/ の 2026-07-12 ログ)。**残る人間タスク・判断は全件 GitHub Issue 化済み (#34〜#42, `human-decision` ラベル)**。筆頭は [#35 YouTube OAuth セットアップ + 実アップロード smoke](https://github.com/Gazelle221B/panda-tech-news/issues/35)。
 
 ## 3. 絶対 NG (禁止事項) — 最優先
 
@@ -83,9 +83,9 @@ uv run python -m karyu_tech_news youtube-auth       # 初回 OAuth (refresh toke
 # または: uv run karyu collect --post
 
 # 品質ゲート (PR 前に必ず通す)
-uv run pytest                                       # ユニットテスト (438 pass, 2026-07-09実測。最新値は docs/PROJECT_STATE.md 参照)
+uv run pytest                                       # ユニットテスト (538 pass, 2026-07-12実測。最新値は docs/PROJECT_STATE.md 参照)
 uv run ruff check .                                 # Lint
-uv run mypy src tests                               # 型 (strict, 70 files, 2026-07-09実測)
+uv run mypy src tests                               # 型 (strict, 82 files, 2026-07-12実測)
 
 # 日次運用: RSSHub 起動 → 収集 → LLM 台本生成 (いずれも Discord 投稿込み)
 docker compose up -d rsshub
@@ -149,7 +149,7 @@ panda-tech-news/
 │   ├── llm/      (T12 で追加: profile / client)
 │   ├── edit/     (T14-T16, T20 で追加: prescore / judge / select / arc / abtest)
 │   └── script/   (T17-T18, T21 で追加: generate / fallback / runner)
-├── tests/                   # pytest (438 pass, 2026-07-09実測。最新値は docs/PROJECT_STATE.md 参照)
+├── tests/                   # pytest (538 pass, 2026-07-12実測。最新値は docs/PROJECT_STATE.md 参照)
 ├── scripts/                 # spike_curl_check.sh など検証スクリプト
 ├── data/                    # state.db 等 (.gitkeep 以外 git 管理外)
 └── assets/                  # bgm / jingles / voice_reference (素材本体は git 管理外)
