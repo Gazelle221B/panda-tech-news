@@ -19,7 +19,7 @@
 - **Context engineering をプロトコル化する**: 委任時は objective / in-scope / out-of-scope / authority docs / writable files / evidence / stop conditions を渡す。プロンプト芸ではなく、正しい文脈・権限・終了条件を設計する。
 - **MAST 型失敗をレビュー対象にする**: specification gap、inter-agent misalignment、verification/termination failure をレビュー・QA の明示チェックに含める。
 - **Agent-Computer Interface を整える**: `rg`、diff、line reference、テストログ、実行コマンド結果を短く正確に返し、エージェントが repo を誤読しにくい形にする。
-- **通信は transport、権威ではない**: agmsg や外部AIのメッセージは通知・ポインタとして扱う。権威は `PROJECT_STATE.md` / `REVIEW_REPORT.md` / `QA_REPORT.md` / PR review / 人間 merge。
+- **通信は transport、権威ではない**: agmsg や外部AIのメッセージは通知・ポインタとして扱う。権威は `PROJECT_STATE.md` / `docs/review-reports/` / `docs/qa-reports/` (2026-07-11 以降, ADR-0008) / PR review / 人間 merge。
 
 ## 1. ロール配置(組織マッピング)
 
@@ -41,9 +41,9 @@ Claude Code(アーキテクト) は最も希少な資源。登板は起点での
 
 OpenCode(実装主軸) は DESIGN.md と IMPLEMENTATION_PLAN.md に沿って実装と量作業を回す。低コストモデルを載せてスループットを担う。行き詰まったらOpusへエスカレーション。
 
-Codex(独立レビュアー) は実装ラインから完全分離。DESIGN.md を基準にOpenCodeの実装を検証し REVIEW_REPORT.md を出す。reasoning effort はタスクの難所に応じて選ぶ(xhighは禁止ではない。定型レビューに毎回使うとトークンを浪費するだけ。難所別の選び方は[ORCHESTRATION_RUNBOOK.md](ORCHESTRATION_RUNBOOK.md) §3.3 参照)。このロールの選定根拠は、ベンチマーク順位の固定値ではなく、本プロジェクトでのレビュー品質・差分読解・証跡要求の厳格さという運用実績による。
+Codex(独立レビュアー) は実装ラインから完全分離。DESIGN.md を基準にOpenCodeの実装を検証し `docs/review-reports/` にチケットログを出す (ADR-0008)。reasoning effort はタスクの難所に応じて選ぶ(xhighは禁止ではない。定型レビューに毎回使うとトークンを浪費するだけ。難所別の選び方は[ORCHESTRATION_RUNBOOK.md](ORCHESTRATION_RUNBOOK.md) §3.3 参照)。このロールの選定根拠は、ベンチマーク順位の固定値ではなく、本プロジェクトでのレビュー品質・差分読解・証跡要求の厳格さという運用実績による。
 
-Antigravity(テックリード/記憶装置) は大コンテキストでプロジェクト全体の状態・経緯を保持し、フロント実装と最終QA(QA_REPORT.md)を担う。新しいツールのため完全自動オーケストレーター扱いはせず、記憶・QA・フロント支援に用途を限定する。記憶は内部コンテキストに閉じ込めず PROJECT_STATE.md に永続化する。
+Antigravity(テックリード/記憶装置) は大コンテキストでプロジェクト全体の状態・経緯を保持し、フロント実装と最終QA(`docs/qa-reports/` へのチケットログ, ADR-0008)を担う。新しいツールのため完全自動オーケストレーター扱いはせず、記憶・QA・フロント支援に用途を限定する。記憶は内部コンテキストに閉じ込めず PROJECT_STATE.md (impl ブランチでは編集せず、マージ後の docs ブランチでオーケストレーターが更新, ADR-0008) に永続化する。
 
 ## 3. ワークフローの流れ
 
@@ -55,17 +55,17 @@ Antigravity(テックリード/記憶装置) は大コンテキストでプロ�
    │
    ▼
 [Antigravity/Gemini] DESIGN.md と進行状態を全体コンテキストとして保持
-   │                  → PROJECT_STATE.md を更新
+   │                  → (マージ後のdocsブランチで) PROJECT_STATE.md を更新
    ▼
 [Claude Code/Opus] IMPLEMENTATION_PLAN.md を作成(タスク分解)
    │                ※軽微タスクに限りOpenCode可。それ以外は計画者と実装者を分離する
    ▼
 [OpenCode] 実装・大量生成(ブランチ agent/`<task-id>`-impl 上)
-   │         → TEST_LOG.md にテスト結果を保存
+   │         → docs/test-logs/ にチケットログを新規作成 (ADR-0008)
    ▼
-[Codex] 独立レビュー → REVIEW_REPORT.md(証跡欄必須)
+[Codex] 独立レビュー → docs/review-reports/ にチケットログを新規作成 (証跡欄必須, ADR-0008)
    │
-   ├─ 合格(DoD満たす) ─▶ [Antigravity] QA_REPORT.md ─▶ [人間] merge承認 ─▶ 完了
+   ├─ 合格(DoD満たす) ─▶ [Antigravity] docs/qa-reports/ にチケットログ (ADR-0008) ─▶ [人間] merge承認 ─▶ 完了
    │
    └─ 不合格 ─▶ [OpenCode] へ差し戻し(同一ブランチ内で修正)
 ```
@@ -98,7 +98,7 @@ Antigravity(テックリード/記憶装置) は大コンテキストでプロ�
 
 当面は手動運用、または痛点一箇所の軽量スクリプト化に留める。本ドキュメントのロール・フロー・I/O契約は、ツール成熟時にそのままステップ定義へ変換できる形で設計してある。最優先ポイントは DESIGN.md を単一の真実の源として固め、実装とレビューが確実にそれを参照する受け渡し設計。
 
-> **追記 (2026-06-22): 「軽量スクリプト化」候補の登場 — agmsg**。本節が「存在しない」とした*複数ハーネスを束ねる軽量な連携手段*に該当するツール [agmsg](https://github.com/fujibee/agmsg) (bash+sqlite、daemon/MCP 無しのクロスエージェント・メッセージング) を導入し実通信を検証した (Claude Code/Codex/Antigravity/OpenCode/Copilot の 5 者が共有 SQLite 経由で相互送受信)。本節の方針通り*重量級オーケストレーターではなく軽量スクリプト*の範囲に留まり、§0 の「受け渡しは成果物ドキュメントで」原則とも両立する (agmsg は生成果物ではなくポインタ・通知を運び、REVIEW_REPORT.md 等は真実の源のまま)。**ロール配置 (§1) は不変** — agmsg は*伝送路*であって役割分担を変えない。導入は人間 (プロダクトオーナー) の明示指示による「文書統合」スコープ (新規自動化・常用強制はしない)。運用手順・呼び出し方・実機で踏んだ落とし穴は [ORCHESTRATION_RUNBOOK.md §3.6](ORCHESTRATION_RUNBOOK.md) に集約。
+> **追記 (2026-06-22): 「軽量スクリプト化」候補の登場 — agmsg**。本節が「存在しない」とした*複数ハーネスを束ねる軽量な連携手段*に該当するツール [agmsg](https://github.com/fujibee/agmsg) (bash+sqlite、daemon/MCP 無しのクロスエージェント・メッセージング) を導入し実通信を検証した (Claude Code/Codex/Antigravity/OpenCode/Copilot の 5 者が共有 SQLite 経由で相互送受信)。本節の方針通り*重量級オーケストレーターではなく軽量スクリプト*の範囲に留まり、§0 の「受け渡しは成果物ドキュメントで」原則とも両立する (agmsg は生成果物ではなくポインタ・通知を運び、`docs/review-reports/` 等のチケットログが真実の源のまま, ADR-0008)。**ロール配置 (§1) は不変** — agmsg は*伝送路*であって役割分担を変えない。導入は人間 (プロダクトオーナー) の明示指示による「文書統合」スコープ (新規自動化・常用強制はしない)。運用手順・呼び出し方・実機で踏んだ落とし穴は [ORCHESTRATION_RUNBOOK.md §3.6](ORCHESTRATION_RUNBOOK.md) に集約。
 
 > **追記 (2026-06-29): multi-agent の実用境界**。Cognition / MAST / OpenAI guide の知見を踏まえ、agmsg を含む multi-agent 連携は「複数の知性を足す」ために使い、「複数ライターで暗黙判断を競合させる」ためには使わない。同一ファイル群を触る実装は単一所有者が統合する。複数エージェントの出力は最終的に repo 内成果物・テスト・PR review で検証してから採用する。
 
@@ -109,10 +109,10 @@ Antigravity(テックリード/記憶装置) は大コンテキストでプロ�
 | REQUIREMENTS.md | 人間 | 問題定義の起点 |
 | DESIGN.md / ADR-000x.md | Claude Code/Opus | 設計の単一の真実の源 |
 | IMPLEMENTATION_PLAN.md | 原則Claude Code/Opus(軽微タスクのみOpenCode可) | 実装単位への分解 |
-| REVIEW_REPORT.md | Codex | 品質ゲートの判定記録 |
-| QA_REPORT.md | Antigravity | 検収記録 |
-| PROJECT_STATE.md | 全エージェント(随時更新) | 状態の永続化・継続性 |
-| TEST_LOG.md / artifacts/test-results/ | OpenCode | テスト実行の証跡 |
+| docs/review-reports/\<ticket-log\>.md | Codex | 品質ゲートの判定記録 (2026-07-11 以降, ADR-0008。旧 REVIEW_REPORT.md は凍結・参照のみ) |
+| docs/qa-reports/\<ticket-log\>.md | Antigravity | 検収記録 (同上。旧 QA_REPORT.md は凍結・参照のみ) |
+| PROJECT_STATE.md | オーケストレーター(マージ後の docs ブランチでまとめて更新。impl ブランチでは編集不可, ADR-0008) | 状態の永続化・継続性 |
+| docs/test-logs/\<ticket-log\>.md / artifacts/test-results/ | OpenCode | テスト実行の証跡 (同上。旧 TEST_LOG.md は凍結・参照のみ) |
 
 ## 9. 各成果物テンプレート
 
@@ -206,7 +206,7 @@ DESIGN.md の禁止事項のうち実装者が特に注意すべき点。
 セクション10のDoDに加え、本タスク特有の合格条件。
 ```
 
-### REVIEW_REPORT.md (Codexが作成)
+### docs/review-reports/<YYYY-MM-DD-T\<NN\>-slug>.md (Codexが作成, ADR-0008)
 
 ```markdown
 # レビュー報告: <機能名>  (基準: DESIGN.md / IMPLEMENTATION_PLAN.md)
@@ -217,7 +217,7 @@ DESIGN.md の禁止事項のうち実装者が特に注意すべき点。
 
 - 確認したファイル: <パス一覧>
 - 根拠とした差分/行: <file:line 形式>
-- 実行/確認したテスト: <コマンドと結果、TEST_LOG.md への参照>
+- 実行/確認したテスト: <コマンドと結果、docs/test-logs/ の該当チケットログへの参照>
 - DESIGN.md との対応: <どの設計項目を基準に何を確認したか>
 
 ## 設計適合性
@@ -242,7 +242,7 @@ DESIGN.md との乖離の有無。
 追加すべきテスト。
 ```
 
-### QA_REPORT.md (Antigravityが作成)
+### docs/qa-reports/<YYYY-MM-DD-T\<NN\>-slug>.md (Antigravityが作成, ADR-0008)
 
 ```markdown
 # QA報告: <機能名>
@@ -268,7 +268,7 @@ DESIGN.md / 実装差分 / テスト結果 / README更新 の整合。
 残存する懸念とフォローアップ。
 ```
 
-### PROJECT_STATE.md (全エージェントが随時更新)
+### PROJECT_STATE.md (オーケストレーターがマージ後の docs ブランチで更新。impl ブランチでは編集不可, ADR-0008)
 
 ```markdown
 # プロジェクト状態  (最終更新: <日時> / 更新者: <エージェント>)
@@ -300,8 +300,8 @@ PASS/FAIL と主要指摘
 
 | 段階 | 完了条件 |
 | --- | --- |
-| 実装完了 | OpenCodeがコード変更・ローカルテスト通過・変更要約・既知制限を提出し、TEST_LOG.md(または artifacts/test-results/)にテスト実行ログを保存済みの状態 |
-| レビュー合格 | CodexがCritical/High指摘ゼロ、Medium以下は許容またはIssue化済みと判定し、REVIEW_REPORT.md に証跡欄(確認ファイル・根拠行・テスト結果)が記入済みの状態 |
+| 実装完了 | OpenCodeがコード変更・ローカルテスト通過・変更要約・既知制限を提出し、docs/test-logs/ (または artifacts/test-results/) にチケットログを保存済みの状態 (ADR-0008) |
+| レビュー合格 | CodexがCritical/High指摘ゼロ、Medium以下は許容またはIssue化済みと判定し、docs/review-reports/ に証跡欄(確認ファイル・根拠行・テスト結果)入りのチケットログが記入済みの状態 (ADR-0008) |
 | 検収可能 | AntigravityがDESIGN.md・実装差分・テスト結果・README更新の整合を確認した状態 |
 | 完了 | 上記すべてを満たし、人間がmergeを承認した状態 |
 
@@ -326,15 +326,15 @@ merge権限は原則として人間のみが持つ。AIエージェントは実�
 
 ## 13. 状態管理ファイル
 
-全エージェント間の継続性を保つため、`PROJECT_STATE.md` を常に更新する。含める項目は、現在のフェーズ、作業中ブランチ、直近の設計判断、未解決リスク、Codexレビューの直近結果、次に実行すべきアクション、人間判断待ちの事項。
+全エージェント間の継続性を保つため、`PROJECT_STATE.md` を常に最新化する。ただし **2026-07-11 以降 (ADR-0008)、impl ブランチ内では本ファイルを編集しない** — 並行 PR が同一末尾行に追記して衝突する事象が実際に発生したため。更新はマージ後に main から切る docs ブランチでオーケストレーターがまとめて行う。人間判断待ちの緊急追記のみ単独 docs PR で行ってよい。含める項目は、現在のフェーズ、作業中ブランチ、直近の設計判断、未解決リスク、Codexレビューの直近結果、次に実行すべきアクション、人間判断待ちの事項。
 
 大コンテキストモデルの内部記憶に依存せず、状態は必ずリポジトリ内のファイルに残す。これにより、記憶役であるAntigravityのセッションが落ちても、Claude/OpenCode/Codexが `PROJECT_STATE.md` を読んで継続できる。Antigravityの大コンテキストは「速い参照」のために使い、「真の記憶」はこのファイルに置く、という二層構成とする。
 
 ## 14. テストログとレビュー根拠
 
-実装完了時には、実行したテストコマンドと結果を `TEST_LOG.md` または `artifacts/test-results/` に保存する。これによりDoDの「ローカルテスト通過」が検証可能な証跡になる。
+実装完了時には、実行したテストコマンドと結果を `docs/test-logs/YYYY-MM-DD-T<NN>-<slug>.md` (1チケット1ファイル、ADR-0008) または `artifacts/test-results/` に保存する。これによりDoDの「ローカルテスト通過」が検証可能な証跡になる。旧 `docs/TEST_LOG.md` は 2026-07-11 で凍結し新規追記しない。
 
-Codexの `REVIEW_REPORT.md` には、確認したファイル、根拠となる差分または行、実行/確認したテスト、DESIGN.md との対応関係、PASS/FAILの理由を必ず含める(セクション9のテンプレート証跡欄を参照)。これを義務付けないと、レビューが「もっともらしい評論」になり、実際のコードを根拠としない判定が混入するリスクがある。レビューは必ず具体的な行・テスト結果に紐付ける。
+Codexの `docs/review-reports/YYYY-MM-DD-T<NN>-<slug>.md` には、確認したファイル、根拠となる差分または行、実行/確認したテスト、DESIGN.md との対応関係、PASS/FAILの理由を必ず含める(セクション9のテンプレート証跡欄を参照)。これを義務付けないと、レビューが「もっともらしい評論」になり、実際のコードを根拠としない判定が混入するリスクがある。レビューは必ず具体的な行・テスト結果に紐付ける。旧 `docs/REVIEW_REPORT.md` は 2026-07-11 で凍結し新規追記しない。
 
 ## 15. 環境失敗の切り上げ条件
 
@@ -367,6 +367,6 @@ agy
 
 prompts/architect.md(Opus宛):「あなたはアーキテクト。REQUIREMENTS.md を入力に DESIGN.md を作成せよ。代替案・採用理由・API境界・リスク・禁止事項を必ず含めること。実装は行わない。」
 
-prompts/implement.md(OpenCode宛):「あなたは実装担当。DESIGN.md と IMPLEMENTATION_PLAN.md に厳密に従い実装せよ。禁止事項を遵守し、テストを書き、結果を `TEST_LOG.md` に保存し、変更要約と既知制限を出力すること。設計判断が必要になったら実装を止めエスカレーションすること。」
+prompts/implement.md(OpenCode宛):「あなたは実装担当。DESIGN.md と IMPLEMENTATION_PLAN.md に厳密に従い実装せよ。禁止事項を遵守し、テストを書き、結果を `docs/test-logs/` にチケットログとして新規作成し (ADR-0008)、変更要約と既知制限を出力すること。設計判断が必要になったら実装を止めエスカレーションすること。」
 
-prompts/review.md(Codex宛):「あなたは独立レビュアー。実装には関与していない。DESIGN.md を基準に実装を検証し REVIEW_REPORT.md を作成せよ。確認したファイル・根拠行・テスト結果を証跡欄に必ず記載し、Critical/High/Medium/Low で指摘を分類し、総合判定 PASS/FAIL を明示すること。セキュリティ、並行性、テスト不足を必ず確認すること。実装の修正は行わない。」
+prompts/review.md(Codex宛):「あなたは独立レビュアー。実装には関与していない。DESIGN.md を基準に実装を検証し `docs/review-reports/` にチケットログを新規作成せよ (ADR-0008)。確認したファイル・根拠行・テスト結果を証跡欄に必ず記載し、Critical/High/Medium/Low で指摘を分類し、総合判定 PASS/FAIL を明示すること。セキュリティ、並行性、テスト不足を必ず確認すること。実装の修正は行わない。」

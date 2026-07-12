@@ -13,7 +13,7 @@
 1. [AGENTS.md](../AGENTS.md) — 最上位の指示書・禁止事項 (§3)。
 2. [docs/PROJECT_STATE.md](./PROJECT_STATE.md) — **真の記憶**。現在のフェーズ・人間判断待ち・改訂履歴。内部記憶より常にこちらを信じる。
 3. 本書 (ORCHESTRATION_RUNBOOK.md) — 次の一手の決め方。
-4. [docs/TEST_LOG.md](./TEST_LOG.md) の末尾 — 直近の運用実走の結果 (T32/T36 観察・日次配信など)。
+4. [docs/test-logs/](./test-logs/) の最新ファイル (日付順) — 直近の運用実走の結果 (T32/T36 観察・日次配信など)。2026-07-11 以前の分は凍結済みの [docs/TEST_LOG.md](./TEST_LOG.md) 末尾を参照 (ADR-0008)。
 5. 必要に応じ [docs/HANDOFF.md](./HANDOFF.md) — 直近の引き継ぎ時点スナップショット (あれば)。
 
 読んだら **§2 の決定木で現在地を判定**してから動く。「とりあえず実装」を始めない (§12.1 Think Before Coding)。
@@ -164,7 +164,7 @@ OpenCode のモデルカタログは継続的に拡大する (`opencode models -
 
 **重要 — これは何で、何でないか**:
 - **本プロジェクトの依存ではない**。ユーザーのマシン全体 (`~/.agents/skills/agmsg/`) にインストールされた**オーケストレーション用ツール**であり、`pyproject.toml` にも Python パッケージにも一切触れない。bash+sqlite で製品コードの外側で完結するため、**ADR-0001 (Python 単一・Go/Node へ戻さない) に抵触しない** (CLI エージェント群そのものと同じ「外部ツール」カテゴリ)。
-- **文書ハンドオフ ([WORKFLOW §0](../WORKFLOW.md)) を置き換えない**。REVIEW_REPORT.md / QA_REPORT.md / PROJECT_STATE.md は引き続き**真実の源**。agmsg が運ぶのは生の成果物ではなく**ポインタ・サマリー・通知** (例「レビュー準備できた、REVIEW_REPORT.md 見て」「commit SHA / Issue 番号はこれ」)。agmsg 自身の設計思想 (「成果物はディスクに書き一行のポインタを送る」) がこの原則と一致する。
+- **文書ハンドオフ ([WORKFLOW §0](../WORKFLOW.md)) を置き換えない**。`docs/review-reports/` / `docs/qa-reports/` / `PROJECT_STATE.md` (2026-07-11 以降, ADR-0008) は引き続き**真実の源**。agmsg が運ぶのは生の成果物ではなく**ポインタ・サマリー・通知** (例「レビュー準備できた、docs/review-reports/ の該当チケットログ見て」「commit SHA / Issue 番号はこれ」)。agmsg 自身の設計思想 (「成果物はディスクに書き一行のポインタを送る」) がこの原則と一致する。
 - **§3 既存の一発委任の*代替*ではなく*補完***。§3 表の `codex exec` / `opencode run` / `agy -p` は**オーケストレーターからの一方向・使い捨て委任** (結果を回収して終わり)。agmsg は**永続化された双方向ピア連携** (履歴が SQLite に残り、セッションを跨いで replay 可能) が本質的に要る場面に限って使う。
 - **Task ラッパーエージェントの自己代行バグの修正ではない** (別軸の話)。`Task(subagent_type="codex-agent")` 等の haiku ラッパー経由委任には、外部 CLI を実際に呼ばず自分の Bash/Read で代行し中身の無い「完了しました」を返す不具合がある (2026-06-22、4 エージェント定義へ「委任の実効性」節を追記して対処済み)。**本書 §3 の直接シェル呼び出し (`codex exec` 等を Bash tool で実行) が信頼できる既定経路であり、委任を Task ラッパー経由へ切り替えないこと**。agmsg はこれとはさらに別の、ピア間連携用の経路。
 
@@ -193,7 +193,7 @@ $S/history.sh karyu                    # 全履歴 (既読/未読問わず閲覧
 
 - objective: 何を達成するか
 - in-scope / out-of-scope: 触ってよい範囲、触ってはいけない範囲
-- authority docs: `AGENTS.md`、`PROJECT_STATE.md`、該当 DESIGN / IMPLEMENTATION_PLAN / ADR
+- authority docs: `AGENTS.md`、`PROJECT_STATE.md` (impl ブランチでは参照のみ・編集不可, ADR-0008)、該当 DESIGN / IMPLEMENTATION_PLAN / ADR
 - writable files: 書き込み許可ファイル。指定がなければ read-only
 - required evidence: 必要なテスト、diff、line reference、外部URL検証
 - stop conditions: 人間ゲート、環境失敗2回、同一レビューFAIL2回など
@@ -201,7 +201,7 @@ $S/history.sh karyu                    # 全履歴 (既読/未読問わず閲覧
 並列化のルール:
 
 - 並列可: repo探索、一次情報調査、独立レビュー、QA、互いに disjoint なファイルの実装。
-- 原則不可: 同じファイル群への同時編集、`PROJECT_STATE.md` の同時更新、同じPRへの複数ライターの直接push。
+- 原則不可: 同じファイル群への同時編集、`PROJECT_STATE.md` の impl ブランチでの編集 (ADR-0008、更新はマージ後の docs ブランチでオーケストレーターがまとめて行う)、同じPRへの複数ライターの直接push。
 - 必要時のみ: worktree で隔離し、統合はオーケストレーターが diff を読んで行う。
 
 採用前チェック:
@@ -226,7 +226,7 @@ uv run python -m karyu_tech_news produce --engine irodori-tts-v3 --post # 音声
 uv run python -m karyu_tech_news evaluate                 # A/B/C 定量サマリー
 ```
 
-記録すべき観察項目 (TEST_LOG.md へ):
+記録すべき観察項目 (`docs/test-logs/` に1チケット1ファイルで記録, ADR-0008):
 - 収集: 成功ソース数 / 新着件数 / fail-open 発火の有無
 - 編集: 候補数 → 採用数 / llm 成功・retry・fallback 回数 / editor JSON 安定性
 - コスト: トークン消費 (要件 §9.7 月 1,500-3,000 円の範囲内か)
@@ -290,4 +290,4 @@ git diff --check     # whitespace / conflict marker 確認
 
 ---
 
-> 改訂: 運用手順が変わったら本書を更新し、PROJECT_STATE の改訂履歴に記録する。状態スナップショットは本書ではなく [HANDOFF.md](./HANDOFF.md) / [PROJECT_STATE.md](./PROJECT_STATE.md) に置く (本書は陳腐化しない恒久手順に保つ)。
+> 改訂: 運用手順が変わったら本書を更新し、PROJECT_STATE の改訂履歴に記録する (impl ブランチでは編集せず、マージ後の docs ブランチでオーケストレーターが記録する, ADR-0008)。状態スナップショットは本書ではなく [HANDOFF.md](./HANDOFF.md) / [PROJECT_STATE.md](./PROJECT_STATE.md) に置く (本書は陳腐化しない恒久手順に保つ)。

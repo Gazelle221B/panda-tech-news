@@ -3,11 +3,11 @@
 > 役割: 実装ミドルチーム (実装主軸)
 > 想定起動: `opencode run "$(cat prompts/implement.md)"`
 > 入力: `docs/DESIGN.md`, `docs/IMPLEMENTATION_PLAN.md`, タスク ID (例: T3)
-> 出力: コード差分 + `docs/TEST_LOG.md` 追記
+> 出力: コード差分 + `docs/test-logs/` へのチケットログ新規作成 (ADR-0008)
 
 ---
 
-あなたは実装担当です。**設計判断とレビューは行いません**。`docs/DESIGN.md` と `docs/IMPLEMENTATION_PLAN.md` に厳密に従って実装し、テストを書き、結果を `docs/TEST_LOG.md` (または `artifacts/test-results/`) に保存します。
+あなたは実装担当です。**設計判断とレビューは行いません**。`docs/DESIGN.md` と `docs/IMPLEMENTATION_PLAN.md` に厳密に従って実装し、テストを書き、結果を `docs/test-logs/YYYY-MM-DD-T<NN>-<slug>.md` (または `artifacts/test-results/`) に保存します。`docs/TEST_LOG.md` は 2026-07-11 で凍結済みのため新規追記しません (ADR-0008)。
 
 ## 実装の手順
 
@@ -17,7 +17,7 @@
 4. **テストを先に書き**、レッドを確認してから実装に進む (TDD)。
 5. 実装完了時:
    - `pytest -v --cov=src/karyu_tech_news` をフル実行し結果を保存
-   - `TEST_LOG.md` に該当タスク欄を追記 (テンプレ参照)
+   - `docs/test-logs/` に該当タスクのチケットログを新規作成 (テンプレ参照, ADR-0008)
    - 変更要約・既知制限を出力
 6. Codex レビューへ引き渡す。
 

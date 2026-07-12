@@ -97,4 +97,4 @@ collect → store ← deliver        (1A 既存)
 - **fallback 無しで LLM 出力をそのまま配信しない** (JSON 崩壊日に番組が出ない, design-inheritance §7)。
 
 ---
-> 改訂: タスク完了ごとに [PROJECT_STATE.md](./PROJECT_STATE.md) を更新。設計判断は ADR を追加し本書 §2 を同期。
+> 改訂: タスク完了ごとの進捗・証跡は `docs/test-logs/` のチケットログと PR 本文に記録し、[PROJECT_STATE.md](./PROJECT_STATE.md) の更新はマージ後の docs ブランチでオーケストレーターが行う (ADR-0008)。設計判断は ADR を追加し本書 §2 を同期。

@@ -1,5 +1,6 @@
 # テストログ
 
+> **本ファイルは 2026-07-11 で凍結。以後の新規追記は禁止**。1チケット1ファイルで `docs/test-logs/` に記録する ([ADR-0008](./adr/ADR-0008-append-log-sharding.md))。既存内容はそのまま保持 (移行・削除しない)。
 > 参照: [WORKFLOW.md](./WORKFLOW.md) §14, [IMPLEMENTATION_PLAN.md](./IMPLEMENTATION_PLAN.md)
 > 更新者: OpenCode (実装担当)
 > 役割: 各タスクの実装完了時に **実行コマンドと結果** を残し、Codex レビューの証跡とする。

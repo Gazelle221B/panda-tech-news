@@ -20,6 +20,6 @@
 2. **並列化は「知性」だけ、書き込みは絞る**: 調査・レビュー・QA は並列可。同じファイル群を複数ライターに同時編集させない。必要なら worktree で隔離する。
 3. **Context packet を必須にする**: 委任には objective / in-scope / out-of-scope / authority docs / writable files / required evidence / stop conditions を含める。
 4. **検証を終了条件にする**: 「できた」ではなく、どのテスト・diff・line reference・実データで確認したかを終了条件にする。
-5. **通信は transport、権威ではない**: agmsg は通知・ポインタ・履歴の transport。`REVIEW_REPORT.md` / `QA_REPORT.md` / `PROJECT_STATE.md` / PR review / 人間 merge を置き換えない。
+5. **通信は transport、権威ではない**: agmsg は通知・ポインタ・履歴の transport。`docs/review-reports/` / `docs/qa-reports/` のチケットログ (2026-07-11 以降, ADR-0008) / `PROJECT_STATE.md` / PR review / 人間 merge を置き換えない。
 6. **モデル・ベンチ情報は期限付き**: モデル名・ベンチ順位・CLI仕様は変わる。日付・確認コマンド・一次情報が無い claims はワークフローの恒久根拠にしない。
 7. **レビューは MAST 型失敗を見る**: specification gap、inter-agent misalignment、verification/termination failure を明示チェックする。

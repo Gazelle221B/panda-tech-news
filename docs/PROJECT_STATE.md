@@ -1,7 +1,8 @@
 # プロジェクト状態
 
-> 最終更新: 2026-07-11 / 更新者: Claude Code (Sprint 3 ブランチへ T45/T46/T48 系列を取り込み)
-> 本ファイルは全エージェントが随時更新する。**Antigravity の内部記憶ではなくここを真の記憶とする** (WORKFLOW §13)。
+> 最終更新: 2026-07-11 / 更新者: Claude Code (T49 ADR-0008 運用変更 + main (T45/T46/T48) 取り込み)
+> 本ファイルはプロジェクト全体の状態を永続化する。**Antigravity の内部記憶ではなくここを真の記憶とする** (WORKFLOW §13)。
+> **運用変更 (2026-07-11, ADR-0008)**: impl ブランチでは本ファイルを編集しない。チケットの進捗・証跡はチケットログファイル (`docs/test-logs/` / `docs/review-reports/` / `docs/qa-reports/`) と PR 本文に記録し、本ファイルの更新はマージ後に main から切る docs ブランチでオーケストレーターがまとめて行う。人間判断待ちの緊急追記は単独の docs PR で行ってよい。
 
 ## 現在のフェーズ
 
@@ -9,15 +10,6 @@
 - **2026-07-09 更新 (Claude Code)**: (a) 旧称「T38 (TTS 読み上げハードニング)」が [PR #25](https://github.com/Gazelle221B/panda-tech-news/pull/25) の Sprint 3 (T38-T41) と採番衝突していることを発見し、本ファイル内の該当チケットを **T42** へ全面改称 (旧 T38 表記は本ファイル・TEST_LOG.md 内で置換済み、branch も実体 `agent/T42-tts-reading-impl` に合わせて記述統一)。(b) Codex 独立レビューで実証された欠陥 2 件を修正: ① `strip_script_markup` の箇条書き prefix 除去が `?` (最大1回) までしか効かず `- - Hook: abc` のような多重 prefix が素通り → prefix 除去を `*` (0回以上) に変更し回帰テスト追加。② `sanitize_chinese_title_quotes` が短い簡体字タイトル (例:「竞争」) を未収録字のため素通り → `_SIMPLIFIED_HAN` に `竞` を含む未収録18字 (`态势报线统经说视计讯论读类织页项顶竞`、いずれも日本語新字体と1字ずつ字形比較の上で選定・同形字は含めず) を追加し回帰テスト追加。(c) `docker-compose.yml` の healthcheck 修正は本ブランチから分離し **T43** として別チケット化。(d) 旧「人間 TODO」の launchd アンインストールは 2026-07-09 時点で `launchctl list` / `~/Library/LaunchAgents/` / `crontab -l` のいずれにも karyu 関連エントリが無いことを実機確認し**消化済み**と記録 (下記に反映)。(e) 人間判断待ちへ2件追加 (詳細は「人間判断待ちの事項」節): ① Sprint 3 ([PR #25](https://github.com/Gazelle221B/panda-tech-news/pull/25)、T38-T41) の着手 Go が出ていたかどうかの確認・記録。② 恒常日次配信スケジューラ (launchd) の再導入判断 — 現在自動配信は launchd 撤去済みで停止中、配信は手動 (`karyu produce` 等) のみ。
 - T42 追加修正 fresh gate: `uv run pytest tests/test_tts_normalize.py -q` **60 passed**、`uv run pytest tests/test_tts_normalize.py tests/test_tts_synthesize.py -q` **87 passed**、`uv run pytest` **458 passed in 2.40s**、`uv run ruff check .` clean、`uv run mypy src tests` strict clean (70 files)、`git diff --check` clean。証跡は `docs/TEST_LOG.md`「T42 追加修正」節。
 - **2026-07-10 — T46: 読み辞書カバレッジ観測機構 (Codex 提案、branch `agent/T46-dict-observability-impl`)**: `config/reading_dict.yaml` の手動追記だけでは未収録語のカバレッジが定量化できない問題に対し、`src/karyu_tech_news/tts/coverage.py` を新設。`prepare_tts_text()` を素通しでもう一度呼ぶブラックボックス diff により、残存 ASCII 単語トークン / 簡体字シグナルを含む残存 CJK トークン / 前処理解消率を算出する**観測専用**関数 `analyze_coverage()` + CLI 表示用 `format_coverage_summary()`。CJK シグナル検出は `normalize.py._CHINESE_TITLE_SIGNAL_HAN` (共有字 参/争/与 を除外済みの precision-tuned 集合) を再利用し、`_SIMPLIFIED_HAN` 単体使用時に「参入」等を誤検出する問題を実装中に発見・回避した。`main.py` `produce` コマンドの `reading_dict` ロード直後にサマリーを `typer.echo` で出力する配線を追加 (観測失敗は `WARN` ログのみで続行、既存の成功条件・fail-fast 挙動は不変)。辞書自動追記・自動翻字は対象外 (スコープ外、観測のみ)。fresh gate: `uv run pytest` **467 passed in 2.07s**、`uv run ruff check .` clean、`uv run mypy src tests` strict clean (72 files)、`git diff --check` clean。
-
-**Sprint 3 (配信) 実装完了 — v0.5 経路をコード実装 (T38〜T41 / branch `agent/T38-sprint3-impl`, 2026-07-06)**
-- 人間の「完成させて欲しい」指示 (2026-07-06) を Sprint 3 Go と解釈し、roadmap Sprint 3 (波形動画 / YouTube 限定公開 / AI 開示 / 朝確認フロー) を実装。計画は [IMPLEMENTATION_PLAN-3.md](./IMPLEMENTATION_PLAN-3.md)、判断記録は [ADR-0007](./adr/ADR-0007-youtube-httpx-cli-approval.md) (httpx 直叩き + CLI 承認、SDK/Bot 不採用)。
-- **T38**: `video/render.py` — mp3 + ロゴ静止画 (無ければ単色縮退) + showwaves 波形 → 720p H.264/AAC mp4 (FR-110/111/112)。ffmpeg 単発呼び出し・タイムアウト必須・純ロジック分離。
-- **T39**: `deliver/youtube.py` — OAuth refresh token 方式 + resumable upload (FR-120/122)。説明欄への AI 開示挿入をコードで強制し `containsSyntheticMedia=true` も送る (FR-121 二重開示)。`youtube-auth` CLI (loopback / --manual) で初回 refresh token 取得。
-- **T40**: `video_versions` テーブル + repo 4関数 + `publish` / `approve` CLI。publish は unlisted/private のみ受け付け (public 拒否)、アップロード失敗は fail-fast・Discord 通知は fail-open。朝確認メッセージ (✅ approve / 🔁 再生成 / ❌ 見送り) を Discord へ投稿。
-- **T41**: `daily_pipeline.sh` に `PUBLISH_YOUTUBE=1` オプトインの publish 段を追加 (既定 off。produce 失敗日はスキップし古い音声を配信しない)。.env.example / README (セットアップ手順) / AGENTS / ADR INDEX を同期。
-- **残 (人間)**: GCP プロジェクト + YouTube Data API v3 + OAuth クライアント (デスクトップ) 作成 → `karyu youtube-auth` → 実アップロード smoke → 限定公開 2 週間運用 (roadmap 配信フェーズ 1)。ロゴ素材 `assets/logo.png` は任意 (無くても単色背景で配信可)。
-- 備考: 本ブランチは人間指示によりプロジェクト内規約を簡略化 (多段レビュー/QA レーン省略)、最低限 (main 直 push 禁止 / 品質ゲート / 秘密情報) を遵守。
 
 **Sprint 2 (音声化・自動配信) 完了後の音声品質ハードニング code loop 完了 (T36 / branch `agent/T36-audio-quality-impl`)**
 - **T42 (TTS 読み上げハードニング) 実装完了**: PR #23 後の追加音声 QA として、英語トークンが読めない、plain `Hook:` / `Insight:` / `Action:` が読まれる、日本語/中国語漢字の読みが崩れる、という症状に対応 (branch `agent/T42-tts-reading-impl`)。`strip_script_markup()` は Markdown bold 付き・plain・箇条書き prefix 付き label を除去しつつ、本文の `GitHub Action:` / `Call to Action:` は保持。読み辞書は recent draft で実際に残った `HAL Daily Briefing` / `Claude Code` / `FSD` / `LLM` / `GitHub` / `HBM4` / `GPT-5.6` / `ISC` / `A株` / `5G` / `5G+` / `4D` などをカナ・日本語化し、`LLM/RAG` / `Lite/Pro/Max` / `5G+AI` のような記号区切りも各語を読む。ASCII 辞書語は長い識別子内部で部分一致しない境界付き置換へ変更し、`AI` が `SAIL` を壊さないようにした。混在 quote (`「モアスレッド：完成MiniMax M3大規模モデル适配」`) はカタカナが含まれても簡体字シグナルがあれば `この話題` へ退避し、`この話題が話題` のような定型も発話向けに整える。
