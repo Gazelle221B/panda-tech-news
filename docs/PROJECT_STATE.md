@@ -152,15 +152,15 @@
 
 **2026-07-12 より、人間判断待ちは GitHub Issues (`human-decision` ラベル) を正とする** (ユーザー指示「残りの私の判断が必要なものがあれば Issue へ上げといて全部」)。本節は Issue へのポインタのみを保持する。
 
-- [#34 T32: 実音声の人間試聴](https://github.com/Gazelle221B/panda-tech-news/issues/34) — 発音・抑揚・話速・「配信する価値」の最終判断 (要試聴)
+- ~~[#34 T32: 実音声の人間試聴](https://github.com/Gazelle221B/panda-tech-news/issues/34)~~ — **解決 (2026-07-12)**: 人間試聴 OK「最後に Discord に配信したやつは結構良かった」→ T32 完了
 - [#35 YouTube OAuth セットアップ + 実アップロード smoke](https://github.com/Gazelle221B/panda-tech-news/issues/35) — Sprint 3 運用開始ゲート (要アカウント操作)
-- [#36 BGM/ジングル素材の採用とライセンス確認](https://github.com/Gazelle221B/panda-tech-news/issues/36)
-- [#37 A/B/C 既定 variant の正式確定](https://github.com/Gazelle221B/panda-tech-news/issues/37) — variant A 継続なら一言で閉じられる
-- [#38 Game/Subculture 予備ソースの採否](https://github.com/Gazelle221B/panda-tech-news/issues/38)
-- [#39 挨拶フレーズの選定 (要試聴)](https://github.com/Gazelle221B/panda-tech-news/issues/39)
-- [#40 日次配信の恒久運用の正式決定記録](https://github.com/Gazelle221B/panda-tech-news/issues/40) — スケジューラは導入・稼働中、継続なら一言で閉じられる
-- [#41 gemini CLI 認証失効の扱い](https://github.com/Gazelle221B/panda-tech-news/issues/41) — agy 一本化を推奨
-- (判断不要の実装タスク) [#42 notify_failure() の label 表示バグ](https://github.com/Gazelle221B/panda-tech-news/issues/42) — `bug` ラベル、AI 修正可
+- [#36 BGM/ジングル素材の採用とライセンス確認](https://github.com/Gazelle221B/panda-tech-news/issues/36) — 決定 (2026-07-12): コード生成音楽 (algorave/ライブコーディング風) で当面代用 → 実装 T52
+- [#37 A/B/C 既定 variant の正式確定](https://github.com/Gazelle221B/panda-tech-news/issues/37) — A/B/C の定義・実測・推奨 (A) を Issue に提示済み、選定回答待ち
+- [#38 Game/Subculture 予備ソースの採否](https://github.com/Gazelle221B/panda-tech-news/issues/38) — 決定 (2026-07-12): 「追加して」→ 実装 T51
+- [#39 挨拶フレーズの選定 (要試聴)](https://github.com/Gazelle221B/panda-tech-news/issues/39) — 3 案の全文を Issue に提示済み、選定回答待ち
+- ~~[#40 日次配信の恒久運用の正式決定記録](https://github.com/Gazelle221B/panda-tech-news/issues/40)~~ — **解決 (2026-07-12)**: 「継続で」→ T44 平日 launchd の恒久運用を正式決定
+- ~~[#41 gemini CLI 認証失効の扱い](https://github.com/Gazelle221B/panda-tech-news/issues/41)~~ — **解決 (2026-07-12)**: 「廃止です。Agy 使って」→ gemini CLI 廃止・agy 一本化 (RUNBOOK §3/§3.4 同期済み)
+- (判断不要の実装タスク) [#42 notify_failure() の label 表示バグ](https://github.com/Gazelle221B/panda-tech-news/issues/42) — 決定 (2026-07-12): 「修正しといて」→ 実装 T50
 
 (解消済み: Sprint 3 着手 Go の記録確認 → 2026-07-12 の人間指示を追認 Go として PR #25 コメント + 本ファイル「現在のフェーズ」に記録済み)
 
@@ -291,3 +291,4 @@ meeting.md / meeting2.md / tik-choco コードdump の全読に基づき作成:
 | 2026-07-10 | Claude Code | **T48 mixer 実 BGM ミックス経路のテストギャップ解消** (branch `agent/T48-mixer-realpath-test-impl`): `mix/mixer.py` の実 BGM オーバーレイ経路 (pydub でループ/フェード/overlay/export、49-68行) が passthrough 経路しかテストされずカバレッジ 46% だった問題に対応。`tests/test_mix_mixer.py` を新規追加し、ダミー wav を BGM 素材として渡す実経路テスト (出力長・RIFF/WAVE コンテナ・ループ・切り詰め・フェード・gain 減衰の理論値比較・overlay 差分・fail-open 3分岐) を実装 (`pytest.importorskip("pydub")` で optional extra 未導入環境を自動 skip)。**発見バグ**: `mix_bgm(fade_ms=0)` が pydub 内部の `fade_in(0)`/`fade_out(0)` で `TypeError` を送出し fail-open で BGM がまるごと passthrough に縮退する欠陥を発見、`mixer.py` に `if fade_ms > 0:` ガードを追加して最小修正 (現行 `main.py` は `fade_ms` を上書きしないため本番導線は未到達だったが、公開関数として妥当な呼び出しのため修正)。カバレッジ: mixer.py 46%→**100%** (`uv run --with pytest-cov pytest tests/ --cov=karyu_tech_news.mix.mixer`)。fresh ゲート: `uv run pytest` **458 passed, 1 skipped**、pydub 導入下 `tests/test_mix_mixer.py tests/test_produce_pipeline.py tests/test_mix_master.py` **61 passed**、ruff/mypy strict (71 files) clean、`git diff --check` clean。証跡は `docs/TEST_LOG.md` の T48 セクションに記録 |
 | 2026-07-12 | 人間 | **「完成させてください。自律的に許可するので」** — Sprint 3 追認 Go + §3.1 例外の明示的マージ許可 + 自律運用許可。追って「残りの私の判断が必要なものがあれば Issue へ上げといて全部」— 人間判断待ちの Issue 移行を指示 |
 | 2026-07-12 | Claude Code | **Sprint 3 (T38-T41) を main へマージ (PR #25、merge commit `703b0ae` を生ログ検証)**。main 追随 (T44〜T49) + ADR-0008 適合 (PROJECT_STATE/TEST_LOG 追記をチケットログへ移設)。独立レビュー 3 ラウンド (Codex R1 High1+Medium3+Low1 → `8e22ae2`、R2 Medium3 → `cb5c2f7`、R3 GrokBuild PASS ※Codex 利用上限フォールバック) + Antigravity QA PASS。最終ゲート pytest **538 passed, 1 skipped** / ruff / mypy strict 82 files / lock / shellcheck 全緑。人間判断待ち 8 件 + バグ 1 件を Issues #34〜#42 へ移行、`human-decision` ラベル新設。T44 スケジューラ稼働中を実機確認 (#40 で正式決定待ち) |
+| 2026-07-12 | 人間 → Claude Code | **Issue 判断 8 件を受領・記録** (#34 T32 試聴 OK → 完了 / #36 コード生成 BGM 代用 → T52 / #37・#39 は判断材料を Issue に提示し回答待ち / #38 IndieNova 追加 → T51 / #40 日次恒久運用「継続で」正式決定 / #41 gemini CLI 廃止・agy 一本化 (RUNBOOK 同期) / #42 修正指示 → T50)。#35 (YouTube OAuth) のみ人間作業待ちで残存 |

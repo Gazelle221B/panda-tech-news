@@ -50,7 +50,7 @@ PROJECT_STATE.md の「現在のフェーズ」と git/PR 状態を突き合わ�
 | **日常実装・リファクタ・テスト** | **OpenCode** | `opencode run -m <model> "<prompt>"` (リポジトリ直下で。`--print-logs` でログ可視化) | **タスクの難易度に応じて選ぶ (§3.2)。値段順・固定リストではない**。Go 枠上限到達時は Zen 無料枠へ。**他にも認証済みプロバイダが存在するが本ワークフローでは使用しない (§3.1)** |
 | **独立レビュー** (実装には関与させない) | **Codex** (GPT-5系) | `codex exec --sandbox workspace-write -c model_reasoning_effort=<effort> "<prompt>"` | **タスクの難所に応じて effort を選ぶ (§3.3)。xhigh は禁止ではなく難所用**。プロンプトは [prompts/review.md](../prompts/review.md) を Sprint 読み替えで使用。判定は PASS/FAIL + 重大度別件数 |
 | **最終 QA・整合性確認** | **Antigravity** (agy, Gemini系既定) | `agy -p "<prompt>"` | **既定モデルは Gemini 3.5 Flash (Pro ではない)。タスクに応じて `--model` で選ぶ (§3.4)**。プロンプトは [prompts/qa.md](../prompts/qa.md)。DoD 全項目チェック + ドリフト検出 |
-| **調査・セカンドオピニオン** | **Gemini** (検索グラウンディング) | `gemini -p "<prompt>"` | ⚠️ **2026-06-22 時点で認証切れを確認 (§3.4)。実行前に `gemini -p` が非対話で通るか要確認**。一次情報の URL は**必ず自分で実在検証** (`curl -so /dev/null -w "%{http_code}"`) |
+| **調査・セカンドオピニオン** | **Antigravity** (agy, Gemini系) | `agy -p "<prompt>"` (モデルは §3.4 で選ぶ) | **標準 `gemini` CLI は廃止 (人間決定 2026-07-12, [#41](https://github.com/Gazelle221B/panda-tech-news/issues/41))** — Gemini 面は agy に一本化。一次情報の URL は**必ず自分で実在検証** (`curl -so /dev/null -w "%{http_code}"`) |
 | **Git/PR ワークフローのみ** | **`gh` (素のサブコマンド)** | `gh pr create` / `gh pr view` 等 | **コーディングには絶対使わない**。`gh` の素のサブコマンドは REST API 直接呼び出しで月300req制限の対象外。AIエージェント (`copilot`/`gh copilot`) を呼ぶ場合のみ枠を消費 (§3.5) |
 
 委任の型 (推奨):
@@ -140,7 +140,7 @@ OpenCode のモデルカタログは継続的に拡大する (`opencode models -
 
 **クォータ構造 (OAuth個人認証、Google公式発表ベース)**: Google AI Pro/Ultra は **5時間ごとにリフレッシュ**するクォータ、無料ティアは**週次**のクォータ。具体的な契約ティア (Free/Pro/Ultra) は本機からは確認できず未確認。クォータ超過分は別売りの AI credits で追加購入可能。
 
-**重要な発見: 標準 `gemini` CLI の認証が切れている**: 本プロジェクトの「調査・セカンドオピニオン」役 (`gemini -p`) を実機確認したところ、キャッシュ済み認証が失効しブラウザでの再認証確認を要求された (非対話実行不可)。Google公式発表 ([google-gemini/gemini-cli Discussion #27274](https://github.com/google-gemini/gemini-cli/discussions/27274)) によれば2026-06-18に Gemini CLI の Pro/Ultra/無料ティア提供が Antigravity CLI へ統合されており、これが原因の可能性が高い。認証フローはユーザーの明示的許可なく起動していない (ブラウザ確認の時点で安全側に停止)。対応は人間判断 — 詳細は [PROJECT_STATE.md](./PROJECT_STATE.md) 「人間判断待ちの事項」参照。
+**重要な発見: 標準 `gemini` CLI の認証が切れている**: 本プロジェクトの「調査・セカンドオピニオン」役 (`gemini -p`) を実機確認したところ、キャッシュ済み認証が失効しブラウザでの再認証確認を要求された (非対話実行不可)。Google公式発表 ([google-gemini/gemini-cli Discussion #27274](https://github.com/google-gemini/gemini-cli/discussions/27274)) によれば2026-06-18に Gemini CLI の Pro/Ultra/無料ティア提供が Antigravity CLI へ統合されており、これが原因の可能性が高い。認証フローはユーザーの明示的許可なく起動していない (ブラウザ確認の時点で安全側に停止)。**解決 (2026-07-12, 人間決定 [#41](https://github.com/Gazelle221B/panda-tech-news/issues/41)): 標準 `gemini` CLI は廃止し、Gemini 面は agy (Antigravity) に一本化する。** 再認証は行わない。
 
 ### 3.5 GitHub Copilot CLI (`copilot`/`gh copilot`) のモデルとコマンド (2026-06-22)
 
