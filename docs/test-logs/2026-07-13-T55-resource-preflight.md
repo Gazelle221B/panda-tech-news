@@ -95,6 +95,53 @@ $ git diff --check
 (出力なし = クリーン)
 ```
 
+### レビュー指摘 3 件の反映 (2026-07-13, Codex 独立レビュー)
+
+1. **[High] IRODORI_TIMEOUT フォールバック不整合**: pipeline 既定を 1800 にしても、
+   `src/karyu_tech_news/tts/irodori.py` の `TIMEOUT_SECONDS = 300.0` が unset 時既定かつ不正
+   env 値のフォールバック先として残っており、「回避対象の 300 秒」が不正 env で復活する経路が
+   あった。`TIMEOUT_SECONDS` を **1800.0** へ引き上げ、pipeline と整合させた。既存テスト
+   `test_irodori_default_timeout_is_300` → `test_irodori_default_timeout_is_1800` に改名・
+   期待値更新、不正値フォールバックのパラメタライズテスト (7 ケース) の期待値も 1800.0 へ。
+   docstring/コメントの 300 言及も同期 (`IRODORI_TIMEOUT`/`300` を grep で全域確認済み)。
+2. **[Medium] 資源値・閾値の数値検証**: `is_nonneg_number()` (bash 正規表現
+   `^[0-9]+([.][0-9]+)?$` — 負数/nan/inf/空/非数値を弾く) を追加し、`resources_ok()` で
+   比較前に 4 変数すべてを検証するようにした。
+   - 閾値 (`KARYU_MAX_SWAP_MB` / `KARYU_MAX_LOAD`) の不正値 → **既定値 (12000 / 25) へ置換 +
+     WARN ログ**。旧実装では `KARYU_MAX_SWAP_MB=abc` が awk の文字列比較となり
+     (数字は英字より辞書順で小さい)、チェックが黙って無効化され produce が走っていた。
+   - 資源注入値 (`KARYU_SWAP_USED_MB` / `KARYU_LOAD_1MIN`) の不正値 → **sysctl 実測へ
+     フォールバック + WARN ログ** (= 既定の取得経路。注入は契約テスト用の上書きなので、
+     不正なら「未設定と同じ」扱いが安全側)。sysctl 由来の値も最終検証し、数値を得られない
+     場合は従来どおり WARN + fail-open。
+   - awk 比較も `v + 0 > max + 0` の明示数値化に変更 (二重防御)。
+   - 回帰テスト `test_invalid_threshold_falls_back_to_default`: `KARYU_MAX_SWAP_MB=abc` +
+     swap 13000M で、WARN ログが出て既定閾値 12000M で判定されスキップ (rc=97) することを固定。
+   - 手動 smoke: `KARYU_SWAP_USED_MB=abc` → WARN + sysctl 実測 (13436.81M) へフォールバックし、
+     実測が既定閾値超過だったため正しくスキップ (rc=97) されることを確認。
+3. **[Low] rc=97 契約の固定**: 資源スキップ系テスト 3 件の assert を `rc != 0` から
+   `rc == 97` へ変更 (外部監視が「資源不足スキップ」と「実 produce 失敗」を rc で識別する
+   契約の固定)。
+
+fresh ゲート (レビュー反映後):
+
+```
+$ uv run pytest
+572 passed, 2 skipped in 51.44s   # +1: 不正閾値回帰テスト
+
+$ uv run ruff check .
+All checks passed!
+
+$ uv run mypy src tests
+Success: no issues found in 83 source files
+
+$ shellcheck scripts/daily_pipeline.sh
+(出力なし = クリーン)
+
+$ git diff --check
+(出力なし = クリーン)
+```
+
 ## 保守側に倒した判断
 
 - **rc=97 の sentinel 値**: 「実 produce 失敗」と「資源不足によるスキップ」を Discord 通知・ログ・

@@ -150,8 +150,9 @@ def test_irodori_retries_exhausted_raises() -> None:
 
 # ---------- timeout (T33: 参照音声で長文 1 文が >120s になる欠落対策) ----------
 
-def test_irodori_default_timeout_is_300(monkeypatch: pytest.MonkeyPatch) -> None:
-    # 既定 ceiling を 300s に引き上げ (参照音声の遅い 1 文を救う)
+def test_irodori_default_timeout_is_1800(monkeypatch: pytest.MonkeyPatch) -> None:
+    # 既定 ceiling は 1800s (T55/Issue #49: swap 枯渇下の最悪実測 1211s に対する余裕。
+    # daily_pipeline.sh の IRODORI_TIMEOUT 既定と整合)
     # env リークで偽陽性/偽陰性にならないよう IRODORI_TIMEOUT を明示的に外す (テスト分離)
     monkeypatch.delenv("IRODORI_TIMEOUT", raising=False)
     wav = _wav_bytes()
@@ -159,7 +160,7 @@ def test_irodori_default_timeout_is_300(monkeypatch: pytest.MonkeyPatch) -> None
         "karyu_tech_news.tts.irodori.httpx.post", return_value=_mock_resp(wav)
     ) as post:
         IrodoriTTSEngine().synthesize(SynthesisRequest(text="x", voice_id="hal"))
-    assert post.call_args.kwargs["timeout"] == 300.0
+    assert post.call_args.kwargs["timeout"] == 1800.0
 
 
 def test_irodori_env_timeout_override(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -177,14 +178,15 @@ def test_irodori_env_timeout_override(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_irodori_invalid_env_timeout_falls_back(
     monkeypatch: pytest.MonkeyPatch, bad: str
 ) -> None:
-    # 不正な env 値は無人ジョブを落とさず既定にフォールバック (システム境界の入力検証)
+    # 不正な env 値は無人ジョブを落とさず既定にフォールバック (システム境界の入力検証)。
+    # T55 (Issue #49): フォールバック先も 1800 (旧 300 だと不正 env で「回避対象の 300s」が復活する)
     monkeypatch.setenv("IRODORI_TIMEOUT", bad)
     wav = _wav_bytes()
     with patch(
         "karyu_tech_news.tts.irodori.httpx.post", return_value=_mock_resp(wav)
     ) as post:
         IrodoriTTSEngine().synthesize(SynthesisRequest(text="x", voice_id="hal"))
-    assert post.call_args.kwargs["timeout"] == 300.0
+    assert post.call_args.kwargs["timeout"] == 1800.0
 
 
 # ---------- caption / VoiceDesign (T34) ----------

@@ -165,7 +165,8 @@ def test_produce_skipped_when_swap_exceeds_threshold(tmp_path: Path) -> None:
         load_1min="1",
         max_swap_mb="12000",
     )
-    assert result.returncode != 0
+    # rc=97 は「資源不足スキップ」専用 sentinel (実 produce 失敗の rc と区別する外部監視契約)
+    assert result.returncode == 97
     log_text = _log_text(tmp_path)
     assert "karyu_tech_news produce --engine irodori-tts-v3 --post" not in log_text
     assert "資源不足のため produce をスキップ" in log_text
@@ -174,7 +175,7 @@ def test_produce_skipped_when_swap_exceeds_threshold(tmp_path: Path) -> None:
 
 
 def test_produce_skipped_when_load_exceeds_threshold(tmp_path: Path) -> None:
-    """load average 1分値が KARYU_MAX_LOAD を超えると produce (fake uv) は呼ばれず rc 非 0 + 通知ログ."""
+    """load average 1分値が KARYU_MAX_LOAD を超えると produce (fake uv) は呼ばれず rc=97 + 通知ログ."""
     fake_uv = tmp_path / "uv"
     _write_fake_uv(fake_uv, produce_rc=0, publish_rc=0)
     result = _run_daily_pipeline(
@@ -185,7 +186,7 @@ def test_produce_skipped_when_load_exceeds_threshold(tmp_path: Path) -> None:
         load_1min="30",
         max_load="25",
     )
-    assert result.returncode != 0
+    assert result.returncode == 97
     log_text = _log_text(tmp_path)
     assert "karyu_tech_news produce --engine irodori-tts-v3 --post" not in log_text
     assert "資源不足のため produce をスキップ" in log_text
@@ -225,8 +226,32 @@ def test_resource_thresholds_are_env_overridable(tmp_path: Path) -> None:
         load_1min="1",
         max_swap_mb="100",
     )
-    assert result.returncode != 0
+    assert result.returncode == 97
     log_text = _log_text(tmp_path)
     assert "karyu_tech_news produce --engine irodori-tts-v3 --post" not in log_text
     assert "swap=500M" in log_text
     assert "閾値 100M" in log_text
+
+
+def test_invalid_threshold_falls_back_to_default(tmp_path: Path) -> None:
+    """KARYU_MAX_SWAP_MB=abc など不正閾値は既定値へ置換され、チェックは無効化されない.
+
+    Codex レビュー指摘: 非数値の閾値を awk へそのまま渡すと文字列比較になり、
+    swap 超過でも produce が走ってしまう。不正値は WARN ログ + 既定値 (12000M) で判定する。
+    """
+    fake_uv = tmp_path / "uv"
+    _write_fake_uv(fake_uv, produce_rc=0, publish_rc=0)
+    result = _run_daily_pipeline(
+        tmp_path,
+        fake_uv,
+        publish_youtube=None,
+        swap_used_mb="13000",  # 既定閾値 12000M を超過
+        load_1min="1",
+        max_swap_mb="abc",  # 不正値 — 既定 12000 で判定されるべき
+    )
+    assert result.returncode == 97
+    log_text = _log_text(tmp_path)
+    assert "karyu_tech_news produce --engine irodori-tts-v3 --post" not in log_text
+    assert "WARNING: KARYU_MAX_SWAP_MB 不正値 'abc'" in log_text
+    assert "閾値 12000M" in log_text
+    assert "資源不足のため produce をスキップ" in log_text

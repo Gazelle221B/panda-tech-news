@@ -34,8 +34,12 @@ HEALTH_URL="${KARYU_HEALTH_URL:-http://127.0.0.1:8088/health}"
 export IRODORI_TIMEOUT="${IRODORI_TIMEOUT:-1800}"  # T55/Issue #49: 07-13朝の最悪実測1211sに対する余裕 (旧300は503連鎖の一因)
 
 # T55 (Issue #49): produce 前の資源プリフライト閾値。env で上書き可。
-KARYU_MAX_SWAP_MB="${KARYU_MAX_SWAP_MB:-12000}"  # swap 使用量 (MB)。実RAM 16GB機で12〜22GB枯渇を観測
-KARYU_MAX_LOAD="${KARYU_MAX_LOAD:-25}"           # load average 1分値
+# 不正値 (非数値/空/負) は resources_ok() 内で既定値へ置換して WARN する (Codex レビュー指摘:
+# 例えば KARYU_MAX_SWAP_MB=abc は awk の文字列比較でチェックが無効化され produce が走ってしまう)。
+DEFAULT_MAX_SWAP_MB=12000  # swap 使用量 (MB)。実RAM 16GB機で12〜22GB枯渇を観測
+DEFAULT_MAX_LOAD=25        # load average 1分値
+KARYU_MAX_SWAP_MB="${KARYU_MAX_SWAP_MB:-$DEFAULT_MAX_SWAP_MB}"
+KARYU_MAX_LOAD="${KARYU_MAX_LOAD:-$DEFAULT_MAX_LOAD}"
 # T34: 本スクリプトが起動する Irodori サーバは 600M VoiceDesign checkpoint を使う
 # (caption 話法制御を有効化)。既存稼働サーバを health チェックで再利用する場合は、
 # そのサーバが 600M であることが前提 (人間が 500M を停止し 600M を起動済みのこと)。
@@ -51,40 +55,62 @@ log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" | tee -a "$LOG"; }
 
 health_ok() { curl -fsS -o /dev/null --max-time 5 "$HEALTH_URL"; }
 
-# T55 (Issue #49): swap 使用量 (MB) を取得する。KARYU_SWAP_USED_MB が設定されていれば
-# それを使う (契約テストからの注入経路)。未設定なら `sysctl -n vm.swapusage` の
-# "total = ... used = 12345.67M free = ..." を解析する (macOS 専用出力形式)。
-get_swap_used_mb() {
-  if [ -n "${KARYU_SWAP_USED_MB:-}" ]; then
-    echo "$KARYU_SWAP_USED_MB"
-    return 0
-  fi
+# T55 (Issue #49): 有限の非負数 (整数または小数) のみ受理する数値検証。
+# 負数・nan・inf・空・非数値を弾く (Codex レビュー: awk へ非数値を渡すと文字列比較になり
+# 閾値チェックが黙って無効化されるため、比較前に必ず通す)。
+is_nonneg_number() { [[ "$1" =~ ^[0-9]+([.][0-9]+)?$ ]]; }
+
+# T55 (Issue #49): sysctl から swap 使用量 (MB) を解析する。macOS の
+# "total = ... used = 12345.67M free = ..." 形式 (取得失敗時は空文字)。
+get_swap_used_mb_sysctl() {
   sysctl -n vm.swapusage 2>/dev/null | sed -n 's/.*used = \([0-9.]*\)M.*/\1/p'
 }
 
-# T55 (Issue #49): load average (1分値) を取得する。KARYU_LOAD_1MIN が設定されていれば
-# それを使う (契約テストからの注入経路)。未設定なら `sysctl -n vm.loadavg` の
-# "{ 1.23 2.34 3.45 }" 先頭値 (1分) を解析する。
-get_load_1min() {
-  if [ -n "${KARYU_LOAD_1MIN:-}" ]; then
-    echo "$KARYU_LOAD_1MIN"
-    return 0
-  fi
+# T55 (Issue #49): sysctl から load average 1分値を解析する。macOS の
+# "{ 1.23 2.34 3.45 }" 先頭値 (取得失敗時は空文字)。
+get_load_1min_sysctl() {
   sysctl -n vm.loadavg 2>/dev/null | awk '{print $2}'
 }
 
 # T55 (Issue #49): produce 前の資源プリフライトチェック。swap 使用量が KARYU_MAX_SWAP_MB
 # を超える、または load average 1分値が KARYU_MAX_LOAD を超える場合に false (1) を返す。
-# 値取得に失敗した場合 (sysctl 非対応環境など) は fail-open で true (0) を返す。
+# 資源値は KARYU_SWAP_USED_MB / KARYU_LOAD_1MIN の注入 (契約テスト経路) を優先し、
+# 未設定・不正値なら sysctl 実測へフォールバック。最終的に数値を得られない場合
+# (sysctl 非対応環境など) は fail-open で true (0) を返す。
 # RESOURCE_SWAP_USED_MB / RESOURCE_LOAD_1MIN に取得値を残し、呼び出し側の通知文言に使う。
 RESOURCE_SWAP_USED_MB=""
 RESOURCE_LOAD_1MIN=""
 resources_ok() {
-  local swap_used load1 swap_exceeded load_exceeded
-  swap_used="$(get_swap_used_mb)"
-  load1="$(get_load_1min)"
+  local swap_used load1 max_swap max_load swap_exceeded load_exceeded
 
-  if [ -z "$swap_used" ] || [ -z "$load1" ]; then
+  # 閾値の検証: 不正値は安全側 = 既定値へ置換 (チェックの黙殺を防ぐ)
+  max_swap="$KARYU_MAX_SWAP_MB"
+  if ! is_nonneg_number "$max_swap"; then
+    log "WARNING: KARYU_MAX_SWAP_MB 不正値 '${max_swap}' — 既定 ${DEFAULT_MAX_SWAP_MB} で判定"
+    max_swap="$DEFAULT_MAX_SWAP_MB"
+  fi
+  max_load="$KARYU_MAX_LOAD"
+  if ! is_nonneg_number "$max_load"; then
+    log "WARNING: KARYU_MAX_LOAD 不正値 '${max_load}' — 既定 ${DEFAULT_MAX_LOAD} で判定"
+    max_load="$DEFAULT_MAX_LOAD"
+  fi
+
+  # 資源値の検証: 注入値が不正なら sysctl 実測へフォールバック (= 既定の取得経路)
+  swap_used="${KARYU_SWAP_USED_MB:-}"
+  if [ -n "$swap_used" ] && ! is_nonneg_number "$swap_used"; then
+    log "WARNING: KARYU_SWAP_USED_MB 不正値 '${swap_used}' — sysctl 実測へフォールバック"
+    swap_used=""
+  fi
+  [ -z "$swap_used" ] && swap_used="$(get_swap_used_mb_sysctl)"
+
+  load1="${KARYU_LOAD_1MIN:-}"
+  if [ -n "$load1" ] && ! is_nonneg_number "$load1"; then
+    log "WARNING: KARYU_LOAD_1MIN 不正値 '${load1}' — sysctl 実測へフォールバック"
+    load1=""
+  fi
+  [ -z "$load1" ] && load1="$(get_load_1min_sysctl)"
+
+  if ! is_nonneg_number "$swap_used" || ! is_nonneg_number "$load1"; then
     log "WARNING: 資源チェック値を取得できず (swap=${swap_used:-N/A}, load=${load1:-N/A}) — fail-open で続行"
     return 0
   fi
@@ -92,11 +118,11 @@ resources_ok() {
   RESOURCE_SWAP_USED_MB="$swap_used"
   RESOURCE_LOAD_1MIN="$load1"
 
-  swap_exceeded="$(awk -v v="$swap_used" -v max="$KARYU_MAX_SWAP_MB" 'BEGIN { print (v > max) ? 1 : 0 }')"
-  load_exceeded="$(awk -v v="$load1" -v max="$KARYU_MAX_LOAD" 'BEGIN { print (v > max) ? 1 : 0 }')"
+  swap_exceeded="$(awk -v v="$swap_used" -v max="$max_swap" 'BEGIN { print (v + 0 > max + 0) ? 1 : 0 }')"
+  load_exceeded="$(awk -v v="$load1" -v max="$max_load" 'BEGIN { print (v + 0 > max + 0) ? 1 : 0 }')"
 
   if [ "$swap_exceeded" = "1" ] || [ "$load_exceeded" = "1" ]; then
-    log "資源不足のため produce をスキップ (swap=${swap_used}M [閾値 ${KARYU_MAX_SWAP_MB}M] / load=${load1} [閾値 ${KARYU_MAX_LOAD}])"
+    log "資源不足のため produce をスキップ (swap=${swap_used}M [閾値 ${max_swap}M] / load=${load1} [閾値 ${max_load}])"
     return 1
   fi
 
