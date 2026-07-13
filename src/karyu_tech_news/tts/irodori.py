@@ -37,7 +37,10 @@ IRODORI_MAX_CHARS = 2000  # サーバ側も自動チャンクするが、T28 で
 # 参照音声(ゼロショット声クローン)は話者 latent を毎リクエスト抽出するため、長文 1 文でも
 # >120s かかりうる (T33 実測: 1 文が 120s×3 リトライ全 ReadTimeout で欠落)。retry は同一の遅い
 # リクエストを再送するだけで遅延は救えないため、ceiling 自体を上げる。env IRODORI_TIMEOUT で上書き可。
-TIMEOUT_SECONDS = 300.0  # TTS 合成は LLM より遅い (要件 §3.3 タイムアウト必須)
+# T55 (Issue #49): swap 枯渇下で 1 文の合成が最大 1211s まで劣化した実測 (07-13 朝) を受け、
+# 既定を 300 → 1800 へ引き上げ (daily_pipeline.sh の既定と整合。client timeout < server 計算時間
+# の組が成立すると 503 連鎖 → fail-fast になるため)。
+TIMEOUT_SECONDS = 1800.0  # TTS 合成は LLM より遅い (要件 §3.3 タイムアウト必須)
 MAX_RETRIES = 2  # 一過性の 5xx/接続断を想定 (FR-013 / llm・fetcher と同値)
 
 logger = logging.getLogger(__name__)
