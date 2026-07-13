@@ -12,6 +12,10 @@
 #   - Irodori サーバ (ローカル) は produce に必須。未起動なら起動し health を待ち、本ジョブが
 #     起動した場合のみ終了時に停止する (外部起動分は残す)。
 #   - launchd は最小環境で動くため PATH / cwd / 必要 env をすべて明示する。
+#   - T55 (Issue #49): swap 枯渇下では TTS 合成が最大 10 倍劣化し、client timeout → 503 連鎖 →
+#     fail-fast する事象を実運用で観測した。produce 直前に軽量な資源チェック (swap/load) を行い、
+#     閾値超過時は produce を実行せずスキップする ("資源不足なら最初から挑まない")。
+#     collect / draft は軽量なため対象外 (常に実行)。
 set -uo pipefail
 
 # launchd の最小 PATH を先に補う (以降の command -v が解決できるように)。
@@ -27,7 +31,11 @@ UV="${KARYU_UV:-$(command -v uv || echo "${HOME}/.local/bin/uv")}"
 # サーバは localhost のみにバインドし LAN 露出を避ける (Copilot 指摘)。health も同 host。
 HEALTH_URL="${KARYU_HEALTH_URL:-http://127.0.0.1:8088/health}"
 
-export IRODORI_TIMEOUT="${IRODORI_TIMEOUT:-300}"  # 参照音声の遅い 1 文を救う (irodori.py 既定と同値)
+export IRODORI_TIMEOUT="${IRODORI_TIMEOUT:-1800}"  # T55/Issue #49: 07-13朝の最悪実測1211sに対する余裕 (旧300は503連鎖の一因)
+
+# T55 (Issue #49): produce 前の資源プリフライト閾値。env で上書き可。
+KARYU_MAX_SWAP_MB="${KARYU_MAX_SWAP_MB:-12000}"  # swap 使用量 (MB)。実RAM 16GB機で12〜22GB枯渇を観測
+KARYU_MAX_LOAD="${KARYU_MAX_LOAD:-25}"           # load average 1分値
 # T34: 本スクリプトが起動する Irodori サーバは 600M VoiceDesign checkpoint を使う
 # (caption 話法制御を有効化)。既存稼働サーバを health チェックで再利用する場合は、
 # そのサーバが 600M であることが前提 (人間が 500M を停止し 600M を起動済みのこと)。
@@ -42,6 +50,59 @@ PIDFILE="${LOG_DIR}/.irodori.pid"
 log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" | tee -a "$LOG"; }
 
 health_ok() { curl -fsS -o /dev/null --max-time 5 "$HEALTH_URL"; }
+
+# T55 (Issue #49): swap 使用量 (MB) を取得する。KARYU_SWAP_USED_MB が設定されていれば
+# それを使う (契約テストからの注入経路)。未設定なら `sysctl -n vm.swapusage` の
+# "total = ... used = 12345.67M free = ..." を解析する (macOS 専用出力形式)。
+get_swap_used_mb() {
+  if [ -n "${KARYU_SWAP_USED_MB:-}" ]; then
+    echo "$KARYU_SWAP_USED_MB"
+    return 0
+  fi
+  sysctl -n vm.swapusage 2>/dev/null | sed -n 's/.*used = \([0-9.]*\)M.*/\1/p'
+}
+
+# T55 (Issue #49): load average (1分値) を取得する。KARYU_LOAD_1MIN が設定されていれば
+# それを使う (契約テストからの注入経路)。未設定なら `sysctl -n vm.loadavg` の
+# "{ 1.23 2.34 3.45 }" 先頭値 (1分) を解析する。
+get_load_1min() {
+  if [ -n "${KARYU_LOAD_1MIN:-}" ]; then
+    echo "$KARYU_LOAD_1MIN"
+    return 0
+  fi
+  sysctl -n vm.loadavg 2>/dev/null | awk '{print $2}'
+}
+
+# T55 (Issue #49): produce 前の資源プリフライトチェック。swap 使用量が KARYU_MAX_SWAP_MB
+# を超える、または load average 1分値が KARYU_MAX_LOAD を超える場合に false (1) を返す。
+# 値取得に失敗した場合 (sysctl 非対応環境など) は fail-open で true (0) を返す。
+# RESOURCE_SWAP_USED_MB / RESOURCE_LOAD_1MIN に取得値を残し、呼び出し側の通知文言に使う。
+RESOURCE_SWAP_USED_MB=""
+RESOURCE_LOAD_1MIN=""
+resources_ok() {
+  local swap_used load1 swap_exceeded load_exceeded
+  swap_used="$(get_swap_used_mb)"
+  load1="$(get_load_1min)"
+
+  if [ -z "$swap_used" ] || [ -z "$load1" ]; then
+    log "WARNING: 資源チェック値を取得できず (swap=${swap_used:-N/A}, load=${load1:-N/A}) — fail-open で続行"
+    return 0
+  fi
+
+  RESOURCE_SWAP_USED_MB="$swap_used"
+  RESOURCE_LOAD_1MIN="$load1"
+
+  swap_exceeded="$(awk -v v="$swap_used" -v max="$KARYU_MAX_SWAP_MB" 'BEGIN { print (v > max) ? 1 : 0 }')"
+  load_exceeded="$(awk -v v="$load1" -v max="$KARYU_MAX_LOAD" 'BEGIN { print (v > max) ? 1 : 0 }')"
+
+  if [ "$swap_exceeded" = "1" ] || [ "$load_exceeded" = "1" ]; then
+    log "資源不足のため produce をスキップ (swap=${swap_used}M [閾値 ${KARYU_MAX_SWAP_MB}M] / load=${load1} [閾値 ${KARYU_MAX_LOAD}])"
+    return 1
+  fi
+
+  log "資源チェック OK (swap=${swap_used}M, load=${load1})"
+  return 0
+}
 
 cd "$PROJECT_DIR" || { echo "FATAL: cd $PROJECT_DIR 失敗" >&2; exit 1; }
 
@@ -158,11 +219,22 @@ backup_state_db
 
 run_step "collect" "$UV" run python -m karyu_tech_news collect --post
 run_step "draft"   "$UV" run python -m karyu_tech_news draft --variant A --post
-run_step "produce" "$UV" run python -m karyu_tech_news produce --engine irodori-tts-v3 --post
-PRODUCE_RC=$?
+
+# T55 (Issue #49): produce 前の資源プリフライト。閾値超過なら produce を実行せずスキップする
+# (音声ゼロを success 扱いしない既存方針を維持: rc は非 0 で終了する)。
+if resources_ok; then
+  run_step "produce" "$UV" run python -m karyu_tech_news produce --engine irodori-tts-v3 --post
+  PRODUCE_RC=$?
+else
+  PRODUCE_RC=97  # 資源不足スキップの専用 rc (実 produce 失敗と区別するための sentinel)
+fi
 FINAL_RC=0
 if [ "$PRODUCE_RC" -ne 0 ]; then
-  notify_failure "produce" "$PRODUCE_RC" "$LOG"
+  if [ "$PRODUCE_RC" -eq 97 ]; then
+    notify_failure "資源不足のため produce をスキップ (swap=${RESOURCE_SWAP_USED_MB}M, load=${RESOURCE_LOAD_1MIN})" "$PRODUCE_RC" "$LOG"
+  else
+    notify_failure "produce" "$PRODUCE_RC" "$LOG"
+  fi
   FINAL_RC="$PRODUCE_RC"
 fi
 

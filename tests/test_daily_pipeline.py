@@ -47,7 +47,14 @@ esac
 
 
 def _run_daily_pipeline(
-    tmp_path: Path, fake_uv: Path, *, publish_youtube: str | None
+    tmp_path: Path,
+    fake_uv: Path,
+    *,
+    publish_youtube: str | None,
+    swap_used_mb: str | None = None,
+    load_1min: str | None = None,
+    max_swap_mb: str | None = None,
+    max_load: str | None = None,
 ) -> subprocess.CompletedProcess[str]:
     health = tmp_path / "health.txt"
     health.write_text("ok", encoding="utf-8")
@@ -64,6 +71,19 @@ def _run_daily_pipeline(
         env.pop("PUBLISH_YOUTUBE", None)
     else:
         env["PUBLISH_YOUTUBE"] = publish_youtube
+    # T55 (Issue #49): 資源チェック値の注入経路。未指定ならスクリプトが実 sysctl から取得する
+    # (このマシンの実測が閾値内であることを前提にした既存テストを壊さないため、資源チェックを
+    # 明示的に検証するテストのみ指定する)。
+    for key, value in (
+        ("KARYU_SWAP_USED_MB", swap_used_mb),
+        ("KARYU_LOAD_1MIN", load_1min),
+        ("KARYU_MAX_SWAP_MB", max_swap_mb),
+        ("KARYU_MAX_LOAD", max_load),
+    ):
+        if value is None:
+            env.pop(key, None)
+        else:
+            env[key] = value
     return subprocess.run(
         ["bash", str(_ROOT / "scripts/daily_pipeline.sh")],
         cwd=_ROOT,
@@ -81,11 +101,20 @@ def _log_text(tmp_path: Path) -> str:
     return logs[-1].read_text(encoding="utf-8")
 
 
+# T55 (Issue #49): 既存 (publish 系) テストは produce の実行そのものを前提にしているため、
+# ホストマシンの実際の swap/load に関わらず必ず資源チェックを通過するよう安全な値を明示注入する
+# (このリポジトリの実測 swap は既定閾値 12000M に近い/超えることがあり、注入なしだと
+# ホスト状態次第でテストが不安定になる)。
+_SAFE_RESOURCE_KWARGS = {"swap_used_mb": "500", "load_1min": "1"}
+
+
 def test_publish_not_called_when_opt_out_by_default(tmp_path: Path) -> None:
     """PUBLISH_YOUTUBE 未設定 (既定) では publish 段が呼ばれない."""
     fake_uv = tmp_path / "uv"
     _write_fake_uv(fake_uv, produce_rc=0, publish_rc=0)
-    result = _run_daily_pipeline(tmp_path, fake_uv, publish_youtube=None)
+    result = _run_daily_pipeline(
+        tmp_path, fake_uv, publish_youtube=None, **_SAFE_RESOURCE_KWARGS
+    )
     assert result.returncode == 0
     log_text = _log_text(tmp_path)
     assert "karyu_tech_news publish --post" not in log_text
@@ -95,7 +124,9 @@ def test_publish_skipped_when_produce_fails(tmp_path: Path) -> None:
     """PUBLISH_YOUTUBE=1 でも produce が非 0 なら publish は実行されず、rc は produce のもの."""
     fake_uv = tmp_path / "uv"
     _write_fake_uv(fake_uv, produce_rc=5, publish_rc=1)
-    result = _run_daily_pipeline(tmp_path, fake_uv, publish_youtube="1")
+    result = _run_daily_pipeline(
+        tmp_path, fake_uv, publish_youtube="1", **_SAFE_RESOURCE_KWARGS
+    )
     assert result.returncode == 5
     log_text = _log_text(tmp_path)
     assert "karyu_tech_news publish --post" not in log_text
@@ -106,7 +137,9 @@ def test_publish_failure_propagates_return_code(tmp_path: Path) -> None:
     """PUBLISH_YOUTUBE=1 で publish が非 0 なら全体 rc へ伝播する."""
     fake_uv = tmp_path / "uv"
     _write_fake_uv(fake_uv, produce_rc=0, publish_rc=9)
-    result = _run_daily_pipeline(tmp_path, fake_uv, publish_youtube="1")
+    result = _run_daily_pipeline(
+        tmp_path, fake_uv, publish_youtube="1", **_SAFE_RESOURCE_KWARGS
+    )
     assert result.returncode == 9
     log_text = _log_text(tmp_path)
     assert "karyu_tech_news publish --post" in log_text
@@ -115,3 +148,85 @@ def test_publish_failure_propagates_return_code(tmp_path: Path) -> None:
     # notify_failure() の成功ログが label を正しく反映していること (T50, Issue #42:
     # 以前は label を無視した "produce 失敗通知" 固定文言だった)。
     assert "publish 失敗通知: 処理完了" in log_text
+
+
+# --- T55 (Issue #49): 資源プリフライトチェックの契約テスト ---
+
+
+def test_produce_skipped_when_swap_exceeds_threshold(tmp_path: Path) -> None:
+    """swap 使用量が KARYU_MAX_SWAP_MB を超えると produce (fake uv) は呼ばれず rc 非 0 + 通知ログ."""
+    fake_uv = tmp_path / "uv"
+    _write_fake_uv(fake_uv, produce_rc=0, publish_rc=0)
+    result = _run_daily_pipeline(
+        tmp_path,
+        fake_uv,
+        publish_youtube=None,
+        swap_used_mb="13000",
+        load_1min="1",
+        max_swap_mb="12000",
+    )
+    assert result.returncode != 0
+    log_text = _log_text(tmp_path)
+    assert "karyu_tech_news produce --engine irodori-tts-v3 --post" not in log_text
+    assert "資源不足のため produce をスキップ" in log_text
+    assert "swap=13000M" in log_text
+    assert "Discord failure alert: sent" in log_text
+
+
+def test_produce_skipped_when_load_exceeds_threshold(tmp_path: Path) -> None:
+    """load average 1分値が KARYU_MAX_LOAD を超えると produce (fake uv) は呼ばれず rc 非 0 + 通知ログ."""
+    fake_uv = tmp_path / "uv"
+    _write_fake_uv(fake_uv, produce_rc=0, publish_rc=0)
+    result = _run_daily_pipeline(
+        tmp_path,
+        fake_uv,
+        publish_youtube=None,
+        swap_used_mb="500",
+        load_1min="30",
+        max_load="25",
+    )
+    assert result.returncode != 0
+    log_text = _log_text(tmp_path)
+    assert "karyu_tech_news produce --engine irodori-tts-v3 --post" not in log_text
+    assert "資源不足のため produce をスキップ" in log_text
+    assert "load=30" in log_text
+    assert "Discord failure alert: sent" in log_text
+
+
+def test_produce_runs_when_resources_within_threshold(tmp_path: Path) -> None:
+    """swap/load とも閾値内なら produce (fake uv) が呼ばれ rc 0 で完走する."""
+    fake_uv = tmp_path / "uv"
+    _write_fake_uv(fake_uv, produce_rc=0, publish_rc=0)
+    result = _run_daily_pipeline(
+        tmp_path,
+        fake_uv,
+        publish_youtube=None,
+        swap_used_mb="500",
+        load_1min="1",
+        max_swap_mb="12000",
+        max_load="25",
+    )
+    assert result.returncode == 0
+    log_text = _log_text(tmp_path)
+    assert "karyu_tech_news produce --engine irodori-tts-v3 --post" in log_text
+    assert "資源チェック OK" in log_text
+
+
+def test_resource_thresholds_are_env_overridable(tmp_path: Path) -> None:
+    """KARYU_MAX_SWAP_MB / KARYU_MAX_LOAD の env 上書きが効く (既定閾値内でも上書き値で判定される)."""
+    fake_uv = tmp_path / "uv"
+    _write_fake_uv(fake_uv, produce_rc=0, publish_rc=0)
+    # 既定閾値 (12000M) 内の swap でも、上書きした低い閾値 (100M) を超えていればスキップされる。
+    result = _run_daily_pipeline(
+        tmp_path,
+        fake_uv,
+        publish_youtube=None,
+        swap_used_mb="500",
+        load_1min="1",
+        max_swap_mb="100",
+    )
+    assert result.returncode != 0
+    log_text = _log_text(tmp_path)
+    assert "karyu_tech_news produce --engine irodori-tts-v3 --post" not in log_text
+    assert "swap=500M" in log_text
+    assert "閾値 100M" in log_text

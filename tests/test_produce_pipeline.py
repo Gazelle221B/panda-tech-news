@@ -878,6 +878,11 @@ esac
             "KARYU_UV": str(fake_uv),
             "KARYU_HEALTH_URL": health.as_uri(),
             "KARYU_IRODORI_DIR": str(tmp_path),
+            # T55 (Issue #49): このテストは produce (fake uv) が実際に呼ばれることを前提と
+            # するため、ホストマシンの実 swap/load に関わらず資源チェックを通過する安全な値を
+            # 明示注入する (資源プリフライトそのものの契約テストは test_daily_pipeline.py 側)。
+            "KARYU_SWAP_USED_MB": "500",
+            "KARYU_LOAD_1MIN": "1",
         }
     )
     result = subprocess.run(
