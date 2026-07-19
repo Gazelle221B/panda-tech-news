@@ -1,0 +1,5 @@
+# 改行コードの正規化。リポジトリ内は常に LF でコミットする。
+# bash スクリプトは CRLF だと `$'\r': command not found` で実行不能になるため、
+# Windows チェックアウト (core.autocrlf=true) でも必ず LF を維持する。
+* text=auto
+*.sh text eol=lf

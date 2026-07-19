@@ -8,6 +8,7 @@ import io
 import os
 import shutil
 import subprocess
+import sys
 import wave
 from datetime import UTC, datetime
 from pathlib import Path
@@ -848,8 +849,10 @@ def test_strip_markdown_structure_drops_headers_and_meta() -> None:
 
 
 @pytest.mark.skipif(
-    shutil.which("bash") is None or shutil.which("curl") is None,
-    reason="daily_pipeline smoke requires bash and curl",
+    # Windows では CreateProcess の探索順により "bash" が WSL bash に解決され、
+    # Windows パスを解釈できない (詳細は test_daily_pipeline.py の pytestmark 参照)。
+    sys.platform == "win32" or shutil.which("bash") is None or shutil.which("curl") is None,
+    reason="daily_pipeline smoke requires POSIX bash and curl",
 )
 def test_daily_pipeline_returns_nonzero_when_produce_fails_after_alert(tmp_path: Path) -> None:
     fake_uv = tmp_path / "uv"

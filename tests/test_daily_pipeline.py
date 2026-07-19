@@ -11,13 +11,18 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
 
+# Windows では CreateProcess が PATH より先に System32 を探すため、subprocess の
+# "bash" は常に WSL bash (System32\bash.exe) に解決される。WSL bash は Windows パス
+# (スクリプト絶対パス・fake uv スタブ・KARYU_* env) を解釈できず rc=127 になるため、
+# この smoke は POSIX 環境 (macOS / Linux / WSL 内実行) 専用とする。
 pytestmark = pytest.mark.skipif(
-    shutil.which("bash") is None or shutil.which("curl") is None,
-    reason="daily_pipeline smoke requires bash and curl",
+    sys.platform == "win32" or shutil.which("bash") is None or shutil.which("curl") is None,
+    reason="daily_pipeline smoke requires POSIX bash and curl",
 )
 
 _ROOT = Path(__file__).resolve().parents[1]

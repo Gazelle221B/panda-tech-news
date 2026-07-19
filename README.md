@@ -78,6 +78,11 @@ uv run python -m karyu_tech_news evaluate          # A/B/C 検証の定量サマ
 uv run pytest                                      # テスト
 ```
 
+#### Windows での開発
+
+- 改行コードは `.gitattributes` で LF 固定 (bash スクリプトが CRLF だと実行不能)。`core.autocrlf=true` の既存チェックアウトで CRLF になっている場合は `git rm -q --cached -r . && git reset --hard` で再チェックアウトする。
+- `scripts/daily_pipeline.sh` の契約テスト (smoke) は Windows ネイティブでは skip される (System32 の WSL bash が優先解決されるため)。実行したい場合は WSL / macOS / CI 上で走らせる。
+
 ### CLI 進捗
 
 | コマンド | 状態 |
