@@ -66,7 +66,9 @@ class SynthesisResult(BaseModel):
 
     個別エンジンの `synthesize()` は 1 合成単位として既定値 (1/1/0) を返す。
     `synthesize_script()` は文単位の集約結果として counters をエピソード全体の
-    attempted/synthesized/skipped 文数へ上書きする。
+    attempted/synthesized/skipped 文数へ上書きする。asr_retried/asr_failed も同様に
+    `synthesize_script()` が ASR 品質ゲート (T58, `tts/asr_gate.py`) 適用時のみ集計する
+    (個別エンジンは常に既定値 0 のまま)。
     """
 
     audio: bytes
@@ -75,6 +77,8 @@ class SynthesisResult(BaseModel):
     attempted_sentences: int = 1
     synthesized_sentences: int = 1
     skipped_sentences: int = 0
+    asr_retried_sentences: int = 0  # ASR 不一致でリトライし ok になった文数 (T58)
+    asr_failed_sentences: int = 0  # ASR 不一致がリトライ上限まで解消せず skip した文数 (T58)
 
 
 @runtime_checkable

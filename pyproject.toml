@@ -29,6 +29,11 @@ tts = [
     # 気付かず passthrough へ縮退する (Codex T48 レビュー指摘、実 3.13 環境で再現)。
     "audioop-lts>=0.2.1; python_version >= '3.13'",
 ]
+# ASR 品質ゲート (T58, Issue #54) 用。produce のコア経路は使わないため tts extra とは
+# 分離し、CI の既定 (dev group) には入れない。`uv sync --extra qa-asr` で導入。
+qa-asr = [
+    "openai-whisper>=20250625",
+]
 
 [dependency-groups]
 dev = [
@@ -74,6 +79,11 @@ ignore_missing_imports = true
 # pydub は型スタブ無し (optional extra `tts`, T29 BGM ミックスで遅延 import)。
 [[tool.mypy.overrides]]
 module = "pydub"
+ignore_missing_imports = true
+
+# openai-whisper は型スタブ無し・optional 依存 (extra `qa-asr`, T58 ASR 品質ゲートで遅延 import)。
+[[tool.mypy.overrides]]
+module = "whisper"
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

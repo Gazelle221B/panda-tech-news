@@ -8,10 +8,12 @@ from __future__ import annotations
 import io
 import wave
 from datetime import UTC, datetime
+from unittest.mock import patch
 
 import pytest
 
 from karyu_tech_news.script.structure import Segment, StructuredScript
+from karyu_tech_news.tts.asr_gate import AsrUnavailableError
 from karyu_tech_news.tts.engine import (
     Capabilities,
     MockTTSEngine,
@@ -521,3 +523,119 @@ def test_synthesize_strips_links_and_keeps_pronunciation_before_synth() -> None:
     assert "](" not in joined
     assert "灵晟" not in joined
     assert "リンション" in joined
+
+
+# ---------- ASR 品質ゲート統合 (T58, Issue #54). whisper 実体は使わず fake backend を注入 ----------
+
+
+class _ScriptedAsrBackend:
+    """呼び出し順に固定の書き起こしを返す fake ASR backend (whisper 実体は使わない)."""
+
+    def __init__(self, transcripts: list[str]) -> None:
+        self._transcripts = list(transcripts)
+        self.calls = 0
+
+    def transcribe(self, wav_bytes: bytes) -> str:
+        transcript = self._transcripts[self.calls]
+        self.calls += 1
+        return transcript
+
+
+class _AlwaysMismatchAsrBackend:
+    """常に無関係な書き起こしを返す fake (リトライ上限まで解消しないケースの再現用)."""
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def transcribe(self, wav_bytes: bytes) -> str:
+        self.calls += 1
+        return "ぜんぜん関係のない内容です"
+
+
+def test_synthesize_script_skips_asr_when_backend_not_given() -> None:
+    # asr_backend 未指定なら ASR 経路 (verify_sentence) を一切呼ばない (後方互換の固定)
+    with patch("karyu_tech_news.tts.synthesize.verify_sentence") as verify_mock:
+        res = synthesize_script(_script(("普通の文。", "neutral")), MockTTSEngine(), {})
+    verify_mock.assert_not_called()
+    assert res.asr_retried_sentences == 0
+    assert res.asr_failed_sentences == 0
+
+
+def test_synthesize_script_asr_all_ok_matches_baseline() -> None:
+    # 全文 ASR ok なら従来 (asr_backend なし) と音声・カウンタが一致する
+    backend = _ScriptedAsrBackend(["一文目", "二文目"])
+    res = synthesize_script(
+        _script(("一文目。二文目。", "neutral")), MockTTSEngine(), {}, asr_backend=backend
+    )
+    baseline = synthesize_script(_script(("一文目。二文目。", "neutral")), MockTTSEngine(), {})
+    assert res.audio == baseline.audio
+    assert res.asr_retried_sentences == 0
+    assert res.asr_failed_sentences == 0
+    assert res.skipped_sentences == 0
+    assert backend.calls == 2
+
+
+def test_synthesize_script_asr_retries_insertion_until_ok() -> None:
+    # 1文目は初回で ok、2文目は幻話疑い (insertion) → 再合成で ok になり回復する
+    backend = _ScriptedAsrBackend(
+        [
+            "一文目",  # 1文目: 初回で ok
+            "本当にすみませんが対応を進めます",  # 2文目 初回: 文末幻話疑い (insertion)
+            "対応を進めます",  # 2文目 リトライ: ok
+        ]
+    )
+    res = synthesize_script(
+        _script(("一文目。対応を進めます。", "neutral")),
+        MockTTSEngine(),
+        {},
+        asr_backend=backend,
+    )
+    assert res.asr_retried_sentences == 1
+    assert res.asr_failed_sentences == 0
+    assert res.skipped_sentences == 0
+    assert res.attempted_sentences == 2
+    assert res.synthesized_sentences == 2
+    assert backend.calls == 3
+    assert _nframes(res.audio) > 0
+
+
+def test_synthesize_script_asr_exhausts_retries_and_skips() -> None:
+    # リトライ上限 (既定 asr_max_retries=2) まで解消しなければ従来の fail-open で skip する
+    backend = _AlwaysMismatchAsrBackend()
+    res = synthesize_script(
+        _script(("失敗する文。", "neutral")), MockTTSEngine(), {}, asr_backend=backend
+    )
+    assert res.asr_retried_sentences == 0
+    assert res.asr_failed_sentences == 1
+    assert res.skipped_sentences == 1
+    assert res.attempted_sentences == 1
+    assert res.synthesized_sentences == 0
+    assert backend.calls == 3  # 初回 + リトライ 2 回 (既定 asr_max_retries=2)
+    assert _nframes(res.audio) == 0  # 唯一の文が skip されたので結合音声は無音
+
+
+def test_synthesize_script_asr_respects_custom_max_retries() -> None:
+    backend = _AlwaysMismatchAsrBackend()
+    synthesize_script(
+        _script(("失敗する文。", "neutral")),
+        MockTTSEngine(),
+        {},
+        asr_backend=backend,
+        asr_max_retries=0,
+    )
+    assert backend.calls == 1  # 初回のみ、リトライなし
+
+
+def test_synthesize_script_propagates_asr_unavailable_error() -> None:
+    # ASR バックエンド未導入等は synthesize 内で握りつぶさず呼び出し元へ伝播させる (fail-fast)
+    class _BrokenAsrBackend:
+        def transcribe(self, wav_bytes: bytes) -> str:
+            raise AsrUnavailableError("openai-whisper 未導入")
+
+    with pytest.raises(AsrUnavailableError):
+        synthesize_script(
+            _script(("文。", "neutral")),
+            MockTTSEngine(),
+            {},
+            asr_backend=_BrokenAsrBackend(),
+        )

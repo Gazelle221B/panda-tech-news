@@ -770,6 +770,194 @@ def test_produce_uses_config_primary_engine(tmp_path: Path) -> None:
     assert "engine=mock" in result.output  # config(tts.primary_engine) 由来で mock が選ばれた
 
 
+# ---------- T58 ASR 品質ゲート (Issue #54): persona 設定の薄い契約テスト ----------
+# WhisperAsrBackend は main.py の produce 内で `karyu_tech_news.tts.asr_gate` から
+# import される。構築有無だけを検証するため patch し、実 whisper は使わない。
+
+
+def test_produce_asr_gate_disabled_by_default_skips_backend(tmp_path: Path) -> None:
+    from karyu_tech_news.tts.engine import Capabilities, SynthesisRequest, SynthesisResult, Voice
+
+    db = tmp_path / "state.db"
+    _seed_draft(db)
+    persona = tmp_path / "persona.yaml"
+    persona.write_text("tts:\n  primary_engine: mock\n", encoding="utf-8")  # asr_gate 未設定
+
+    class _ZeroFrameEngine:
+        def name(self) -> str:
+            return "zero"
+
+        def voices(self) -> list[Voice]:
+            return [Voice(id="hal", name="HAL")]
+
+        def capabilities(self) -> Capabilities:
+            return Capabilities(emoji_style=False, voice_clone=False, streaming=False, max_chars=100)
+
+        def synthesize(self, req: SynthesisRequest) -> SynthesisResult:
+            return SynthesisResult(audio=_wav_bytes(0), sample_rate=48000)
+
+    out_dir = tmp_path / "episodes"
+    with (
+        patch("karyu_tech_news.tts.engine.select_engine", return_value=_ZeroFrameEngine()),
+        patch("karyu_tech_news.tts.asr_gate.WhisperAsrBackend") as backend_cls,
+    ):
+        result = runner.invoke(
+            app,
+            [
+                "produce",
+                "--engine", "zero",
+                "--db-path", str(db),
+                "--persona", str(persona),
+                "--bgm-dir", str(tmp_path / "nobgm"),
+                "--out-dir", str(out_dir),
+            ],
+        )
+    assert result.exit_code == 1  # zero-frame 合成自体は従来どおり fail
+    assert backend_cls.call_count == 0  # asr_gate 未設定なら backend を構築しない
+
+
+def test_produce_asr_gate_false_skips_backend(tmp_path: Path) -> None:
+    from karyu_tech_news.tts.engine import Capabilities, SynthesisRequest, SynthesisResult, Voice
+
+    db = tmp_path / "state.db"
+    _seed_draft(db)
+    persona = tmp_path / "persona.yaml"
+    persona.write_text("tts:\n  primary_engine: mock\n  asr_gate: false\n", encoding="utf-8")
+
+    class _ZeroFrameEngine:
+        def name(self) -> str:
+            return "zero"
+
+        def voices(self) -> list[Voice]:
+            return [Voice(id="hal", name="HAL")]
+
+        def capabilities(self) -> Capabilities:
+            return Capabilities(emoji_style=False, voice_clone=False, streaming=False, max_chars=100)
+
+        def synthesize(self, req: SynthesisRequest) -> SynthesisResult:
+            return SynthesisResult(audio=_wav_bytes(0), sample_rate=48000)
+
+    out_dir = tmp_path / "episodes"
+    with (
+        patch("karyu_tech_news.tts.engine.select_engine", return_value=_ZeroFrameEngine()),
+        patch("karyu_tech_news.tts.asr_gate.WhisperAsrBackend") as backend_cls,
+    ):
+        result = runner.invoke(
+            app,
+            [
+                "produce",
+                "--engine", "zero",
+                "--db-path", str(db),
+                "--persona", str(persona),
+                "--bgm-dir", str(tmp_path / "nobgm"),
+                "--out-dir", str(out_dir),
+            ],
+        )
+    assert result.exit_code == 1
+    assert backend_cls.call_count == 0  # 明示的 false でも構築しない
+
+
+def test_produce_asr_gate_enabled_constructs_backend(tmp_path: Path) -> None:
+    from karyu_tech_news.tts.engine import Capabilities, SynthesisRequest, SynthesisResult, Voice
+
+    db = tmp_path / "state.db"
+    _seed_draft(db)
+    persona = tmp_path / "persona.yaml"
+    persona.write_text("tts:\n  primary_engine: mock\n  asr_gate: true\n", encoding="utf-8")
+
+    class _ZeroFrameEngine:
+        def name(self) -> str:
+            return "zero"
+
+        def voices(self) -> list[Voice]:
+            return [Voice(id="hal", name="HAL")]
+
+        def capabilities(self) -> Capabilities:
+            return Capabilities(emoji_style=False, voice_clone=False, streaming=False, max_chars=100)
+
+        def synthesize(self, req: SynthesisRequest) -> SynthesisResult:
+            return SynthesisResult(audio=_wav_bytes(0), sample_rate=48000)
+
+    out_dir = tmp_path / "episodes"
+    with (
+        patch("karyu_tech_news.tts.engine.select_engine", return_value=_ZeroFrameEngine()),
+        patch("karyu_tech_news.tts.asr_gate.WhisperAsrBackend") as backend_cls,
+    ):
+        result = runner.invoke(
+            app,
+            [
+                "produce",
+                "--engine", "zero",
+                "--db-path", str(db),
+                "--persona", str(persona),
+                "--bgm-dir", str(tmp_path / "nobgm"),
+                "--out-dir", str(out_dir),
+            ],
+        )
+    assert result.exit_code == 1  # zero-frame 合成自体は ASR 到達前に fail (従来どおり)
+    assert backend_cls.call_count == 1  # asr_gate: true なら必ず構築する
+
+
+def test_produce_asr_gate_unavailable_fails_fast(tmp_path: Path) -> None:
+    # 明示的に有効化したのに ASR が使えない (未導入) 場合は黙って無効化せず ERROR + exit 1
+    from karyu_tech_news.tts.asr_gate import AsrUnavailableError
+    from karyu_tech_news.tts.engine import Capabilities, SynthesisRequest, SynthesisResult, Voice
+
+    db = tmp_path / "state.db"
+    _seed_draft(db)
+    persona = tmp_path / "persona.yaml"
+    persona.write_text("tts:\n  primary_engine: mock\n  asr_gate: true\n", encoding="utf-8")
+
+    def _loud_wav(n_frames: int = 4800, sample_rate: int = 48000) -> bytes:
+        # _wav_bytes の振幅 (\x01\x00) は無音判定閾値以下で ASR 到達前に skip されるため、
+        # ここでは品質ゲートを確実に通す強い振幅 (\xff\x7f) を使う。
+        buf = io.BytesIO()
+        with wave.open(buf, "wb") as w:
+            w.setnchannels(1)
+            w.setsampwidth(2)
+            w.setframerate(sample_rate)
+            w.writeframes(b"\xff\x7f" * n_frames)
+        return buf.getvalue()
+
+    class _OkEngine:
+        def name(self) -> str:
+            return "mock"
+
+        def voices(self) -> list[Voice]:
+            return [Voice(id="hal", name="HAL")]
+
+        def capabilities(self) -> Capabilities:
+            return Capabilities(emoji_style=False, voice_clone=False, streaming=False, max_chars=200)
+
+        def synthesize(self, req: SynthesisRequest) -> SynthesisResult:
+            return SynthesisResult(audio=_loud_wav(), sample_rate=48000)
+
+    mock_backend = MagicMock()
+    mock_backend.transcribe.side_effect = AsrUnavailableError("openai-whisper 未導入")
+    out_dir = tmp_path / "episodes"
+    with (
+        patch("karyu_tech_news.tts.engine.select_engine", return_value=_OkEngine()),
+        patch(
+            "karyu_tech_news.tts.asr_gate.WhisperAsrBackend", return_value=mock_backend
+        ),
+    ):
+        result = runner.invoke(
+            app,
+            [
+                "produce",
+                "--dry-run",
+                "--engine", "mock",
+                "--db-path", str(db),
+                "--persona", str(persona),
+                "--bgm-dir", str(tmp_path / "nobgm"),
+                "--out-dir", str(out_dir),
+            ],
+        )
+    assert result.exit_code == 1
+    assert "ASR" in result.output
+    assert not list(out_dir.glob("*.mp3"))
+
+
 # ---------- 回帰: エンジン既定声フォールバック (実 smoke で発見) ----------
 
 

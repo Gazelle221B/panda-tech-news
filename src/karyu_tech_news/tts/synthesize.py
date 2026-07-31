@@ -10,6 +10,12 @@
   (T33+ 改善)。produce は台本全体を 1 segment に畳むため、segment 単位の事前
   annotate では 1 絵文字しか乗らず制御が効かなかった。エンジンが絵文字スタイル
   非対応 (kokoro 等) の場合は capabilities で自動的に無効化する。
+- ASR 品質ゲート (T58, Issue #54): `asr_backend` を渡すと、既存の機械的品質チェック
+  (有音率など) を通過した各文をさらに ASR で書き起こし、期待文 (絵文字注釈前の文)
+  と突き合わせる。ok 以外ならその文だけ再合成してリトライし (最大 `asr_max_retries`
+  回)、それでも解消しなければ従来の fail-open と同様に skip する (skipped_sentences
+  に計上され、produce 側の既存 fail-fast がそのまま効く)。`AsrUnavailableError`
+  (ASR バックエンド未導入など) はここで揉み消さず呼び出し元へ伝播させる。
 - BGM ミックス (T29) はこの結合済み wav を入力にする (本モジュールは素材を扱わない)。
 """
 from __future__ import annotations
@@ -22,6 +28,7 @@ from dataclasses import dataclass
 
 from karyu_tech_news.script.structure import StructuredScript
 from karyu_tech_news.tts.annotate import annotate_text
+from karyu_tech_news.tts.asr_gate import AsrBackend, verify_sentence
 from karyu_tech_news.tts.engine import (
     SynthesisRequest,
     SynthesisResult,
@@ -145,6 +152,8 @@ def synthesize_script(
     voice_id: str | None = None,
     emoji_mapping: dict[str, list[str]] | None = None,
     caption: str | None = None,
+    asr_backend: AsrBackend | None = None,
+    asr_max_retries: int = 2,
 ) -> SynthesisResult:
     """構造化台本を 1 本の wav に合成する (正規化 → 文分割 → 絵文字注釈 → 合成 → 結合, fail-open).
 
@@ -156,6 +165,12 @@ def synthesize_script(
     emoji_mapping (tone → 絵文字候補) を渡し、かつエンジンが絵文字スタイル制御に対応
     (capabilities().emoji_style) する場合のみ、**文単位** で tone 別絵文字を挿入する。
     正規化後・合成直前に挿入するため、絵文字は前処理 (strip/normalize) の影響を受けない。
+
+    asr_backend (T58, Issue #54) を渡すと、機械的品質チェックを通過した各文をさらに
+    ASR で書き起こし、絵文字注釈前の文と突き合わせる (`tts/asr_gate.verify_sentence`)。
+    ok 以外ならその文だけ再合成してリトライし (最大 asr_max_retries 回)、リトライ後も
+    解消しなければ skip する (skipped_sentences に計上、fail-open)。asr_backend 未指定
+    時は ASR 経路を一切呼ばない (後方互換: 既存呼び出し元は無変更で従来動作)。
     """
     if voice_id is None:
         voices = engine.voices()
@@ -168,6 +183,8 @@ def synthesize_script(
     chunks: list[bytes] = []
     attempted_sentences = 0
     skipped_sentences = 0
+    asr_retried_sentences = 0
+    asr_failed_sentences = 0
     for seg in script.segments:
         # TTS 前処理: Markdown/URL/原語読みを整理し、中国語原題 quote は発話退避する。
         # quote 退避を読み辞書より先に行い、辞書由来のカナ混入で中国語判定が潰れるのを防ぐ。
@@ -212,7 +229,46 @@ def synthesize_script(
                 )
                 skipped_sentences += 1
                 continue
-            chunks.append(res.audio)
+            final_audio = res.audio
+            if asr_backend is not None:
+                # 期待文は絵文字注釈前の sentence (絵文字はスタイル制御用トークンで
+                # 発話されないため、比較に混ぜると ASR 書き起こしとの類似度が不当に下がる)。
+                verdict = verify_sentence(sentence, asr_backend.transcribe(final_audio))
+                if verdict.status != "ok":
+                    retried_audio: bytes | None = None
+                    for _ in range(asr_max_retries):
+                        try:
+                            retry_res = engine.synthesize(
+                                SynthesisRequest(
+                                    text=text, voice_id=voice_id, caption=effective_caption
+                                )
+                            )
+                        except TTSError as exc:
+                            logger.warning("ASR retry 合成失敗 (fail-open): %s", exc)
+                            continue
+                        retry_signal = analyze_wav_signal(retry_res.audio)
+                        if not retry_signal.valid_wav or not retry_signal.has_pcm_signal:
+                            continue
+                        retry_verdict = verify_sentence(
+                            sentence, asr_backend.transcribe(retry_res.audio)
+                        )
+                        if retry_verdict.status == "ok":
+                            retried_audio = retry_res.audio
+                            break
+                    if retried_audio is None:
+                        logger.warning(
+                            "ASR 不一致文をリトライ上限まで解消できず skip (fail-open, "
+                            "status=%s, similarity=%.2f, length_ratio=%.2f)",
+                            verdict.status,
+                            verdict.similarity,
+                            verdict.length_ratio,
+                        )
+                        skipped_sentences += 1
+                        asr_failed_sentences += 1
+                        continue
+                    final_audio = retried_audio
+                    asr_retried_sentences += 1
+            chunks.append(final_audio)
     concat = _concat_wav_with_stats(chunks)
     return SynthesisResult(
         audio=concat.audio,
@@ -221,4 +277,6 @@ def synthesize_script(
         attempted_sentences=attempted_sentences,
         synthesized_sentences=concat.kept_chunks,
         skipped_sentences=skipped_sentences + concat.dropped_chunks,
+        asr_retried_sentences=asr_retried_sentences,
+        asr_failed_sentences=asr_failed_sentences,
     )
