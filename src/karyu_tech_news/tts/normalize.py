@@ -263,12 +263,50 @@ def transliterate_chinese_titles(text: str) -> str:
     return sanitize_chinese_title_quotes(text)
 
 
+# 英字 1 文字 → カナ綴り (T57, Issue #53)。ASCII 略語の最終フォールバック用固定表。
+_ASCII_LETTER_KANA: dict[str, str] = {
+    "A": "エー", "B": "ビー", "C": "シー", "D": "ディー", "E": "イー",
+    "F": "エフ", "G": "ジー", "H": "エイチ", "I": "アイ", "J": "ジェー",
+    "K": "ケー", "L": "エル", "M": "エム", "N": "エヌ", "O": "オー",
+    "P": "ピー", "Q": "キュー", "R": "アール", "S": "エス", "T": "ティー",
+    "U": "ユー", "V": "ブイ", "W": "ダブリュー", "X": "エックス", "Y": "ワイ",
+    "Z": "ゼット",
+}
+
+# 純アルファベット全大文字 2〜5 文字のトークンのみ対象 (1 文字・数字混在・小文字混在は
+# 文字クラス自体が除外する)。境界条件は _reading_term_pattern と同じ思想:
+# 前後が [A-Za-z0-9._\-] なら発火しない (識別子内部やより長い連続大文字の内部を壊さない)。
+_ASCII_ABBREVIATION_RE = re.compile(r"(?<![A-Za-z0-9._\-])[A-Z]{2,5}(?![A-Za-z0-9._\-])")
+
+
+def spell_out_residual_ascii_tokens(text: str) -> str:
+    """読み辞書でカバーされず残存した ASCII 略語を一字ずつカナ綴りへ変換する.
+
+    T57 (Issue #53): 実エピソード検証で辞書未登録の「HAL」が不明瞭な発話になった。
+    辞書の手編集は事後対応にしかならないため、`prepare_tts_text` の最終段 (読み辞書
+    適用より後) で機械的に発火する最終安全網として使う。対象は「残存する純アルファベット
+    全大文字 2〜5 文字」のトークンのみ:
+
+    - 小文字を含む語 (MoWorld 等) は対象外。
+    - 数字を含むトークン (5G, M3, HBM4 等) は対象外。
+    - 1 文字トークン (単独の A 等) は対象外。
+
+    上記 3 種は本関数ではなく別チケット T56 の LLM ルビ生成が担当する分担。
+    """
+
+    def _repl(m: re.Match[str]) -> str:
+        return "".join(_ASCII_LETTER_KANA[ch] for ch in m.group(0))
+
+    return _ASCII_ABBREVIATION_RE.sub(_repl, text)
+
+
 def prepare_tts_text(text: str, reading_dict: dict[str, str]) -> str:
     """TTS 入力用に台本文字列を正規化する.
 
     順序が品質に直結する。中国語原題 quote は、読み辞書が `豆包` → `ドウバオ`
     のようなカナを混ぜる前に退避する。カナ混入後だと日本語保護ガードが働き、
-    中国語原題が TTS に残ってしまう。
+    中国語原題が TTS に残ってしまう。読み辞書に無い残存 ASCII 略語のカナ綴り
+    フォールバック (T57) は、読み辞書適用より後の最終段で行う (辞書が常に優先)。
     """
     cleaned = strip_script_markup(text)
     cleaned = strip_invalid_tts_chars(cleaned)
@@ -280,4 +318,5 @@ def prepare_tts_text(text: str, reading_dict: dict[str, str]) -> str:
     normalized = normalize_text(translated_first, reading_dict)
     normalized = strip_duplicate_parentheticals(normalized)
     # 読み辞書に載っていない簡体字 title がまだ残る場合の保険。通常は no-op。
-    return sanitize_chinese_title_quotes(normalized, reading_dict)
+    normalized = sanitize_chinese_title_quotes(normalized, reading_dict)
+    return spell_out_residual_ascii_tokens(normalized)

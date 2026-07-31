@@ -14,6 +14,7 @@ from karyu_tech_news.tts.normalize import (
     normalize_text,
     prepare_tts_text,
     sanitize_chinese_title_quotes,
+    spell_out_residual_ascii_tokens,
     strip_ascii_gloss,
     strip_duplicate_parentheticals,
     strip_invalid_tts_chars,
@@ -218,6 +219,81 @@ def test_prepare_tts_text_normalizes_observed_english_terms() -> None:
     assert "フォーディー" in out
     assert "エルエルエム/ラグ" in out
     assert "ライト/プロ/マックス" in out
+
+
+# ---------- ASCII 略語カナ綴りフォールバック (T57, Issue #53) ----------
+
+def test_spell_out_residual_ascii_tokens_converts_known_abbreviations() -> None:
+    assert spell_out_residual_ascii_tokens("DOIとISCを確認。") == (
+        "ディーオーアイとアイエスシーを確認。"
+    )
+
+
+def test_spell_out_residual_ascii_tokens_skips_lowercase_digit_and_single_char() -> None:
+    text = "MoWorldとv1.0.0と5Gと単文字Aを確認。"
+    assert spell_out_residual_ascii_tokens(text) == text
+
+
+def test_spell_out_residual_ascii_tokens_skips_inside_longer_identifiers() -> None:
+    # SAIL 単体は境界的に対象だが、より長い識別子や連続大文字の内部では発火しない。
+    assert spell_out_residual_ascii_tokens("OpenAI_APIを呼ぶ。") == "OpenAI_APIを呼ぶ。"
+    assert spell_out_residual_ascii_tokens("ABCDEFGを確認。") == "ABCDEFGを確認。"
+
+
+def test_spell_out_residual_ascii_tokens_handles_multiple_tokens_in_sentence() -> None:
+    assert spell_out_residual_ascii_tokens("DOIとIPOを発行。") == (
+        "ディーオーアイとアイピーオーを発行。"
+    )
+
+
+def test_prepare_tts_text_spells_out_residual_ascii_abbreviations() -> None:
+    out = prepare_tts_text("DOIとISCについて。", {})
+    assert "DOI" not in out
+    assert "ISC" not in out
+    assert "ディーオーアイ" in out
+    assert "アイエスシー" in out
+
+
+def test_prepare_tts_text_reading_dict_wins_over_spelling_fallback() -> None:
+    # 辞書に載っている語 (AI 等) は辞書の読みが勝ち、一字ずつの綴り読みにならない。
+    out = prepare_tts_text("AIが話題。", {"AI": "エーアイ"})
+    assert out == "エーアイが話題。"
+
+
+def test_prepare_tts_text_skips_lowercase_digit_and_single_char_tokens() -> None:
+    text = "MoWorldとv1.0.0と5Gと単文字Aを確認。"
+    assert prepare_tts_text(text, {}) == text
+
+
+def test_prepare_tts_text_skips_inside_identifier() -> None:
+    assert prepare_tts_text("OpenAI_APIを呼ぶ。", {}) == "OpenAI_APIを呼ぶ。"
+
+
+def test_prepare_tts_text_dict_term_wins_before_spelling_for_sail() -> None:
+    # 「SAIL賞」は辞書エントリで一括変換され、SAIL 単体が先に綴り読みされない。
+    d = load_reading_dict(DICT_PATH)
+    out = prepare_tts_text("卓越AI引领者賞(SAIL賞)が発表された。", d)
+    assert "SAIL" not in out
+    assert "セイル賞" in out
+    assert "エスエーアイエル" not in out
+
+
+def test_prepare_tts_text_spells_out_standalone_hal() -> None:
+    d = load_reading_dict(DICT_PATH)
+    assert prepare_tts_text("HALが解説します。", d) == "ハルが解説します。"
+
+
+def test_prepare_tts_text_keeps_hal_daily_briefing_dict_entry() -> None:
+    # 「HAL」単独エントリを追加しても、長い「HAL Daily Briefing」エントリが
+    # 長い term 優先で正しく先に一致する (共存確認)。
+    d = load_reading_dict(DICT_PATH)
+    out = prepare_tts_text("HAL Daily Briefingへようこそ。", d)
+    assert out == "ハル デイリーブリーフィングへようこそ。"
+
+
+def test_prepare_tts_text_spells_out_multiple_tokens_in_sentence() -> None:
+    out = prepare_tts_text("DOIとIPOを発行。", {})
+    assert out == "ディーオーアイとアイピーオーを発行。"
 
 
 # ---------- Markdown マーカー除去 (実音声 smoke で発見) ----------
