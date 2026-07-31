@@ -3,8 +3,13 @@
 読み辞書 (`config/reading_dict.yaml`) の手動追記を不要にする恒久機構。writer LLM に
 `[[表記|カナ読み]]` の形式で読みをインライン出力させ (`script/generate.py` のプロンプト)、
 本モジュールで本文から抽出・除去したうえで自動読み辞書 (`data/reading_dict.auto.yaml`)
-へキャッシュする (`script/runner.py` から呼ぶ)。produce 側は手動辞書と二層マージし、
-手動辞書を常に優先する (`main.py` produce, 手動が最終確認済みの読みのため)。
+へキャッシュする (`script/runner.py` から呼ぶ)。produce 側 (`main.py`) は手動辞書と
+二層マージし、手動辞書を常に優先する (手動が最終確認済みの読みのため)。
+
+配置: `script` 層 (`tts/` ではない)。`config` 以外の `karyu_tech_news.*` に依存しない
+独立ユーティリティであり、利用者 (`script/runner.py`) と同じ層に置くことで
+`docs/architecture.md` §1 の逆向き依存禁止 (script は tts を import しない) を満たす。
+produce (CLI/main.py) からの参照は上位層→下位層の順方向であり問題ない。
 
 fail-open: 抽出・保存・読込のいずれの失敗も draft 生成/TTS 合成全体を落とさない。
 """

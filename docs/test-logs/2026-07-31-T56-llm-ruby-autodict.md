@@ -14,7 +14,7 @@ TTS 側 (produce) が手動辞書と二層マージする恒久機構を実装�
 
 ## 変更内容
 
-### 1. `src/karyu_tech_news/tts/ruby.py` (新規)
+### 1. `src/karyu_tech_news/script/ruby.py` (新規)
 
 - `extract_ruby(text) -> (cleaned_text, mapping)`: `[[表記|カナ読み]]` を検出し、本文
   からは `表記` のみを残して除去、`{表記: カナ読み}` を収集する。malformed (空表記/
@@ -56,15 +56,10 @@ TTS 側 (produce) が手動辞書と二層マージする恒久機構を実装�
   クリーン化はトピック本文の時点 (`ScriptVersion.body` 永続化前) で行うため、DB 保存
   (`insert_script_versions` / `create_episode_draft`) と Discord 投稿の両方が常にクリ
   ーンな本文を使う。
-- **設計判断 (要エスカレーション相当だが Surgical Changes 範囲内として実装継続)**:
-  `docs/architecture.md` の逆向き依存禁止原則は `tts` が `script` の出力型に依存する
-  向き (実際に `tts/annotate.py` / `tts/synthesize.py` が `script.structure` を import
-  済み) を想定しており、`script.runner` が `tts.ruby` を import する本変更は逆方向の
-  新規依存となる。ただしチケット仕様が明示的に `ruby.py` を `tts/` 配下に指定してお
-  り、かつ `ruby.py` はレイヤー独立な純粋ユーティリティ (regex + YAML I/O のみ、他の
-  `tts/*` モジュールに依存しない) で、読み辞書という概念自体が本来 TTS ドメインの語彙
-  であるため、ドメインモデリングとして妥当と判断し指示どおり実装した。他の `tts/*` へ
-  の依存はゼロなので結合は最小限。
+- `ruby.py` は `script` 層に配置 (初版では `tts/ruby.py` としたが、レビューで
+  `docs/architecture.md` §1 の逆向き依存禁止 (script は tts を import しない) への
+  抵触と指摘され、`script/ruby.py` へ移動して是正済み。詳細は本ログ末尾「レビュー
+  対応」節参照)。
 
 ### 4. `src/karyu_tech_news/main.py` — CLI 配線
 
@@ -80,7 +75,7 @@ TTS 側 (produce) が手動辞書と二層マージする恒久機構を実装�
 
 ## テスト (新規 30 件)
 
-- `tests/test_tts_ruby.py` (新規, 23 件): `extract_ruby` の正常系 (単一/複数ペア、日本
+- `tests/test_script_ruby.py` (新規, 23 件): `extract_ruby` の正常系 (単一/複数ペア、日本
   語混じり表記、中国語表記、strip)・malformed 素通し (空表記/空読み/閉じ忘れ/入れ子/
   改行混入)・重複表記の初出優先。`load_auto_readings` / `append_auto_readings` の新規
   作成・追記・既存キー保護・壊れた YAML/非マッピング/非 UTF-8 の fail-open。二層マージ
@@ -137,8 +132,12 @@ $ git diff --check
    想定したものではなく LLM の出力事故を安全側で吸収する目的だと判断し、この挙動で
    fail-open の趣旨 (本文を壊さない・番組を止めない) は満たせると判断した。テストで
    この挙動を明示的に固定 (`test_extract_ruby_nested_passes_through`) した。
-3. **アーキテクチャ層の逆向き依存**: 上記「変更内容 3」参照。`script` → `tts` の新規
-   依存が発生する点は設計上の判断としてこのログに明記した。
+3. **アーキテクチャ層の逆向き依存**: **レビューで是正済み**。初版は `ruby.py` を
+   `tts/` 配下に置き `script.runner` が `tts.ruby` を import する形になっており、
+   `docs/architecture.md` §1 の逆向き依存禁止に抵触する正当な指摘を受けた。
+   `ruby.py` を `script/ruby.py` へ移動し、`script.runner`(同層)/ `main.py`
+   (CLI→下層の順方向) からの参照のみになるよう修正した。詳細は本ログ末尾
+   「レビュー対応」節参照。
 4. **`config/hal_persona.yaml` は無編集**: `tts.auto_reading_dict` の既定値
    (`data/reading_dict.auto.yaml`) がコード側の既定と一致するため、config への明示的な
    キー追加は行わなかった (Surgical Changes — 不要な変更を避けた)。上書きしたい場合は
@@ -149,3 +148,40 @@ $ git diff --check
    埋め込むと 300 字上限に到達しやすくなり、テンプレ fallback 率が上がる可能性がある
    が、チケット仕様に文字数予算の調整指示は無く、既存の fallback 機構 (T18) が安全網
    として機能するため未調整とした。実運用での fallback 率の変化は今後の観測対象。
+
+## レビュー対応 (2026-08-01, 逆向き依存の是正)
+
+Codex/オーケストレーターレビューにより、上記「仕様から外れた判断・不確かな点 3」の
+アーキテクチャ層依存が `docs/architecture.md` §1 (逆向き依存禁止) への正当な違反と
+確認され、以下を追加コミットで修正した。
+
+- `git mv src/karyu_tech_news/tts/ruby.py src/karyu_tech_news/script/ruby.py`
+- `git mv tests/test_tts_ruby.py tests/test_script_ruby.py`
+- import 修正: `src/karyu_tech_news/script/runner.py`、`src/karyu_tech_news/main.py`
+  (produce の `load_auto_readings`)、`tests/test_draft_runner.py`、
+  `tests/test_script_ruby.py` の 4 箇所を `karyu_tech_news.tts.ruby` →
+  `karyu_tech_news.script.ruby` に変更 (import 順は ruff isort 準拠に整列)。
+- `ruby.py` の docstring に配置根拠 (`script` 層・`config` 以外の
+  `karyu_tech_news.*` に依存しない独立ユーティリティ・利用者と同層に置くことで
+  逆向き依存を回避) を追記。
+
+是正後の依存方向: `script.runner` → `script.ruby` (同層)、`main.py` (CLI) →
+`script.ruby` (上位層→下位層の順方向)。`tts/*` への依存はゼロになった。
+
+fresh ゲート再実行 (是正後):
+
+```
+$ uv run pytest -v
+589 passed, 11 skipped in 9.30s
+
+$ uv run ruff check .
+All checks passed!
+
+$ uv run mypy src tests
+Success: no issues found in 86 source files
+
+$ git diff --check
+(出力なし = クリーン)
+```
+
+テスト件数・pass 数は移動前と同一 (ファイル名変更のみでテスト内容は無変更)。

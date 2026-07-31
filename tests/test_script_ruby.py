@@ -1,4 +1,4 @@
-"""tts.ruby (台本 LLM インラインルビ + 自動読み辞書 I/O) のユニットテスト.
+"""script.ruby (台本 LLM インラインルビ + 自動読み辞書 I/O) のユニットテスト.
 
 Sprint T56 Ticket (Issue #52)。
 """
@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from karyu_tech_news.tts.ruby import (
+from karyu_tech_news.script.ruby import (
     append_auto_readings,
     extract_ruby,
     load_auto_readings,

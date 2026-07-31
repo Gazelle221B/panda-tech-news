@@ -528,6 +528,7 @@ def produce(
     from karyu_tech_news.deliver.discord import post_audio
     from karyu_tech_news.mix.master import MasteringError, master_to_mp3
     from karyu_tech_news.mix.mixer import find_bgm, mix_bgm
+    from karyu_tech_news.script.ruby import load_auto_readings
     from karyu_tech_news.script.structure import Segment, StructuredScript
     from karyu_tech_news.store.repo import (
         create_db_engine,
@@ -541,7 +542,6 @@ def produce(
     from karyu_tech_news.tts.engine import TTSError, select_engine
     from karyu_tech_news.tts.normalize import load_reading_dict, strip_markdown_structure
     from karyu_tech_news.tts.quality import analyze_wav_signal
-    from karyu_tech_news.tts.ruby import load_auto_readings
     from karyu_tech_news.tts.synthesize import synthesize_script
 
     settings = ctx.obj

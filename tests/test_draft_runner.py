@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 from karyu_tech_news.config import SourceCategory, SourceConfig, SourceTier
 from karyu_tech_news.llm.client import LLMResponse
 from karyu_tech_news.llm.profile import LLMProfile, ResolvedRoles
+from karyu_tech_news.script.ruby import load_auto_readings
 from karyu_tech_news.script.runner import DraftRunResult, run_draft
 from karyu_tech_news.store.repo import create_db_engine, init_db, upsert_source
 from karyu_tech_news.store.schema import (
@@ -22,7 +23,6 @@ from karyu_tech_news.store.schema import (
     ScriptVersion,
     TopicCandidate,
 )
-from karyu_tech_news.tts.ruby import load_auto_readings
 
 NOW = datetime(2026, 6, 11, 7, 0, tzinfo=UTC)
 

@@ -38,6 +38,11 @@ from karyu_tech_news.llm.client import LLMError, LLMResponse
 from karyu_tech_news.llm.profile import ResolvedRoles
 from karyu_tech_news.script.fallback import TopicScriptResult, generate_with_fallback
 from karyu_tech_news.script.generate import EpisodeScript, assemble_episode
+from karyu_tech_news.script.ruby import (
+    DEFAULT_AUTO_READING_DICT_PATH,
+    append_auto_readings,
+    extract_ruby,
+)
 from karyu_tech_news.store.dto import (
     EpisodeDraftInput,
     ScriptVersionInput,
@@ -48,11 +53,6 @@ from karyu_tech_news.store.repo import (
     insert_script_versions,
     insert_topic_candidates,
     record_llm_run,
-)
-from karyu_tech_news.tts.ruby import (
-    DEFAULT_AUTO_READING_DICT_PATH,
-    append_auto_readings,
-    extract_ruby,
 )
 
 logger = logging.getLogger(__name__)
