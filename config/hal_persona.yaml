@@ -17,7 +17,7 @@ voice:
   speed: variable                 # 尺に応じ可変、聞き取りやすさ最優先
   speed_policy: listener-first
   emotion_level: B                # A=ほぼ読み / B=自然な驚き・感心 / C=Vtuber寄り
-  reference_seiyuu: [緒方恵美, 坂本真綾, 石川由依, 榊原優希]   # 方向性の参照のみ。無断クローン禁止
+  reference_seiyuu: [緒方恵美, 坂本真綾, 石川由依, 榊原優希]   # 方向性の参照のみ。
 
 phrases:                          # 確定 (Issue #39, 2026-07-12)。ドキュメント用ミラー。
   # コードは config/show_format.yaml の phrases を読む (script/generate.py, T54)。
@@ -38,7 +38,6 @@ style_avoid:
   - 過度なVtuber調・煽り・テンション芸
   - 政治的断定・イデオロギー・ナショナリズム表現
   - 中国メディア記事本文の朗読 (要約とHAL解説に徹する)
-  - 実在人物の声真似・無断声クローン
   - ゲーム/アニメ本編の重大ネタバレ
 
 tts:

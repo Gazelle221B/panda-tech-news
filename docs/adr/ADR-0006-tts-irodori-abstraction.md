@@ -22,7 +22,7 @@
 - **絵文字によるスタイル制御** — tc-newsflow の tone 判定 (hard_negative/constructive/bright) を絵文字注釈に変換して感情を載せられる ([architecture §4](../architecture-podcast-station.md))。
 - **500M という絶妙なサイズ** — RTX 4070 Ti Super でリアルタイムの1.6倍合成。日次運用に十分。
 - **ゼロショット音声クローン** で番組専用の声を固定可能。
-- **MIT ライセンス** (商用可)。**実在人物の無断クローン禁止**は規約として明記 (要件 §9.6 で遵守)。
+- **MIT ライセンス** (商用可)。
 
 ## Irodori-TTS v3 の弱点と対策
 

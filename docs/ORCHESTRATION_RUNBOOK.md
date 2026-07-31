@@ -82,7 +82,7 @@ agy -p "$(cat prompts/qa.md) 対象: <Ticket>。DoD: IMPLEMENTATION_PLAN-*.md �
 `opencode providers list` で確認できる認証済みプロバイダは複数あるが、本ワークフローで使うのは **OpenCode Go (`opencode-go/*`)** と **OpenCode Zen 無料枠 (`opencode/*-free`, 認証不要)** のみ。以下は**使用しない**:
 
 - **GitHub Copilot (oauth)** → `github-copilot/*` モデル群。本書 §3 表「Git/PR ワークフローのみ」の Copilot CLI 月 300 req 制限と同一サブスクリプションの premium request 枠を共有している可能性が高く、未検証のまま使うと PR/Issue 用の枠を無自覚に消費しうる。
-- **Xiaomi Token Plan (China) (api)** → `xiaomi-token-plan-cn/*`。本番 MiMo エディタ (`config/llm_profiles.yaml`) と同一キーかどうか未確認。さらに `mimo-v2.5-tts-voiceclone` / `mimo-v2.5-tts-voicedesign` を含み、AGENTS.md §3.5「無断声クローン禁止」に隣接する領域のため触らない。
+- **Xiaomi Token Plan (China) (api)** → `xiaomi-token-plan-cn/*`。本番 MiMo エディタ (`config/llm_profiles.yaml`) と同一キーかどうか未確認。さらに `mimo-v2.5-tts-voiceclone` / `mimo-v2.5-tts-voicedesign` を含む領域のため触らない。
 - 直接 `deepseek/*` (API キー) も認証済みだが、コスト追跡を `opencode-go`/Zen の命名規則に揃えるため本ワークフローでは使わない。
 
 OpenCode のモデルカタログは継続的に拡大する (`opencode models --verbose` で最新確認、`opencode stats` でコスト確認)。**smoke test 前の新顔モデルを優先採用しない** — 名前が良さそうでも実績のあるモデルを優先する。
@@ -284,7 +284,7 @@ git diff --check     # whitespace / conflict marker 確認
 - リポジトリ: main 直 push 禁止 / merge 人間専権 / hook スキップ禁止 / `.env` commit 禁止
 - データ: `UNIQUE(source_id, item_key)` のみ / 空 `item_key` INSERT 禁止 / `item_key` 生成順固定 / str(コードポイント)単位の切り詰め
 - 耐障害性: ソース単位 fail-open / Discord 失敗で collect を落とさない / HTTP は必ずタイムアウト 30s + リトライ 2
-- コンテンツ: 記事本文転載禁止 (要約と HAL 解説のみ) / 無断声クローン禁止 / ナショナリズム表現禁止 / AI 音声の明示
+- コンテンツ: 記事本文転載禁止 (要約と HAL 解説のみ) / ナショナリズム表現禁止 / AI 音声の明示
 - 言語: Python 3.11+ 単一 (Go/Node へ戻さない)
 - LLM 設計: JSON 判定と日本語台本を同時に書かせない / tone は LLM に並べさせず決定的コードで / fallback 無しで配信しない
 

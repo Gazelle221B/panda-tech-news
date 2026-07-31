@@ -26,7 +26,7 @@
 | HAL の声質仕様 (VoiceDesign キャプション) | [hal-persona.md](./hal-persona.md) + [config/hal_persona.yaml](../config/hal_persona.yaml) |
 | 機能要件 (FR-090〜103) | [requirements-v1.0.md §8.10-8.11](./requirements-v1.0.md) |
 | 文字列切り詰め・fallback の流儀 | [design-inheritance §6-7](./design-inheritance-tc-newsflow.md) (文分割にも適用: str 単位、バイト禁止) |
-| 法務 (実在人物クローン禁止・AI 開示) | 要件 §9.6 / [editorial-policy.md](./editorial-policy.md)。開示文言の動画掲載は Sprint 3 (FR-121) |
+| 法務 (AI 開示) | 要件 §9.6 / [editorial-policy.md](./editorial-policy.md)。開示文言の動画掲載は Sprint 3 (FR-121) |
 
 ## 3. レイヤー・データの追加
 
@@ -94,7 +94,6 @@ mix/master.py         # -16 LUFS 正規化 + mp3 192kbps/48kHz 出力
 3. 最新 main から `agent/T23-impl` を切る (commit-rules §5)。T23 から順に: 実装 (OpenCode) → 独立レビュー (Codex) → QA (Antigravity) → 人間 merge。
 
 ## 8. 絶対 NG (Sprint 2 固有)
-- **実在人物の無断声真似・声クローン禁止** (要件 §9.6 / Irodori モデルカード)。声は VoiceDesign 生成のオリジナルのみ。
 - **動画生成・YouTube 投稿はまだ書かない** (Sprint 3。AGENTS §3.4 の精神を継続)。
 - **LLM に構造化 JSON と日本語台本を同時に書かせない** (1B §8 と同一。segment 化はコード側)。
 - **文単位合成は最後まで試す** (fail-open: 失敗文を記録し残りの合成を継続)。ただし produce 境界では欠落文がある完パケを成功扱いせず、mp3 生成・DB 記録・Discord 投稿前に fail-fast する。

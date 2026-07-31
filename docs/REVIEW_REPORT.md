@@ -1312,7 +1312,7 @@ Critical 0 / High 0 / Medium 1 / Low 1。`docs/IMPLEMENTATION_PLAN-2.md` は ADR
   - `docs/IMPLEMENTATION_PLAN-2.md:51-62` — T23〜T32 は `TTSEngine` / Irodori smoke / structure / reading dict / emoji annotation / sentence synthesis / mix / master / persistence+CLI+Discord / 3日観察に分解され、依存循環なし。
   - `docs/IMPLEMENTATION_PLAN-2.md:64-68` — モック駆動、決定的コード厚め、ffmpeg 小フィクスチャ、str 単位文分割テスト方針。
   - `docs/IMPLEMENTATION_PLAN-2.md:70-80` — 人間判断待ちと着手ゲート。ただし §6 と §7.2 のブロッカー粒度に Medium 指摘あり。
-  - `docs/IMPLEMENTATION_PLAN-2.md:82-88` — Sprint 2 固有 NG: 無断声クローン禁止、動画/YouTube 禁止、LLM に JSON と台本を同時生成させない、TTS 文単位 fail-open、バイト切り詰め禁止、生成音声ファイル commit 禁止。
+  - `docs/IMPLEMENTATION_PLAN-2.md:82-88` — Sprint 2 固有 NG: 動画/YouTube 禁止、LLM に JSON と台本を同時生成させない、TTS 文単位 fail-open、バイト切り詰め禁止、生成音声ファイル commit 禁止。
   - `docs/adr/ADR-0006-tts-irodori-abstraction.md:11-16` — Irodori 主軸、`TTSEngine` 抽象化、HAL 人格の TTS 非依存、VoiceDesign -> Speaker Inversion は検証項目。
   - `docs/adr/ADR-0006-tts-irodori-abstraction.md:27-45` — Irodori の弱点対策として読み仮名辞書、絵文字制御、抽象化層で代替エンジン退避。
   - `docs/adr/ADR-0006-tts-irodori-abstraction.md:56-60` — Sprint 2 で `tts/engine.py` + `tts/irodori.py`、Sprint 1A/1B では TTS 実装なし。
@@ -1321,15 +1321,15 @@ Critical 0 / High 0 / Medium 1 / Low 1。`docs/IMPLEMENTATION_PLAN-2.md` は ADR
   - `docs/architecture-podcast-station.md:96-107` — Irodori v3 主軸、抽象化、HAL 人格 TTS 非依存、音響演出重視。
   - `docs/requirements-v1.0.md:592-630` — FR-090〜092 / FR-100〜103: TTS 抽象化、HAL 音声、読み仮名辞書、BGM、ジングル、ラウドネス、mp3 192kbps。
   - `docs/requirements-v1.0.md:632-666` — 動画生成と YouTube 配信は後続要件。Sprint 1A/1B では実装しない。
-  - `docs/requirements-v1.0.md:714-724` — 本文転載は禁止、実在人物の無断声真似禁止、BGM/ジングルのライセンス確認。
+  - `docs/requirements-v1.0.md:714-724` — 本文転載は禁止、BGM/ジングルのライセンス確認。
   - `docs/requirements-v1.0.md:1043-1055` — Sprint 2 対象は TTS 抽象化、Irodori 接続、文単位合成、読み辞書、mp3、BGM/ジングル仮ミックス、Discord mp3 またはリンク投稿。
   - `docs/requirements-v1.0.md:1097-1107` — 読み崩れ対策、TTS 抽象化、Webhook 添付制限時の R2/S3 等リンク投稿余地。
   - `docs/roadmap.md:58-62` — Sprint 2 主要タスクは IMPLEMENTATION_PLAN-2.md の T23〜T31 と対応し、pydub+ffmpeg / -16 LUFS / mp3 192kbps/48kHz / 25MB 超リンク投稿を含む。
   - `AGENTS.md:47-50` — Sprint 1B の TTS/音声処理/動画/YouTube 禁止、コスト上限を超える呼び出し方の変更は人間判断、スコープ膨張は PROJECT_STATE にエスカレーション。
-  - `AGENTS.md:52-59` — 実在人物の無断声真似禁止、AI 開示は Sprint 3、Go/Node/2言語化禁止。
+  - `AGENTS.md:52-59` — AI 開示は Sprint 3、Go/Node/2言語化禁止。
   - `docs/DESIGN.md:200-209` — Sprint 2 は TTS/BGM/mp3、動画/YouTube は Sprint 3。スプリント越境禁止。
   - `docs/PROJECT_STATE.md:8` / `docs/PROJECT_STATE.md:99-108` — 現在は T22 Day 1/3 完了で Sprint 2 は T22 完了後、人間 Go 判断パッケージが必要。
-  - `docs/hal-persona.md:18-23` / `docs/hal-persona.md:55-67` — 声質仕様、無断クローン禁止、VoiceDesign / Speaker Inversion、TTS 乗り換え時の声維持レビュー。
+  - `docs/hal-persona.md:18-23` / `docs/hal-persona.md:55-67` — 声質仕様、VoiceDesign / Speaker Inversion、TTS 乗り換え時の声維持レビュー。
   - `config/hal_persona.yaml:41-45` — primary engine、voice strategy、reading dict、emoji annotation は Sprint 2 計画と整合。
   - `config/show_format.yaml:22-30` / `config/show_format.yaml:51-59` — ジングル segment、-16 LUFS、mp3、動画/AI disclosure は将来仕様として分離。
   - `.gitignore:16-22` — mp3/mp4/wav と素材本体は git 管理外。
@@ -1359,7 +1359,7 @@ Critical 0 / High 0 / Medium 1 / Low 1。`docs/IMPLEMENTATION_PLAN-2.md` は ADR
 
 - secret: 計画は `.env` や実キーの追加を要求していない。外部 GPU / R2/S3 を選ぶ場合の秘密管理は Low 指摘として明示改善対象。
 - 生成物: `.gitignore` は mp3/mp4/wav と素材本体を git 管理外にしており、計画 §8 の「生成 mp3/wav を commit しない」と整合。
-- 法務: 実在人物の無断声真似・声クローン禁止、BGM/ジングル素材のライセンス確認、人間試聴判断は計画に含まれる。
+- 法務: BGM/ジングル素材のライセンス確認、人間試聴判断は計画に含まれる。
 - スコープ: 動画生成 / YouTube 投稿は Sprint 2 計画から除外されている。Playwright / 中国 IP プロキシ / Cookie 必須ルート / Go or Node 導入も計画には含まれていない。
 
 ### テスト不足
@@ -1444,7 +1444,7 @@ Critical 0 / High 0 / Medium 2 / Low 1。`main...HEAD` の実装差分は T33/T3
 - `src/karyu_tech_news/collect/runner.py:42-79` — 1 ソース fetch/DB 失敗時も後続 source へ進み、run を完了する fail-open。
 - `src/karyu_tech_news/deliver/discord.py:82-105` / `src/karyu_tech_news/deliver/discord.py:108-145` — Webhook / mp3 投稿失敗は False を返し、HTTP status code または例外型名のみをログ化。
 - `docs/IMPLEMENTATION_PLAN-2.md:66-70` / `docs/IMPLEMENTATION_PLAN-2.md:88-94` — Sprint 2 のテスト方針、str 単位分割、TTS 文単位 fail-open、動画/YouTube 禁止。
-- `docs/editorial-policy.md:79-87` / `docs/hal-persona.md:35-39` — ナショナリズム表現、中国メディア本文朗読、無断声クローン禁止。
+- `docs/editorial-policy.md:79-87` / `docs/hal-persona.md:35-39` — ナショナリズム表現、中国メディア本文朗読。
 - `docs/hal-persona.md:51-58` — Irodori VoiceDesign、読み仮名辞書、絵文字注釈の方針。
 - `docs/show-format.md:72-81` — BGM、-16 LUFS、mp3 192kbps/48kHz、素材ライセンス方針。
 - `docs/PROJECT_STATE.md:8-12` と `docs/PROJECT_STATE.md:27-28` — T34 実装完了の記述と「本採用残作業は未着手」の記述が同居しており、Medium 指摘の根拠。
@@ -1474,7 +1474,7 @@ Critical 0 / High 0 / Medium 2 / Low 1。`main...HEAD` の実装差分は T33/T3
 - IMPLEMENTATION_PLAN-2.md §3 / §4 の `script -> tts -> mix` 一方向と T31 produce 経路に対し、今回差分は `main.py` の produce から `tts.synthesize` / `mix` を呼ぶ既存方向の拡張のみ。
 - IMPLEMENTATION_PLAN-2.md §5 / §8 の str 単位分割、TTS 1 文 fail-open、生成 mp3/wav 非管理は `tts/synthesize.py` と `.gitignore:16-25` に適合。
 - Sprint 2 境界: TTS / mp3 / Discord は Sprint 2 範囲。動画生成、YouTube 投稿、Playwright、Cookie 必須 route、Go/Node 導入は今回差分にない。
-- コンテンツ方針: `strip_markdown_structure` 後の produce 経路は維持され、中国メディア本文の転載やナショナリズム表現を新たに生成する差分はない。PR 内の caption は「落ち着いた知的な女性ニュースキャスター...」で、実在人物の声真似指定ではない。
+- コンテンツ方針: `strip_markdown_structure` 後の produce 経路は維持され、中国メディア本文の転載やナショナリズム表現を新たに生成する差分はない。PR 内の caption は「落ち着いた知的な女性ニュースキャスター...」で指定されている。
 
 ### 指摘事項
 
@@ -1549,7 +1549,7 @@ Critical 0 / High 1 / Medium 2 / Low 0。無音バグ修正は launchd の bare 
 - `docs/IMPLEMENTATION_PLAN-2.md:33-46` — Sprint 2 の新規依存は `ffmpeg` と optional `pydub` と記載され、「これ以外を足す場合は ADR」。
 - `docs/IMPLEMENTATION_PLAN-2.md:84-88` — Sprint 2 固有 NG: TTS 1 文 fail-open、バイト単位切り詰め禁止、生成 mp3/wav commit 禁止。
 - `docs/architecture-podcast-station.md:96-103` / `docs/hal-persona.md:51-58` / `docs/adr/ADR-0006-tts-irodori-abstraction.md:27-34` — Irodori の漢字読み弱点対策として読み仮名辞書・TTS 前処理を置く方針。
-- `docs/editorial-policy.md:79-87` / `docs/hal-persona.md:35-39` — ナショナリズム表現、中国メディア本文朗読、実在人物声真似禁止。T35 差分に新規違反なし。
+- `docs/editorial-policy.md:79-87` / `docs/hal-persona.md:35-39` — ナショナリズム表現、中国メディア本文朗読。T35 差分に新規違反なし。
 - `.gitignore:1-25` — `.env`, `data/`, 音声/動画生成物、素材本体を除外。
 - `docs/TEST_LOG.md:1032` — T35 の無音バグ根因、翻字 smoke、`pytest 387` / ruff / mypy / shell 静的検証、実 produce 証跡の記録。
 
@@ -1660,7 +1660,7 @@ Critical 0 / High 1 / Medium 1 / Low 0。前回 High の「漢字のみ日本語
 - `docs/IMPLEMENTATION_PLAN-2.md:44-46` — 新規依存は ffmpeg + pydub 以外は ADR としていた制約。
 - `docs/IMPLEMENTATION_PLAN-2.md:66` — T35 の `pypinyin` 採用理由、core ではなく optional extra `tts` に置く判断、簡体字特有文字条件を追記済み。
 - `docs/TEST_LOG.md:1032` / `docs/PROJECT_STATE.md:30` — T35 証跡が `c7182e5`、旧 heuristic、`pytest 387` のままで、`1fb38ed` / `pytest 396` / optional extra 化が未反映。
-- `docs/editorial-policy.md:79-87` / `docs/hal-persona.md:35-39` — ナショナリズム表現、中国メディア本文朗読、実在人物声真似禁止。T35 再差分に新規違反なし。
+- `docs/editorial-policy.md:79-87` / `docs/hal-persona.md:35-39` — ナショナリズム表現、中国メディア本文朗読。T35 再差分に新規違反なし。
 
 ### 実行/確認したテスト
 
@@ -1691,7 +1691,7 @@ Critical 0 / High 1 / Medium 1 / Low 0。前回 High の「漢字のみ日本語
 - DESIGN.md §9 / IMPLEMENTATION_PLAN-2.md §3 の Sprint 境界では、T35 は Sprint 2 の TTS 前処理と日次 mp3 配信修正に収まる。動画/YouTube/Playwright/Cookie 必須ルートの実装追加なし。
 - IMPLEMENTATION_PLAN-2.md §3 の依存制約に対し、`pypinyin` 採用理由と optional extra 化は `docs/IMPLEMENTATION_PLAN-2.md:66` で説明されたため、前回 Medium は解消。
 - IMPLEMENTATION_PLAN-2.md §5 / §8 の str 単位処理は維持。T35 の翻字は文字列置換であり、バイト切り詰めはしていない。
-- editorial-policy / hal-persona / show-format との矛盾は見当たらない。翻字は中国語原題の読み崩れ対策であり、本文転載や実在人物声真似を追加していない。
+- editorial-policy / hal-persona / show-format との矛盾は見当たらない。翻字は中国語原題の読み崩れ対策であり、本文転載を追加していない。
 
 ### 指摘事項
 

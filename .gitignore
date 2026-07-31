@@ -50,3 +50,5 @@ htmlcov/
 !.vscode/extensions.json
 .idea/
 .antigravitycli/
+
+.early.coverage
