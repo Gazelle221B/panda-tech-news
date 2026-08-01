@@ -27,6 +27,19 @@ profiles:
     temperature: 0.2
     notes: "Token Plan サブスク前提。editor (スコアリング/編集判定) 候補。"
 
+  # ---- OpenAI GPT-5.6 Luna (編集判定の新第一候補: データ共有キャンペーン枠, T64/Issue #70) ----
+  - label: openai-luna
+    provider: openai_compatible
+    api_key_env: OPENAI_API_KEY
+    base_url: "https://api.openai.com/v1"
+    model: "gpt-5.6-luna"           # 2026-08-02 実機スモーク済み (models 一覧に存在、chat completions 応答 OK)
+    max_tokens: 1800
+    token_param: max_completion_tokens  # 2026-08-02 実測: max_tokens は unsupported_parameter で reject
+    temperature: 1.0                # 実際は未送信 (send_temperature: false)。モデル既定値 (1 のみ許可) を形式上保持
+    send_temperature: false         # 2026-08-02 実測: temperature 指定不可 (既定 1 のみ、0.2 も 0 も reject) → 省略必須
+    seed: 42                        # best-effort 決定性補完 (fingerprint は None)。temp=0 固定 (T15) が使えないトレードオフ
+    notes: "OpenAI データ共有キャンペーン枠 (API入出力共有と引き換えに日次無料トークン)。editor が送るのは公開RSS見出し・要約のみで共有可能。温度固定不可のため決定性は seed の best-effort に留まる (judge の JSON 崩れは既存 fail-open が吸収, Issue #70)。データ共有キャンペーンの日次無料トークン枠内での運用が前提 (プロダクトオーナー指示 2026-08-02)。editor の日次消費は数万トークン規模で枠内に収まる。バルク実験・backfill 等の大量利用にはこのキーを使わないこと。"
+
   # ---- OpenRouter 経由 (海外決済フォールバック) ----
   - label: mimo-openrouter
     provider: openai_compatible
@@ -49,7 +62,7 @@ profiles:
 
 # Sprint 1B の A/B/C 検証マッピング (ADR-0005)。確定後も切替機構は保持する。
 ab_test:
-  A: { editor: mimo,     writer: deepseek }   # 推奨初期構成
+  A: { editor: openai-luna, writer: deepseek }  # 2026-08-02 T64: mimo → openai-luna (キャンペーン枠, Issue #70)。mimo はフォールバックで残置
   B: { editor: mimo,     writer: mimo }
   C: { editor: deepseek, writer: mimo }
   # 評価軸: 採用率 / 修正回数 / 読み上げ自然さ / コスト / JSON安定性 / AI要約臭
