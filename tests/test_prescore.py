@@ -12,10 +12,13 @@ from sqlalchemy.orm import Session
 from karyu_tech_news.config import SourceCategory, SourceConfig, SourceTier
 from karyu_tech_news.edit.prescore import (
     CANDIDATE_LIMIT,
+    THIN_SUMMARY_CHARS,
+    THIN_SUMMARY_PENALTY,
     TIER_BONUS,
     ScoredCandidate,
     extract_candidates,
     prescore_text,
+    thin_summary_penalty,
 )
 from karyu_tech_news.store.repo import create_db_engine, init_db, upsert_source
 from karyu_tech_news.store.schema import Item
@@ -120,19 +123,44 @@ def test_tier_bonus_descends_with_tier() -> None:
     assert TIER_BONUS[1] > TIER_BONUS[2] > TIER_BONUS[3] >= TIER_BONUS[4]
 
 
+# ---------- thin_summary_penalty (T60, Issue #60) ----------
+
+def test_thin_summary_penalty_applies_to_13_char_summary() -> None:
+    # 実例 (Issue #60): 2026-08-01 draft #2 の summary は 13 字だった
+    assert thin_summary_penalty("一二三四五六七八九十一二三") == THIN_SUMMARY_PENALTY
+
+
+def test_thin_summary_penalty_no_penalty_at_40_chars_or_more() -> None:
+    assert thin_summary_penalty("x" * THIN_SUMMARY_CHARS) == 0
+    assert thin_summary_penalty("x" * (THIN_SUMMARY_CHARS + 10)) == 0
+
+
+def test_thin_summary_penalty_applies_below_threshold() -> None:
+    assert thin_summary_penalty("x" * (THIN_SUMMARY_CHARS - 1)) == THIN_SUMMARY_PENALTY
+
+
+def test_thin_summary_penalty_none_summary_is_thin() -> None:
+    assert thin_summary_penalty(None) == THIN_SUMMARY_PENALTY
+
+
+def test_thin_summary_penalty_whitespace_only_is_thin() -> None:
+    assert thin_summary_penalty("   \n\t  ") == THIN_SUMMARY_PENALTY
+
+
 # ---------- extract_candidates ----------
 
 def test_extract_candidates_scores_and_sorts(session: Session) -> None:
     _add_source(session, "official-src", tier=SourceTier.OFFICIAL)
     _add_source(session, "community-src", tier=SourceTier.COMMUNITY)
-    _add_item(session, "community-src", "普通话题")  # tier3 bonus のみ
-    _add_item(session, "official-src", "发现严重漏洞")  # +30 + tier1 bonus
+    _add_item(session, "community-src", "普通话题")  # tier3 bonus のみ (summary="" は薄記事扱い)
+    _add_item(session, "official-src", "发现严重漏洞")  # +30 + tier1 bonus (同上)
 
     candidates = extract_candidates(session, now=NOW)
 
     assert [c.title for c in candidates] == ["发现严重漏洞", "普通话题"]
-    assert candidates[0].prescore == 30 + TIER_BONUS[1]
-    assert candidates[1].prescore == TIER_BONUS[3]
+    # 両方とも summary="" (既定) のため THIN_SUMMARY_PENALTY が乗る (T60)
+    assert candidates[0].prescore == 30 + TIER_BONUS[1] + THIN_SUMMARY_PENALTY
+    assert candidates[1].prescore == TIER_BONUS[3] + THIN_SUMMARY_PENALTY
     assert isinstance(candidates[0], ScoredCandidate)
     assert candidates[0].tier == 1
     assert candidates[0].category == "AI"
@@ -176,6 +204,8 @@ def test_extract_candidates_handles_null_summary(session: Session) -> None:
     candidates = extract_candidates(session, now=NOW)
 
     assert candidates[0].summary == ""
+    # summary=None も薄記事扱いで減点される (T60)
+    assert candidates[0].prescore == TIER_BONUS[1] + THIN_SUMMARY_PENALTY
 
 
 def test_extract_candidates_empty_db(session: Session) -> None:

@@ -8,6 +8,8 @@ Sprint 1B Ticket T14。LLM を呼ぶ前にキーワード辞書と Tier ボー�
 - 各バケツ (緊急/規制/リリース) はヒット回数に関わらず 1 回だけ加点
   (同語連発によるスコア インフレを防ぐ)
 - source の Tier ボーナスを加算 (editorial-policy §4: Tier1/2 は単独採用可)
+- summary が薄い (40 字未満) 候補は減点する (T60, Issue #60: 薄記事が writer の
+  全リトライ失敗を招き T18 テンプレへ fail-open する事故の再発防止)
 """
 from __future__ import annotations
 
@@ -47,6 +49,27 @@ _BUCKETS: tuple[tuple[int, tuple[str, ...]], ...] = (
 
 # Tier ボーナス (editorial-policy §4 の信頼性階層をスコアへ反映)
 TIER_BONUS: dict[int, int] = {1: 30, 2: 20, 3: 10, 4: 0}
+
+# 薄い summary への減点 (T60, Issue #60)。
+# 実例: 2026-08-01 draft #2 で summary が 13 字しかない item が上位選定され、
+# writer が意味のある台本を書けず全リトライ失敗 → T18 テンプレへ fail-open し、
+# 「今日は○○のニュースを一つ取り上げます」という無内容な枠がそのまま放送された。
+# 値の根拠: バケツ加点は 10/20/30、Tier ボーナスは最大 30 (TIER_BONUS[1])。
+# -15 は release バケツ (+10) 単体の加点では相殺しきれない一方、urgent バケツ
+# (+30) や Tier1 ボーナスと合わさった強い候補までは単独で足切りしない —
+# 「明確に順位を下げるが単独では足切りにしない」を満たす値として選定した。
+THIN_SUMMARY_CHARS = 40
+THIN_SUMMARY_PENALTY = -15
+
+
+def thin_summary_penalty(summary: str | None) -> int:
+    """薄い summary への減点 (0 または THIN_SUMMARY_PENALTY).
+
+    `summary.strip()` が THIN_SUMMARY_CHARS 未満なら減点する。summary が
+    None (RSS 側で欠落) の場合も薄い扱い (空文字と同じ) とする。
+    """
+    text = (summary or "").strip()
+    return THIN_SUMMARY_PENALTY if len(text) < THIN_SUMMARY_CHARS else 0
 
 
 class ScoredCandidate(BaseModel):
@@ -97,7 +120,11 @@ def extract_candidates(
     for item, source in rows:
         summary = str(item.summary or "")
         tier = int(source.tier)
-        score = prescore_text(str(item.title), summary) + TIER_BONUS.get(tier, 0)
+        score = (
+            prescore_text(str(item.title), summary)
+            + TIER_BONUS.get(tier, 0)
+            + thin_summary_penalty(summary)
+        )
         candidates.append(
             ScoredCandidate(
                 item_id=int(item.id),

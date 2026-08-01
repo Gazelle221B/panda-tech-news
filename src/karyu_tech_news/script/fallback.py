@@ -58,6 +58,10 @@ FALLBACK_TEMPLATE_COUNT = len(_TEMPLATES)
 
 RUMOR_PREFIX = "これは噂レベルですが — "
 
+# TopicScriptResult.method の "template" 値の正本 (T60, Issue #60: 呼び出し側
+# (script/runner.py) がテンプレ生成トピックを判別するために参照する)。
+METHOD_TEMPLATE = "template"
+
 
 class TopicScriptResult(BaseModel):
     """1 トピック分の生成結果. method と違反は A/B/C ログ (T20 修正回数) に使う."""
@@ -130,7 +134,7 @@ def generate_with_fallback(client: ChatClient, topic: JudgedTopic) -> TopicScrip
 
     return TopicScriptResult(
         body=fallback_topic_script(topic),
-        method="template",
+        method=METHOD_TEMPLATE,
         attempts=3,
         violations_first=violations_first,
     )
