@@ -60,6 +60,14 @@ health_ok() { curl -fsS -o /dev/null --max-time 5 "$HEALTH_URL"; }
 # 閾値チェックが黙って無効化されるため、比較前に必ず通す)。
 is_nonneg_number() { [[ "$1" =~ ^[0-9]+([.][0-9]+)?$ ]]; }
 
+# T75 (Issue #75): OS 判定。Windows (Git Bash/MSYS) には vm_stat/sysctl が存在しないため、
+# 資源取得コマンドを切り替える。load average は Windows に直接の等価指標が無いため未対応
+# (§ resources_ok の分岐コメント参照)。
+IS_WINDOWS=0
+case "$(uname -s 2>/dev/null)" in
+  MINGW*|MSYS*|CYGWIN*) IS_WINDOWS=1 ;;
+esac
+
 # T55 (Issue #49): sysctl から swap 使用量 (MB) を解析する。macOS の
 # "total = ... used = 12345.67M free = ..." 形式 (取得失敗時は空文字)。
 get_swap_used_mb_sysctl() {
@@ -70,6 +78,16 @@ get_swap_used_mb_sysctl() {
 # "{ 1.23 2.34 3.45 }" 先頭値 (取得失敗時は空文字)。
 get_load_1min_sysctl() {
   sysctl -n vm.loadavg 2>/dev/null | awk '{print $2}'
+}
+
+# T75 (Issue #75): Windows 相当の swap 使用量 (MB) を PowerShell 経由で取得する。
+# Win32_PageFileUsage の CurrentUsage (MB) 合計はページファイル (仮想メモリのコミット
+# 済み使用量) を表し、T55 が対策する「swap 枯渇による TTS 劣化」と同じ意味の指標になる。
+# ページファイル無効化機で結果が空になった場合は空文字を返し、呼び出し側で N/A 扱いにする。
+get_swap_used_mb_windows() {
+  powershell -NoProfile -Command \
+    "(Get-CimInstance Win32_PageFileUsage | Measure-Object -Property CurrentUsage -Sum).Sum" \
+    2>/dev/null | tr -d '[:space:]'
 }
 
 # T55 (Issue #49): produce 前の資源プリフライトチェック。swap 使用量が KARYU_MAX_SWAP_MB
@@ -95,38 +113,69 @@ resources_ok() {
     max_load="$DEFAULT_MAX_LOAD"
   fi
 
-  # 資源値の検証: 注入値が不正なら sysctl 実測へフォールバック (= 既定の取得経路)
+  # 資源値の検証: 注入値が不正なら実測へフォールバック (= 既定の取得経路。Windows は
+  # PowerShell、それ以外は sysctl)。
   swap_used="${KARYU_SWAP_USED_MB:-}"
   if [ -n "$swap_used" ] && ! is_nonneg_number "$swap_used"; then
-    log "WARNING: KARYU_SWAP_USED_MB 不正値 '${swap_used}' — sysctl 実測へフォールバック"
+    log "WARNING: KARYU_SWAP_USED_MB 不正値 '${swap_used}' — 実測へフォールバック"
     swap_used=""
   fi
-  [ -z "$swap_used" ] && swap_used="$(get_swap_used_mb_sysctl)"
+  if [ -z "$swap_used" ]; then
+    if [ "$IS_WINDOWS" = "1" ]; then
+      swap_used="$(get_swap_used_mb_windows)"
+    else
+      swap_used="$(get_swap_used_mb_sysctl)"
+    fi
+  fi
 
   load1="${KARYU_LOAD_1MIN:-}"
   if [ -n "$load1" ] && ! is_nonneg_number "$load1"; then
-    log "WARNING: KARYU_LOAD_1MIN 不正値 '${load1}' — sysctl 実測へフォールバック"
+    log "WARNING: KARYU_LOAD_1MIN 不正値 '${load1}' — 実測へフォールバック"
     load1=""
   fi
-  [ -z "$load1" ] && load1="$(get_load_1min_sysctl)"
+  # T75 (Issue #75): Windows には load average に直接相当する指標が無い。CPU 使用率などの
+  # 代替値を無理に充てると KARYU_MAX_LOAD (Unix load average 前提の既定 25) と意味が食い違い
+  # 誤判定を招くため、Windows では取得を試みず明示的に N/A のままにする (§ 下の分岐で INFO ログ)。
+  if [ -z "$load1" ] && [ "$IS_WINDOWS" != "1" ]; then
+    load1="$(get_load_1min_sysctl)"
+  fi
 
-  if ! is_nonneg_number "$swap_used" || ! is_nonneg_number "$load1"; then
+  local swap_known=0 load_known=0
+  is_nonneg_number "$swap_used" && swap_known=1
+  is_nonneg_number "$load1" && load_known=1
+
+  if [ "$swap_known" = "0" ] && [ "$load_known" = "0" ]; then
     log "WARNING: 資源チェック値を取得できず (swap=${swap_used:-N/A}, load=${load1:-N/A}) — fail-open で続行"
     return 0
   fi
 
-  RESOURCE_SWAP_USED_MB="$swap_used"
-  RESOURCE_LOAD_1MIN="$load1"
+  # T75 (Issue #75): 片方だけ未取得でも、取得できた指標のみで判定する (Windows で load が
+  # 常に N/A でも、実装済みの swap チェックを無効化しないため)。
+  if [ "$load_known" = "0" ]; then
+    if [ "$IS_WINDOWS" = "1" ]; then
+      log "INFO: load average は Windows 未対応のため N/A (既知の制約, Issue #75) — swap のみで判定"
+    else
+      log "WARNING: load average を取得できず (N/A) — swap のみで判定"
+    fi
+  fi
+  if [ "$swap_known" = "0" ]; then
+    log "WARNING: swap 使用量を取得できず (N/A) — load のみで判定"
+  fi
 
-  swap_exceeded="$(awk -v v="$swap_used" -v max="$max_swap" 'BEGIN { print (v + 0 > max + 0) ? 1 : 0 }')"
-  load_exceeded="$(awk -v v="$load1" -v max="$max_load" 'BEGIN { print (v + 0 > max + 0) ? 1 : 0 }')"
+  RESOURCE_SWAP_USED_MB="${swap_used:-N/A}"
+  RESOURCE_LOAD_1MIN="${load1:-N/A}"
+
+  swap_exceeded=0
+  [ "$swap_known" = "1" ] && swap_exceeded="$(awk -v v="$swap_used" -v max="$max_swap" 'BEGIN { print (v + 0 > max + 0) ? 1 : 0 }')"
+  load_exceeded=0
+  [ "$load_known" = "1" ] && load_exceeded="$(awk -v v="$load1" -v max="$max_load" 'BEGIN { print (v + 0 > max + 0) ? 1 : 0 }')"
 
   if [ "$swap_exceeded" = "1" ] || [ "$load_exceeded" = "1" ]; then
-    log "資源不足のため produce をスキップ (swap=${swap_used}M [閾値 ${max_swap}M] / load=${load1} [閾値 ${max_load}])"
+    log "資源不足のため produce をスキップ (swap=${RESOURCE_SWAP_USED_MB}M [閾値 ${max_swap}M] / load=${RESOURCE_LOAD_1MIN} [閾値 ${max_load}])"
     return 1
   fi
 
-  log "資源チェック OK (swap=${swap_used}M, load=${load1})"
+  log "資源チェック OK (swap=${RESOURCE_SWAP_USED_MB}M, load=${RESOURCE_LOAD_1MIN})"
   return 0
 }
 
@@ -228,8 +277,29 @@ backup_state_db() {
     return 0
   }
   local dest="${backup_dir}/state_${STAMP}.db"
-  # sqlite3 .backup はオンライン整合バックアップ (WAL 中でも安全)。cp より堅い。
-  if sqlite3 "$db" ".backup '${dest}'" 2>>"$LOG"; then
+  # SQLite Online Backup API (Python sqlite3.Connection.backup) 経由でバックアップする。
+  # 従来は `sqlite3 "$db" ".backup '${dest}'"` (sqlite3 CLI) を使っていたが、Git Bash (MSYS)
+  # 環境では dest パスがドットコマンド文字列に埋め込まれるため MSYS の自動 POSIX→Windows
+  # パス変換が効かず、ネイティブ sqlite3.exe が "/d/..." 形式のパスを解釈できず
+  # `Error: cannot open "..."` で失敗することを実運用ログで確認した (2026-08-01, Issue #75)。
+  # Python の sqlite3 モジュールは同じ Online Backup API (WAL 中でも安全) を使い、パスは
+  # argv 経由で渡るため MSYS の自動変換が効いて Mac / Git Bash 両対応になる。$UV は全段で
+  # 既に必須依存のため新規依存は増えない (sqlite3 CLI 不在環境でも動く利点もある)。
+  if "$UV" run python - "$db" "$dest" >>"$LOG" 2>&1 <<'PY'
+import sqlite3
+import sys
+
+src_path, dest_path = sys.argv[1], sys.argv[2]
+src = sqlite3.connect(src_path)
+dest = sqlite3.connect(dest_path)
+try:
+    with dest:
+        src.backup(dest)
+finally:
+    dest.close()
+    src.close()
+PY
+  then
     log "state.db バックアップ成功: ${dest} ($(du -h "$dest" | cut -f1))"
     # 世代ローテーション: 新しい keep 件を残し、古いものを削除。
     # shellcheck disable=SC2012
