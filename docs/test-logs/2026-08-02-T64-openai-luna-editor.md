@@ -135,3 +135,29 @@ $ git diff --check
   `mimo-openrouter` (フォールバック) の前に配置した。プロファイル一覧の意味的なグルーピング
   (writer 候補 → editor 候補 → editor 新候補 → フォールバック → オフライン検証) を優先した判断で、
   Issue 本文に配置順の指定はない。
+
+---
+
+## 追記 (同日, フォローアップ): 無料枠内運用の方針を notes に追記
+
+オーケストレータから追加指示 (プロダクトオーナー確認済み、2026-08-02): OpenAI のデータ共有が
+有効化され、complimentary daily tokens への enrollment が確認できたとのこと。
+`config/llm_profiles.yaml` の `openai-luna` プロファイルの `notes` に、日次無料トークン枠内での
+運用が前提であること・バルク利用禁止を追記した (既存の notes 文へ2文追加、他のフィールド・
+実装内容は変更なし)。
+
+### 品質ゲート (fresh 実行, 再検証)
+
+```
+$ uv run pytest -q
+685 passed, 11 skipped (exit code 0)
+
+$ uv run ruff check .
+All checks passed!
+
+$ uv run mypy src tests
+Success: no issues found in 94 source files
+
+$ git diff --check
+(出力なし = クリーン)
+```

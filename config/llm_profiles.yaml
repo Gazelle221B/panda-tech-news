@@ -38,7 +38,7 @@ profiles:
     temperature: 1.0                # 実際は未送信 (send_temperature: false)。モデル既定値 (1 のみ許可) を形式上保持
     send_temperature: false         # 2026-08-02 実測: temperature 指定不可 (既定 1 のみ、0.2 も 0 も reject) → 省略必須
     seed: 42                        # best-effort 決定性補完 (fingerprint は None)。temp=0 固定 (T15) が使えないトレードオフ
-    notes: "OpenAI データ共有キャンペーン枠 (API入出力共有と引き換えに日次無料トークン)。editor が送るのは公開RSS見出し・要約のみで共有可能。温度固定不可のため決定性は seed の best-effort に留まる (judge の JSON 崩れは既存 fail-open が吸収, Issue #70)。"
+    notes: "OpenAI データ共有キャンペーン枠 (API入出力共有と引き換えに日次無料トークン)。editor が送るのは公開RSS見出し・要約のみで共有可能。温度固定不可のため決定性は seed の best-effort に留まる (judge の JSON 崩れは既存 fail-open が吸収, Issue #70)。データ共有キャンペーンの日次無料トークン枠内での運用が前提 (プロダクトオーナー指示 2026-08-02)。editor の日次消費は数万トークン規模で枠内に収まる。バルク実験・backfill 等の大量利用にはこのキーを使わないこと。"
 
   # ---- OpenRouter 経由 (海外決済フォールバック) ----
   - label: mimo-openrouter
