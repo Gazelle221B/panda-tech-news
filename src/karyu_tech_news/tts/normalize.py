@@ -163,6 +163,35 @@ def strip_markdown_structure(text: str) -> str:
     return re.sub(r"\n{3,}", "\n\n", text).strip()
 
 
+# トピック境界の見出し行 (`## N. タイトル`, assemble_episode 参照)。`### ソース一覧` 等の
+# レベル3見出しは `## ` の直後に空白を要求するため誤マッチしない (T62, Issue #65)。
+_TOPIC_HEADING_RE = re.compile(r"^## .*$", re.MULTILINE)
+
+
+def split_markdown_topics(markdown: str) -> list[str]:
+    """`## ` 見出しでトピック境界ごとに分割し、各パートへ `strip_markdown_structure` を適用する.
+
+    「イントロ部 (最初の `## ` より前, タイトル/生成メタ/挨拶を含む)」+「各 `## ` セクション
+    (見出し行から次の `## ` 見出し直前まで。末尾トピックは締めの挨拶・ソース一覧・注意事項も
+    含むが、いずれも `strip_markdown_structure` が発話対象外として除去する)」に分ける。
+    `## ` 見出しが1つも無い台本 (見出し無しの旧形式・イントロのみ等) は従来どおり全体を
+    1パートとして返す (T62 導入前の produce と同じ挙動を維持)。strip 後に空文字になった
+    パート (見出し直後に本文が無いセクション等) は除外する。
+    """
+    matches = list(_TOPIC_HEADING_RE.finditer(markdown))
+    if not matches:
+        cleaned = strip_markdown_structure(markdown)
+        return [cleaned] if cleaned else []
+
+    raw_parts = [markdown[: matches[0].start()]]
+    for i, m in enumerate(matches):
+        end = matches[i + 1].start() if i + 1 < len(matches) else len(markdown)
+        raw_parts.append(markdown[m.start() : end])
+
+    cleaned_parts = (strip_markdown_structure(part) for part in raw_parts)
+    return [part for part in cleaned_parts if part]
+
+
 def normalize_text(text: str, reading_dict: dict[str, str]) -> str:
     """text 中の既知用語を読み仮名へ置換する (TTS 発音用).
 

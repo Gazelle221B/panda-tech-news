@@ -22,7 +22,14 @@ spike_feedparser_result.txt
 assets/jingles/*
 assets/bgm/*
 assets/voice_reference/*
+assets/sfx/*
 !assets/**/.gitkeep
+!assets/sfx/README.md
+# T62 (Issue #65): 採用済み SFX 3種はプロダクトオーナー選定済みの確定素材のためコミットする
+# (jingles/bgm/voice_reference と異なり、ライセンス上コミット可能かつ差し替え頻度が低い)。
+!assets/sfx/transition.wav
+!assets/sfx/opening.wav
+!assets/sfx/ending.wav
 
 # ===== Python =====
 __pycache__/

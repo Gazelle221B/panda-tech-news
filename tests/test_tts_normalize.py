@@ -15,10 +15,12 @@ from karyu_tech_news.tts.normalize import (
     prepare_tts_text,
     sanitize_chinese_title_quotes,
     spell_out_residual_ascii_tokens,
+    split_markdown_topics,
     strip_ascii_gloss,
     strip_duplicate_parentheticals,
     strip_invalid_tts_chars,
     strip_link_markup,
+    strip_markdown_structure,
     strip_pronunciation_parentheticals,
     strip_script_markup,
 )
@@ -481,3 +483,72 @@ def test_sanitize_new_simplified_signal_chars_preserve_japanese(jp_quote: str) -
     # T42 で追加した簡体字シグナル文字 (态势报线统经说视计讯论读类织页项顶竞) が
     # 日本語新字体 (競争等) を誤検知しないことを確認する (非破壊)。
     assert sanitize_chinese_title_quotes(jp_quote) == jp_quote
+
+
+# ---------- split_markdown_topics (T62, Issue #65 トピック境界セグメント分割) ----------
+
+
+def test_split_markdown_topics_no_headings_returns_single_part() -> None:
+    # `## ` 見出しが無い旧形式は従来どおり全体 1 パート (produce の後方互換)。
+    md = "# タイトル\n生成日時: 2026-08-01 10:00 / LLM profile: A\n\nこんにちは。本日のニュースです。\n"
+    result = split_markdown_topics(md)
+    assert result == [strip_markdown_structure(md)]
+    assert len(result) == 1
+    assert "こんにちは" in result[0]
+
+
+def test_split_markdown_topics_intro_only_no_topics() -> None:
+    # トピック無し (見出しゼロ) の最小構成もイントロのみの単一パートになる。
+    md = "# 華流テック通信 — HAL Daily Briefing\n\nタイトルコールです。\nオープニングです。\n"
+    result = split_markdown_topics(md)
+    assert len(result) == 1
+    assert "タイトルコールです" in result[0]
+    assert "オープニングです" in result[0]
+    assert not result[0].lstrip().startswith("#")
+
+
+def test_split_markdown_topics_multiple_headings_splits_intro_and_each_topic() -> None:
+    md = (
+        "# 華流テック通信 — HAL Daily Briefing\n"
+        "生成日時: 2026-08-01 10:00 / LLM profile: A\n\n"
+        "タイトルコールです。\n"
+        "オープニングです。\n\n"
+        "## 1. トピック1タイトル\n"
+        "トピック1本文です。\n\n"
+        "## 2. トピック2タイトル\n"
+        "トピック2本文です。\n\n"
+        "締めの挨拶です。\n\n"
+        "---\n"
+        "### ソース一覧\n"
+        "1. [トピック1タイトル](https://example.com/1)\n"
+        "2. [トピック2タイトル](https://example.com/2)\n"
+    )
+    result = split_markdown_topics(md)
+    assert len(result) == 3  # イントロ + トピック2件
+
+    intro, topic1, topic2 = result
+    assert "タイトルコールです" in intro
+    assert "オープニングです" in intro
+    assert "華流テック通信" not in intro  # # 見出し行は除去済み
+
+    assert "トピック1本文です" in topic1
+    assert "トピック2" not in topic1  # 次見出し以降は含まない
+
+    assert "トピック2本文です" in topic2
+    assert "締めの挨拶です" in topic2  # 末尾トピックは締め挨拶も含む (outro segment は作らない)
+    assert "ソース一覧" not in topic2  # レベル3見出しも除去される
+    assert "https://" not in topic2  # ソース一覧のリンク行は除去される
+    assert "---" not in topic2
+
+
+def test_split_markdown_topics_drops_empty_sections() -> None:
+    # 見出し直後に本文が無いセクション (strip 後に空文字) は除外される。
+    md = "# タイトル\nイントロ本文\n\n## 1. 空トピック\n\n## 2. 本文ありトピック\n本文です。\n"
+    result = split_markdown_topics(md)
+    assert result == ["イントロ本文", "本文です。"]
+
+
+def test_split_markdown_topics_all_empty_returns_empty_list() -> None:
+    # 見出しも無く strip 後に何も残らない入力は空リスト (produce 側の 0 件ゲートに委ねる)。
+    assert split_markdown_topics("") == []
+    assert split_markdown_topics("# タイトルのみ\n生成日時: 2026-08-01\n") == []

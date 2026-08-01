@@ -35,6 +35,14 @@ tts = [
 qa-asr = [
     "openai-whisper>=20250625",
 ]
+# SFX/トランジション生成 (T62, Issue #65) 用。`stable-audio-3` は PyPI 未公開のため
+# git 依存 ([tool.uv.sources] 参照)。torch を含む重量級のため CI の既定 (dev group) には
+# 入れず、`uv sync --extra sfx` で明示導入する運用 (qa-asr extra と同じ流儀)。
+sfx = [
+    "soundfile>=0.14.0",
+    "stable-audio-3",
+    "torchaudio>=2.7.1",
+]
 
 [dependency-groups]
 dev = [
@@ -87,6 +95,16 @@ ignore_missing_imports = true
 module = "whisper"
 ignore_missing_imports = true
 
+# stable_audio_3 / torch / torchaudio は型スタブ無し・optional 依存 (extra `sfx`,
+# T62 gen_sfx.py で遅延 import・TYPE_CHECKING 参照)。scripts/ は `mypy src tests` の
+# 対象外だが、gen_sfx.py 単体チェック (`uv run mypy scripts/gen_sfx.py`) 用に用意する。
+[[tool.mypy.overrides]]
+module = ["stable_audio_3", "torch", "torchaudio"]
+ignore_missing_imports = true
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"
+
+[tool.uv.sources]
+stable-audio-3 = { git = "https://github.com/Stability-AI/stable-audio-3" }
