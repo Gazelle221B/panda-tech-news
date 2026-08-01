@@ -4,6 +4,8 @@ Sprint 1B Ticket T21。候補抽出 → 編集判定 → 選定/アーク配置 
 永続化を 1 回の draft 実行として束ねる (collect/runner.py の 1B 版)。
 
 fail-open:
+- 薄い summary の上位候補は記事本文フェッチで補強を試みるが、失敗しても元の
+  candidate のまま続行する (T61, Issue #61: edit/enrich.py)
 - editor の JSON が崩れた日も neutral 判定にフォールバックして番組を出す
   (json_stable=False を llm_runs に記録し、A/B/C 評価に反映)
 - writer の違反は generate_with_fallback (T18) がテンプレで吸収する
@@ -25,6 +27,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from karyu_tech_news.edit.arc import arrange_arc
+from karyu_tech_news.edit.enrich import enrich_thin_candidates
 from karyu_tech_news.edit.judge import (
     ChatClient,
     JudgedTopic,
@@ -243,6 +246,11 @@ def run_draft(
     if not candidates:
         logger.info("no candidates in last %dh, draft skipped", lookback_hours)
         return None
+
+    # T61, Issue #61: 薄い summary の上位候補だけ記事本文フェッチで補強する。
+    # editor 判定 (直後の corroboration_counts/judge) と writer 生成の両方が
+    # 補強後の summary の恩恵を受けられるよう、editor 判定より前に置く。
+    candidates = enrich_thin_candidates(candidates)
 
     corroborations = corroboration_counts(session, candidates)
     editor_rec = _RecordingClient(editor)
