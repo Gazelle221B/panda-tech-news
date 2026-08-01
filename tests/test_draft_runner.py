@@ -64,6 +64,78 @@ def _client(*contents: str) -> MagicMock:
     return client
 
 
+def _editor_json(n: int) -> str:
+    """n 件全候補を neutral tone・score 80 で判定する editor JSON (T60 テスト用)."""
+    topics = ",".join(
+        f'{{"index": {i}, "score": 80, "tone": "neutral"}}' for i in range(1, n + 1)
+    )
+    return '{"topics": [' + topics + "]}"
+
+
+def _writer_forcing_template(target_title: str) -> MagicMock:
+    """target_title の topic だけ契約違反本文を返し、generate_with_fallback を
+    template へ fail-open させる (他の topic は VALID_BODY で正常, T60 テスト用).
+
+    呼び出し順ではなく user プロンプト中のタイトル文字列で判定するため、
+    select_topics/arrange_arc の並び替えに依存しない。
+    """
+    client = MagicMock()
+
+    def _chat(system: str, user: str, **_: object) -> LLMResponse:
+        if f"タイトル: {target_title}" in user:
+            return LLMResponse(content="違反本文", prompt_tokens=10, completion_tokens=5)
+        return LLMResponse(content=VALID_BODY, prompt_tokens=10, completion_tokens=5)
+
+    client.chat.side_effect = _chat
+    return client
+
+
+_CATEGORIES = (
+    SourceCategory.AI,
+    SourceCategory.TECH,
+    SourceCategory.GAME,
+    SourceCategory.SUBCULTURE,
+    SourceCategory.OSS,
+    SourceCategory.ANIME,
+)
+
+
+def _seed_n_items(session: Session, n: int) -> None:
+    """distinct な source/category を持つ item を n 件シードする (キャップ回避, T60 テスト用).
+
+    summary は 40 字以上 (THIN_SUMMARY_PENALTY の影響を受けない) にしておく。
+    """
+    summary = "十分な長さのダミー概要文をここに用意しておく必要がある四十字以上のテキストです。"
+    for i in range(1, n + 1):
+        sid = f"src-{i}"
+        upsert_source(
+            session,
+            SourceConfig(
+                id=sid,
+                name=sid,
+                url="https://example.com/feed",
+                tier=SourceTier.OFFICIAL,
+                category=_CATEGORIES[(i - 1) % len(_CATEGORIES)],
+            ),
+        )
+    for i in range(1, n + 1):
+        session.add(
+            Item(
+                source_id=f"src-{i}",
+                item_key=f"k{i}",
+                external_id=None,
+                title=f"话题{i}",
+                link=f"https://example.com/{i}",
+                summary=summary,
+                published_at=None,
+                fetched_at=NOW,
+                raw_json="{}",
+                canonical_url_hash="",
+            )
+        )
+    session.commit()
+
+
 @pytest.fixture
 def session(tmp_path: Path) -> Generator[Session, None, None]:
     engine: Engine = create_db_engine(tmp_path / "test.db")
@@ -258,3 +330,76 @@ def test_run_draft_extracts_ruby_and_updates_auto_dict(
 
     scripts = session.execute(select(ScriptVersion)).scalars().all()
     assert all("[[" not in str(s.body) for s in scripts)  # 個別トピック本文もクリーン
+
+
+# ---------- T60 (Issue #60): テンプレ枠ドロップ ----------
+
+def test_run_draft_drops_template_above_floor(session: Session) -> None:
+    """5 本中 1 本が無内容テンプレのとき、床値 (MIN_TOPICS=3) を割らないため
+    4 本に除外される。markdown・ソース一覧には出ないが script_versions には残る。"""
+    _seed_n_items(session, 5)
+    editor = _client(_editor_json(5))
+    writer = _writer_forcing_template("话题3")
+
+    result = run_draft(
+        session,
+        editor=editor,
+        writer=writer,
+        roles=_roles(),
+        variant="A",
+        now=NOW,
+    )
+
+    assert result is not None
+    assert result.selected_count == 4
+    assert result.dropped_count == 1
+    assert result.method_counts == {"llm": 4, "template": 1}
+    assert "话题3" not in result.episode.markdown
+    assert result.episode.markdown.count("**Hook:**") == 4
+    assert len(result.episode.sources) == 4
+
+    # script_versions は除外分も含め全 5 件が監査証跡として残る
+    scripts = session.execute(select(ScriptVersion)).scalars().all()
+    assert len(scripts) == 5
+    assert {str(s.method) for s in scripts} == {"llm", "template"}
+
+    # topic_candidates: 除外分は selected=False / position=None
+    candidates = session.execute(select(TopicCandidate)).scalars().all()
+    assert len(candidates) == 5
+    selected = [c for c in candidates if bool(c.selected)]
+    assert len(selected) == 4
+    assert sorted(int(c.position) for c in selected) == [1, 2, 3, 4]
+
+    dropped = [c for c in candidates if not bool(c.selected)]
+    assert len(dropped) == 1
+    assert dropped[0].position is None
+
+
+def test_run_draft_keeps_template_at_floor(session: Session) -> None:
+    """3 本中 1 本が無内容テンプレのとき、除外すると MIN_TOPICS を割るため
+    従来どおりテンプレのまま残る (fail-open: 番組を出すこと優先)."""
+    _seed_n_items(session, 3)
+    editor = _client(_editor_json(3))
+    writer = _writer_forcing_template("话题2")
+
+    result = run_draft(
+        session,
+        editor=editor,
+        writer=writer,
+        roles=_roles(),
+        variant="A",
+        now=NOW,
+    )
+
+    assert result is not None
+    assert result.selected_count == 3
+    assert result.dropped_count == 0
+    assert result.method_counts == {"llm": 2, "template": 1}
+    assert result.episode.markdown.count("**Hook:**") == 3  # テンプレも契約適合、3 本とも残る
+
+    scripts = session.execute(select(ScriptVersion)).scalars().all()
+    assert len(scripts) == 3
+
+    candidates = session.execute(select(TopicCandidate)).scalars().all()
+    assert all(bool(c.selected) for c in candidates)
+    assert sorted(int(c.position) for c in candidates) == [1, 2, 3]

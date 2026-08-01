@@ -9,6 +9,11 @@ fail-open:
 - writer の違反は generate_with_fallback (T18) がテンプレで吸収する
 - writer が本文に埋め込んだインライン読み注釈 (T56, Issue #52) の抽出失敗は
   当該トピックの本文をそのまま残して続行する (_extract_ruby_from_results)
+- T18 テンプレ (無内容な最終防衛) が生成されたトピックは、除外しても番組が
+  MIN_TOPICS を割らない場合に限り episode markdown / ソース一覧から除外する
+  (T60, Issue #60: 薄記事 → writer 全滅 → 無内容テンプレがそのまま放送された
+  事故対策)。script_versions には除外分も監査証跡として残す
+  (_drop_overflow_templates)
 """
 from __future__ import annotations
 
@@ -36,7 +41,11 @@ from karyu_tech_news.edit.prescore import (
 from karyu_tech_news.edit.select import select_topics
 from karyu_tech_news.llm.client import LLMError, LLMResponse
 from karyu_tech_news.llm.profile import ResolvedRoles
-from karyu_tech_news.script.fallback import TopicScriptResult, generate_with_fallback
+from karyu_tech_news.script.fallback import (
+    METHOD_TEMPLATE,
+    TopicScriptResult,
+    generate_with_fallback,
+)
 from karyu_tech_news.script.generate import EpisodeScript, assemble_episode
 from karyu_tech_news.script.ruby import (
     DEFAULT_AUTO_READING_DICT_PATH,
@@ -57,15 +66,27 @@ from karyu_tech_news.store.repo import (
 
 logger = logging.getLogger(__name__)
 
+# 番組として成立する最低本数 (T60, Issue #60)。show_format の標準本数は 5 本
+# (edit/select.py SELECT_MAX)。無内容テンプレ枠のドロップはこの床値を割らない
+# 範囲でのみ行う (番組を出すこと自体を最優先する fail-open の精神を維持)。
+MIN_TOPICS = 3
+
 
 class DraftRunResult(BaseModel):
-    """draft 実行 1 回分の結果サマリー."""
+    """draft 実行 1 回分の結果サマリー.
+
+    selected_count / method_counts はテンプレ除外 (T60) 後の値ではなく、
+    method_counts は生成試行全件 (除外分含む) の内訳。selected_count は
+    実際に episode.markdown に残ったトピック数 (除外後)。dropped_count は
+    無内容テンプレとして除外した本数。
+    """
 
     draft_id: int
     episode: EpisodeScript
     candidate_count: int
     judged_count: int
     selected_count: int
+    dropped_count: int
     method_counts: dict[str, int]
     editor_json_stable: bool
 
@@ -175,6 +196,32 @@ def _extract_ruby_from_results(
     return cleaned_results, mapping
 
 
+def _drop_overflow_templates(
+    results: list[tuple[JudgedTopic, TopicScriptResult]],
+) -> tuple[list[tuple[JudgedTopic, TopicScriptResult]], list[tuple[JudgedTopic, TopicScriptResult]]]:
+    """T18 テンプレ (無内容な最終防衛) のトピックを、床値を割らない範囲で除外する.
+
+    (T60, Issue #60) writer が全リトライ失敗すると generate_with_fallback は
+    テンプレへ fail-open するが、テンプレ文言 (「今日は○○のニュースを一つ
+    取り上げます」等) は聴取価値が無い。番組を出すこと自体は最優先するため、
+    除外すると MIN_TOPICS を割る場合は何もせず全件を残す (テンプレのまま放送)。
+    元の並び順 (arc 配置順) は保持する。
+
+    戻り値: (episode に残すトピック, 除外したトピック)。
+    """
+    templates = [r for r in results if r[1].method == METHOD_TEMPLATE]
+    if not templates or len(results) - len(templates) < MIN_TOPICS:
+        return results, []
+    kept = [r for r in results if r[1].method != METHOD_TEMPLATE]
+    for topic, _ in templates:
+        logger.warning(
+            "template fallback dropped from episode (item_id=%d, title=%.30s)",
+            topic.candidate.item_id,
+            topic.candidate.title,
+        )
+    return kept, templates
+
+
 def run_draft(
     session: Session,
     *,
@@ -213,8 +260,12 @@ def run_draft(
     results, ruby_mapping = _extract_ruby_from_results(results)
     if ruby_mapping:
         append_auto_readings(auto_reading_dict_path, ruby_mapping)
+
+    # T60, Issue #60: 無内容テンプレ枠は床値を割らない範囲で放送 (markdown/ソース
+    # 一覧/番号付け) から除外する。script_versions には除外分も全件残す (下記)。
+    aired_results, dropped_results = _drop_overflow_templates(results)
     episode = assemble_episode(
-        [(topic, result.body) for topic, result in results], variant, now
+        [(topic, result.body) for topic, result in aired_results], variant, now
     )
 
     draft = create_episode_draft(
@@ -229,8 +280,11 @@ def run_draft(
         ),
     )
     draft_id = int(draft.id)
+    # position は episode.markdown の番号付けと一致させる (T60: 除外分は position
+    # を持たない = selected=False。テンプレ除外後の aired_results を基準にする)。
     positions = {
-        topic.candidate.item_id: i for i, topic in enumerate(arranged, start=1)
+        topic.candidate.item_id: i
+        for i, (topic, _) in enumerate(aired_results, start=1)
     }
     insert_topic_candidates(
         session,
@@ -291,6 +345,8 @@ def run_draft(
     )
     session.commit()
 
+    # 生成試行全件 (除外分含む) の内訳。除外有無に関わらず「何本 LLM で書けたか」の
+    # 監査値として保つ (script_versions と同じ母集団)。
     method_counts: dict[str, int] = {}
     for _, result in results:
         method_counts[result.method] = method_counts.get(result.method, 0) + 1
@@ -300,7 +356,8 @@ def run_draft(
         episode=episode,
         candidate_count=len(candidates),
         judged_count=len(judged),
-        selected_count=len(arranged),
+        selected_count=len(aired_results),
+        dropped_count=len(dropped_results),
         method_counts=method_counts,
         editor_json_stable=json_stable,
     )

@@ -444,6 +444,7 @@ def draft(
         typer.secho(
             f"Draft #{result.draft_id} 生成完了: 候補 {result.candidate_count} → "
             f"採用 {result.selected_count} 本 (生成方法: {methods}, "
+            f"dropped={result.dropped_count}, "
             f"editor JSON 安定: {'yes' if result.editor_json_stable else 'no'})",
             fg=typer.colors.GREEN,
         )
