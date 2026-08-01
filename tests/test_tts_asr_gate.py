@@ -161,6 +161,66 @@ def test_verify_sentence_ambiguous_zone_number_mismatch_detected_via_judge() -> 
     assert judge.calls == [(expected, transcript)]
 
 
+# ---------- fast path の数字整合ガード (2026-08-02 レビュー差し戻し対応) ----------
+#
+# 実測: 「来年の2027年に発表される見込みです。」→「来年の2017年に発表される見込みです」
+# は類似度 0.947 (>= FAST_PATH_SIMILARITY) かつ長さ比 1.0 (正常) のため、数字整合
+# ガード導入前は fast path を素通りして judge に到達せず、数字誤読 (2027→2017) を
+# 検出できなかった。ガード導入後はこのケースも曖昧域に落ち、judge (または judge 不在時
+# は機械判定) に委ねられる。
+
+
+def test_verify_sentence_long_sentence_digit_mismatch_bypasses_fast_path() -> None:
+    # 数字整合ガードの主目的: 高類似度・正常長さ比でも数字列が不一致なら fast path を
+    # 通さず judge に委譲する (レビュー指摘の実測回帰ケース)。
+    expected = "来年の2027年に発表される見込みです。"
+    transcript = "来年の2017年に発表される見込みです"
+    mechanical_only = verify_sentence(expected, transcript)
+    assert mechanical_only.similarity >= 0.85  # fast path の類似度条件は満たす (前提確認)
+    assert mechanical_only.length_ratio <= 1.6  # 長さ比も正常 (前提確認)
+    # 数字整合ガードが無ければここで fast path (ok) になってしまうはずのケース。
+    # judge 未指定なので曖昧域へ落ちた上で機械判定にフォールバックし、結果は ok のまま
+    # (後方互換: 挙動そのものは変わらないが、judge があれば介入できる経路を通る)。
+    assert mechanical_only.status == "ok"
+
+    judge = _RecordingJudge("mismatch")
+    with_judge = verify_sentence(expected, transcript, judge=judge)
+    assert with_judge.status == "mismatch"  # judge の判定 (数字誤読) が採用される
+    assert judge.calls == [(expected, transcript)]  # fast path を通らず judge に到達した
+
+
+def test_verify_sentence_long_sentence_matching_digits_still_uses_fast_path() -> None:
+    # 数字列が一致する長文は従来どおり fast path (judge 不呼出) のまま。
+    expected = "来年の2027年に発表される見込みです。"
+    transcript = "来年の2027年に発表される見込みです"
+    judge = _RecordingJudge("mismatch")  # 呼ばれたら誤判定になる値をわざと設定
+    verdict = verify_sentence(expected, transcript, judge=judge)
+    assert verdict.status == "ok"
+    assert judge.calls == []  # fast path のまま judge に到達しない
+
+
+def test_verify_sentence_kanji_numeral_transcript_bypasses_fast_path_and_uses_judge() -> None:
+    # 書き起こしが漢数字表記 (Whisper が数字を漢数字として書き起こすケースを想定) の場合、
+    # 期待文側の算用数字と数字列が一致しない (片側が空) ため fast path を通さず judge に
+    # 委譲する。judge が表記ゆれとして ok を返せば、その判定が採用される。
+    expected = (
+        "中国の大手テクノロジー企業各社は、来年の2027年に向けて大規模な投資計画を"
+        "相次いで発表する見込みだと報じられています。"
+    )
+    transcript = (
+        "中国の大手テクノロジー企業各社は、来年の二千二十七年に向けて大規模な投資計画を"
+        "相次いで発表する見込みだと報じられています"
+    )
+    mechanical_only = verify_sentence(expected, transcript)
+    assert mechanical_only.similarity >= 0.85  # fast path の類似度条件は満たす (前提確認)
+    assert mechanical_only.length_ratio <= 1.6
+
+    judge = _RecordingJudge("ok")
+    with_judge = verify_sentence(expected, transcript, judge=judge)
+    assert with_judge.status == "ok"
+    assert judge.calls == [(expected, transcript)]  # fast path を通らず judge に到達した
+
+
 # ---------- WhisperAsrBackend (遅延 import) ----------
 
 

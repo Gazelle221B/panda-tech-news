@@ -6,8 +6,11 @@
 `tts.asr_gate.AsrJudge` Protocol の具象実装を提供する。
 
 アーキテクチャ上の位置づけ: tts 層は llm 層を import しない (Issue #76 の設計制約)。
-本モジュールは逆に llm 層から tts.asr_gate の型 (Protocol / Literal) を参照するのみで、
-tts 層への機能依存は発生しない。構築 (`build_llm_asr_judge`) は main.py の produce が
+本モジュールも tts 層を import しない (2026-08-02 レビュー差し戻し対応: 当初
+`tts.asr_gate.AsrVerdictStatus` を型として import していたが、ランタイムの層間 import を
+完全に消すため、値集合が同一の `Literal` をこのモジュール内に複製した。`AsrJudge`
+Protocol は構造的型付けのため、Literal の値集合が一致していれば
+`tts.asr_gate.AsrJudge` を満たす)。構築 (`build_llm_asr_judge`) は main.py の produce が
 persona 設定 (`tts.asr_judge_profile`) を読んで呼び出す。
 
 fail-open 方針: プロファイル未解決・API キー未設定などの構築時失敗、および
@@ -19,15 +22,19 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ValidationError
 
 from karyu_tech_news.llm.client import LLMClient, LLMError
 from karyu_tech_news.llm.profile import DEFAULT_LLM_PROFILES_PATH, load_llm_profiles
-from karyu_tech_news.tts.asr_gate import AsrVerdictStatus
 
 logger = logging.getLogger(__name__)
+
+# `tts.asr_gate.AsrVerdictStatus` と値集合が同一のローカル複製 (2026-08-02 レビュー
+# 差し戻し対応)。llm 層から tts 層へのランタイム import を避けるための複製であり、
+# `AsrJudge` Protocol への適合は構造的型付け (Literal の値集合一致) で成立する。
+_AsrVerdictStatus = Literal["ok", "mismatch", "insertion"]
 
 JUDGE_TEMPERATURE = 0.0  # 決定性最優先 (edit/judge.py と同じ流儀)。
 DEFAULT_ASR_JUDGE_PROFILE = "openai-luna"  # config/hal_persona.yaml の既定値と一致させる
@@ -55,7 +62,7 @@ class AsrJudgeError(Exception):
 class _AsrJudgment(BaseModel):
     """LLM 応答の検証スキーマ."""
 
-    verdict: AsrVerdictStatus
+    verdict: _AsrVerdictStatus
     reason: str = ""
 
 
@@ -101,7 +108,7 @@ class LLMAsrJudge:
     def __init__(self, client: LLMClient) -> None:
         self._client = client
 
-    def judge(self, expected: str, transcript: str) -> AsrVerdictStatus | None:
+    def judge(self, expected: str, transcript: str) -> _AsrVerdictStatus | None:
         try:
             response = self._client.chat(
                 system=ASR_JUDGE_SYSTEM_PROMPT,

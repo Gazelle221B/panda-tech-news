@@ -23,6 +23,15 @@ fail-open と同様に skip する (`tts/synthesize.py` 側の統合を参照)�
 不呼出) で即決するが、曖昧域 (類似度 0.5〜0.85 未満 / 長さ比異常) のみ
 `AsrJudge` (LLM 等) に判定を委譲できるようにした。`judge` 未指定、または judge
 が None を返した (判定不能) 場合は従来の機械判定にフォールバックする (fail-open)。
+
+fast path の数字整合ガード (2026-08-02 レビュー差し戻し対応): 周辺文が長いと
+1 桁の数字誤読でも類似度が容易に 0.85 を超えてしまい、fast path が本チケットの
+主目的 (数字誤読検出) を素通りさせる実測が判明した (例:
+「来年の2027年に発表される見込みです。」→「来年の2017年に発表される見込みです」
+で類似度 0.947)。このため fast path は類似度・長さ比に加えて、期待文と書き起こし
+それぞれから抽出した数字列 (`\\d+` の並び) が完全一致する場合のみ許可する。数字列が
+不一致 (誤読・脱落・片側のみ漢数字表記など) なら類似度・長さ比が正常でも曖昧域へ
+落とし、judge (または judge 不在時は従来の機械判定) に委ねる。
 """
 from __future__ import annotations
 
@@ -48,6 +57,9 @@ AsrVerdictStatus = Literal["ok", "mismatch", "insertion"]
 # 正規化: 小文字化 + 空白 (全角含む) + 主要な日本語句読点・かぎ括弧・中黒・三点リーダを
 # 除去する。かな/漢字/ローマ字表記ゆれや数字の読み違いはここでは吸収しない (将来課題)。
 _NORMALIZE_STRIP_RE = re.compile(r"[\s　。、,.!?！？「」『』・…]+")
+# fast path の数字整合ガード用: 正規化後テキストから半角数字の連続を抽出する
+# (2026-08-02 レビュー差し戻し対応, モジュール docstring 参照)。
+_DIGITS_RE = re.compile(r"\d+")
 
 
 class AsrUnavailableError(Exception):
@@ -86,6 +98,17 @@ def _normalize(text: str) -> str:
     return _NORMALIZE_STRIP_RE.sub("", text.lower())
 
 
+def _digit_sequences(normalized_text: str) -> list[str]:
+    """正規化済みテキストから数字列 (`\\d+` の並び) を出現順に抽出する.
+
+    fast path の数字整合ガード専用 (2026-08-02 レビュー差し戻し対応)。漢数字・
+    全角数字は `\\d` にマッチしないため、片側だけ漢数字表記 (例: 「二千二十七年」) の
+    ケースも「数字列が空 (片側は非空)」= 不一致として扱われ、fast path から曖昧域へ
+    落ちる (judge が表記ゆれとして ok 判定できる余地を残す設計)。
+    """
+    return _DIGITS_RE.findall(normalized_text)
+
+
 def verify_sentence(
     expected: str, transcript: str, *, judge: AsrJudge | None = None
 ) -> AsrVerdict:
@@ -97,7 +120,10 @@ def verify_sentence(
     2 段構え判定 (T66, Issue #76):
     - 類似度 < `SIMILARITY_MISMATCH_THRESHOLD` → "mismatch" (文が丸ごと別物、judge 不呼出)。
     - 類似度 >= `FAST_PATH_SIMILARITY` かつ長さ比が `LENGTH_RATIO_INSERTION_THRESHOLD`
-      以下 → "ok" (fast path、judge 不呼出)。
+      以下 **かつ数字列 (`\\d+`) が期待文・書き起こしで完全一致** → "ok" (fast path、
+      judge 不呼出)。数字列の不一致 (誤読・脱落・片側のみ漢数字表記など) は、類似度・
+      長さ比が正常でも fast path を通さず曖昧域へ落とす (2026-08-02 レビュー差し戻し
+      対応、モジュール docstring 参照)。
     - それ以外 (曖昧域) は `judge` が指定されていれば判定を委譲する。judge が None を
       返す (判定不能) か、judge 自体が未指定なら、従来の機械判定 (長さ比のみで
       ok/insertion を分岐) にフォールバックする。
@@ -106,6 +132,7 @@ def verify_sentence(
     norm_transcript = _normalize(transcript)
     similarity = difflib.SequenceMatcher(None, norm_expected, norm_transcript).ratio()
     length_ratio = len(norm_transcript) / max(len(norm_expected), 1)
+    digits_match = _digit_sequences(norm_expected) == _digit_sequences(norm_transcript)
 
     def _mechanical_status() -> AsrVerdictStatus:
         return "insertion" if length_ratio > LENGTH_RATIO_INSERTION_THRESHOLD else "ok"
@@ -113,7 +140,11 @@ def verify_sentence(
     status: AsrVerdictStatus
     if similarity < SIMILARITY_MISMATCH_THRESHOLD:
         status = "mismatch"
-    elif similarity >= FAST_PATH_SIMILARITY and length_ratio <= LENGTH_RATIO_INSERTION_THRESHOLD:
+    elif (
+        similarity >= FAST_PATH_SIMILARITY
+        and length_ratio <= LENGTH_RATIO_INSERTION_THRESHOLD
+        and digits_match
+    ):
         status = "ok"
     elif judge is not None:
         judged = judge.judge(expected, transcript)
