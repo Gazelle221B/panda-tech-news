@@ -265,10 +265,11 @@ def synthesize_script(
                     if retried_audio is None:
                         logger.warning(
                             "ASR 不一致文をリトライ上限まで解消できず skip (fail-open, "
-                            "status=%s, similarity=%.2f, length_ratio=%.2f)",
+                            "status=%s, similarity=%.2f, length_ratio=%.2f, sentence=%.40s)",
                             verdict.status,
                             verdict.similarity,
                             verdict.length_ratio,
+                            sentence,
                         )
                         skipped_sentences += 1
                         asr_failed_sentences += 1
