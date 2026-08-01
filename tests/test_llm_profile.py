@@ -117,6 +117,19 @@ def test_llm_profile_rejects_unknown_token_param() -> None:
         LLMProfile.model_validate(_profile_dict(token_param="max_new_tokens"))
 
 
+def test_llm_profile_extra_body_defaults_to_none_for_backward_compat() -> None:
+    """extra_body 無指定時は既存プロファイルの挙動を保つ既定値 None (T65)."""
+    p = LLMProfile.model_validate(_profile_dict())
+    assert p.extra_body is None
+
+
+def test_llm_profile_accepts_extra_body_dict() -> None:
+    p = LLMProfile.model_validate(
+        _profile_dict(extra_body={"reasoning_effort": "none"})
+    )
+    assert p.extra_body == {"reasoning_effort": "none"}
+
+
 # ---------- LLMProfilesFile ----------
 
 def test_profiles_file_valid() -> None:
@@ -187,6 +200,10 @@ def test_load_real_llm_profiles_yaml() -> None:
     assert luna.token_param == "max_completion_tokens"
     assert luna.send_temperature is False
     assert luna.seed == 42
+
+    # T65 (Issue #73): deepseek は reasoning 垂れ流し対策で extra_body を持つ
+    deepseek = f.profile_by_label("deepseek")
+    assert deepseek.extra_body == {"reasoning_effort": "none"}
 
     # 秘密値は環境変数名のみ保持 (実キーを YAML に書かない)
     for p in f.profiles:

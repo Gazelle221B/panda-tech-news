@@ -15,6 +15,7 @@ profiles:
     model: "deepseek-v4-flash"      # 2026-08-02 V4-Flash-0731 リリースに伴い更新 (API /models の正式 ID、疎通スモーク済み)
     max_tokens: 1800
     temperature: 0.3
+    extra_body: { reasoning_effort: "none" }  # 2026-08-02 実測: reasoning モデルの chain-of-thought が content に垂れ流れ writer 全滅 (Issue #73)。付与で解消確認済み
     notes: "中国語ネイティブ。コスト効率最強クラス。writer 候補。"
 
   # ---- Xiaomi MiMo (編集判定の第一候補: 中国文脈理解・長コンテキスト) ----

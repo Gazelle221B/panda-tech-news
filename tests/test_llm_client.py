@@ -221,6 +221,72 @@ def test_chat_existing_profile_without_new_fields_is_unchanged(
     assert "seed" not in body
 
 
+def test_chat_extra_body_merges_into_body(monkeypatch: pytest.MonkeyPatch) -> None:
+    """extra_body 指定時、そのキーが body にマージされる (T65: reasoning_effort 抑止)."""
+    monkeypatch.setenv("TEST_LLM_API_KEY", "sk-test-123")
+    client = LLMClient(_profile(extra_body={"reasoning_effort": "none"}))
+    mock_resp = _mock_resp(_chat_response_json())
+
+    with patch(
+        "karyu_tech_news.llm.client.httpx.post", return_value=mock_resp
+    ) as mock_post:
+        client.chat(system="s", user="u")
+
+    body = mock_post.call_args.kwargs["json"]
+    assert body["reasoning_effort"] == "none"
+    assert body["max_tokens"] == 1800  # 既存フィールドは維持される
+
+
+def test_chat_extra_body_none_leaves_body_unchanged(monkeypatch: pytest.MonkeyPatch) -> None:
+    """extra_body 無指定 (None, 既定) なら body に追加キーは現れない (T65)."""
+    monkeypatch.setenv("TEST_LLM_API_KEY", "sk-test-123")
+    client = LLMClient(_profile())
+    mock_resp = _mock_resp(_chat_response_json())
+
+    with patch(
+        "karyu_tech_news.llm.client.httpx.post", return_value=mock_resp
+    ) as mock_post:
+        client.chat(system="s", user="u")
+
+    body = mock_post.call_args.kwargs["json"]
+    assert set(body) == {"model", "messages", "max_tokens", "temperature", "stream"}
+
+
+def test_chat_extra_body_wins_on_key_conflict(monkeypatch: pytest.MonkeyPatch) -> None:
+    """extra_body が既存キーと衝突する場合、extra_body 側が勝つ (T65)."""
+    monkeypatch.setenv("TEST_LLM_API_KEY", "sk-test-123")
+    client = LLMClient(_profile(extra_body={"max_tokens": 999, "stream": True}))
+    mock_resp = _mock_resp(_chat_response_json())
+
+    with patch(
+        "karyu_tech_news.llm.client.httpx.post", return_value=mock_resp
+    ) as mock_post:
+        client.chat(system="s", user="u")
+
+    body = mock_post.call_args.kwargs["json"]
+    assert body["max_tokens"] == 999
+    assert body["stream"] is True
+
+
+def test_chat_existing_profile_without_extra_body_field_is_unchanged(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """extra_body フィールド無指定の既存 (T64) プロファイルは挙動不変 (後方互換, T65)."""
+    monkeypatch.setenv("TEST_LLM_API_KEY", "sk-test-123")
+    client = LLMClient(_luna_profile())
+    mock_resp = _mock_resp(_chat_response_json())
+
+    with patch(
+        "karyu_tech_news.llm.client.httpx.post", return_value=mock_resp
+    ) as mock_post:
+        client.chat(system="s", user="u")
+
+    body = mock_post.call_args.kwargs["json"]
+    assert "reasoning_effort" not in body
+    assert body["max_completion_tokens"] == 1800
+    assert body["seed"] == 42
+
+
 def test_chat_ollama_forces_think_false_and_no_auth_header() -> None:
     client = LLMClient(_ollama_profile())
     mock_resp = _mock_resp(_chat_response_json())
