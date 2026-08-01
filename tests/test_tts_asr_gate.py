@@ -12,8 +12,10 @@ import pytest
 
 from karyu_tech_news.tts.asr_gate import (
     AsrBackend,
+    AsrJudge,
     AsrUnavailableError,
     AsrVerdict,
+    AsrVerdictStatus,
     WhisperAsrBackend,
     verify_sentence,
 )
@@ -78,6 +80,85 @@ class _FakeAsrBackend:
 
 def test_fake_backend_satisfies_protocol() -> None:
     assert isinstance(_FakeAsrBackend(), AsrBackend)
+
+
+# ---------- AsrJudge protocol / verify_sentence 段階分岐 (T66, Issue #76) ----------
+
+
+class _RecordingJudge:
+    """呼出有無と引数を記録する fake judge. 固定 verdict (または None) を返す."""
+
+    def __init__(self, verdict: AsrVerdictStatus | None) -> None:
+        self._verdict = verdict
+        self.calls: list[tuple[str, str]] = []
+
+    def judge(self, expected: str, transcript: str) -> AsrVerdictStatus | None:
+        self.calls.append((expected, transcript))
+        return self._verdict
+
+
+def test_fake_judge_satisfies_protocol() -> None:
+    assert isinstance(_RecordingJudge("ok"), AsrJudge)
+
+
+def test_verify_sentence_fast_path_does_not_call_judge() -> None:
+    # 類似度 >= FAST_PATH_SIMILARITY かつ長さ比正常 → judge を一切呼ばない
+    judge = _RecordingJudge("mismatch")  # 呼ばれたら誤判定になる値をわざと設定
+    verdict = verify_sentence("今日は良い天気です。", "今日は良い天気です", judge=judge)
+    assert verdict.status == "ok"
+    assert judge.calls == []
+
+
+def test_verify_sentence_definite_mismatch_does_not_call_judge() -> None:
+    # 類似度 < SIMILARITY_MISMATCH_THRESHOLD (壊滅的不一致) → judge を呼ばず即 mismatch
+    judge = _RecordingJudge("ok")  # 呼ばれたら誤判定になる値をわざと設定
+    verdict = verify_sentence("今日は良い天気です。", "株価が急落しました", judge=judge)
+    assert verdict.status == "mismatch"
+    assert judge.calls == []
+
+
+def test_verify_sentence_ambiguous_zone_calls_judge_and_uses_its_verdict() -> None:
+    # 曖昧域 (類似度 0.5〜0.85 未満、長さ比正常) は judge に委譲し、その結果を採用する。
+    # 表記ゆれ例 (「AI」↔「エーアイ」) は機械判定のみなら ok だが、judge が mismatch を
+    # 返せばそれを優先する (judge の判断を尊重する契約を固定)。
+    judge = _RecordingJudge("mismatch")
+    expected, transcript = "これはAIの話です。", "これはエーアイの話です"
+    verdict = verify_sentence(expected, transcript, judge=judge)
+    assert 0.5 <= verdict.similarity < 0.85  # 曖昧域に入っていることの前提確認
+    assert verdict.status == "mismatch"
+    assert judge.calls == [(expected, transcript)]
+
+
+def test_verify_sentence_judge_none_falls_back_to_mechanical_status() -> None:
+    # 曖昧域で judge が None (判定不能) を返したら、従来の機械判定 (長さ比のみ) へ
+    # fail-open する。
+    judge = _RecordingJudge(None)
+    expected, transcript = "これはAIの話です。", "これはエーアイの話です"
+    verdict = verify_sentence(expected, transcript, judge=judge)
+    assert judge.calls == [(expected, transcript)]
+    # judge なしの従来テスト (test_verify_sentence_notation_variance_stays_ok) と同じ結果
+    assert verdict.status == "ok"
+
+
+def test_verify_sentence_ambiguous_zone_without_judge_uses_mechanical_status() -> None:
+    # judge 未指定なら曖昧域でも従来どおり機械判定のみ (後方互換の固定)。
+    expected, transcript = "これはAIの話です。", "これはエーアイの話です"
+    verdict = verify_sentence(expected, transcript)
+    assert 0.5 <= verdict.similarity < 0.85
+    assert verdict.status == "ok"
+
+
+def test_verify_sentence_ambiguous_zone_number_mismatch_detected_via_judge() -> None:
+    # T66 の主目的: 機械判定だけでは拾えない数字誤読を judge が検出する。
+    expected, transcript = "2027年。", "2017年"
+    mechanical_only = verify_sentence(expected, transcript)
+    assert 0.5 <= mechanical_only.similarity < 0.85  # 曖昧域に入る (前提確認)
+    assert mechanical_only.status == "ok"  # 機械判定だけでは数字誤読を拾えない
+
+    judge = _RecordingJudge("mismatch")
+    with_judge = verify_sentence(expected, transcript, judge=judge)
+    assert with_judge.status == "mismatch"
+    assert judge.calls == [(expected, transcript)]
 
 
 # ---------- WhisperAsrBackend (遅延 import) ----------

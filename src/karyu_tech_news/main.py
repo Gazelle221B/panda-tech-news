@@ -534,6 +534,7 @@ def produce(
     from sqlalchemy.orm import Session
 
     from karyu_tech_news.deliver.discord import post_audio
+    from karyu_tech_news.llm.asr_judge import build_llm_asr_judge
     from karyu_tech_news.mix.master import MasteringError, master_to_mp3
     from karyu_tech_news.mix.mixer import find_bgm, mix_bgm
     from karyu_tech_news.mix.transitions import concat_with_transitions
@@ -563,6 +564,7 @@ def produce(
     auto_reading_path = Path("data/reading_dict.auto.yaml")  # T56, Issue #52
     caption: str | None = None  # VoiceDesign 話法キャプション (T34, 対応エンジンのみ使用)
     asr_gate_enabled = False  # ASR 品質ゲート (T58, Issue #54)。既定 false
+    asr_judge_profile_label = "openai-luna"  # 曖昧域 LLM 判定のプロファイル既定 (T66, Issue #76)
     if persona_file.exists():
         try:
             persona = yaml.safe_load(persona_file.read_text(encoding="utf-8")) or {}
@@ -574,6 +576,7 @@ def produce(
                 auto_reading_path = Path(tts_cfg["auto_reading_dict"])
             caption = tts_cfg.get("caption") or None
             asr_gate_enabled = bool(tts_cfg.get("asr_gate", False))
+            asr_judge_profile_label = str(tts_cfg.get("asr_judge_profile") or "openai-luna")
         except Exception as exc:  # noqa: BLE001
             typer.secho(
                 f"WARN: persona 読み込み失敗 (既定で続行): {type(exc).__name__}",
@@ -646,6 +649,11 @@ def produce(
         # ロードするため)。未導入で有効化された場合は synthesize_script 内から
         # AsrUnavailableError が伝播し、ここで fail-fast する (黙って無効化しない)。
         asr_backend = WhisperAsrBackend() if asr_gate_enabled else None
+        # ASR 曖昧域 LLM 判定 (T66, Issue #76): asr_gate 有効時のみ構築を試みる。
+        # プロファイル未解決・API キー未設定・LLM 不通は build_llm_asr_judge 内で
+        # fail-open 済み (None を返す) — ここでは例外を送出しない。None の場合、
+        # verify_sentence は曖昧域を従来の機械判定 (長さ比のみ) にフォールバックする。
+        asr_judge = build_llm_asr_judge(asr_judge_profile_label) if asr_gate_enabled else None
 
         # segment ごとに synthesize_script を個別呼び出しする (T62, Issue #65)。
         # per-sentence QA・ASR ゲートは各呼び出し内で従来どおり働き、attempted/
@@ -667,6 +675,7 @@ def produce(
                     emoji_mapping=emoji_mapping,
                     caption=caption,
                     asr_backend=asr_backend,
+                    asr_judge=asr_judge,
                 )
                 segment_wavs.append(seg_synth.audio)
                 attempted_sentences += seg_synth.attempted_sentences
