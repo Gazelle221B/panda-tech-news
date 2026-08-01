@@ -385,6 +385,8 @@ def test_produce_partial_synthesis_exits_without_mp3(tmp_path: Path) -> None:
 
     db = tmp_path / "state.db"
     _seed_draft(db)
+    persona = tmp_path / "persona.yaml"
+    persona.write_text("tts:\n  primary_engine: mock\n", encoding="utf-8")
 
     class _PartialEngine:
         def __init__(self) -> None:
@@ -414,6 +416,8 @@ def test_produce_partial_synthesis_exits_without_mp3(tmp_path: Path) -> None:
                 "partial",
                 "--db-path",
                 str(db),
+                "--persona",
+                str(persona),
                 "--bgm-dir",
                 str(tmp_path / "nobgm"),
                 "--out-dir",
@@ -430,6 +434,8 @@ def test_produce_long_silence_gap_exits_without_mp3(tmp_path: Path) -> None:
 
     db = tmp_path / "state.db"
     _seed_draft(db)
+    persona = tmp_path / "persona.yaml"
+    persona.write_text("tts:\n  primary_engine: mock\n", encoding="utf-8")
 
     class _GapEngine:
         def name(self) -> str:
@@ -454,6 +460,8 @@ def test_produce_long_silence_gap_exits_without_mp3(tmp_path: Path) -> None:
                 "gap",
                 "--db-path",
                 str(db),
+                "--persona",
+                str(persona),
                 "--bgm-dir",
                 str(tmp_path / "nobgm"),
                 "--out-dir",
@@ -471,6 +479,8 @@ def test_produce_allows_subthreshold_silence_gap(tmp_path: Path) -> None:
 
     db = tmp_path / "state.db"
     _seed_draft(db)
+    persona = tmp_path / "persona.yaml"
+    persona.write_text("tts:\n  primary_engine: mock\n", encoding="utf-8")
 
     class _GapEngine:
         def name(self) -> str:
@@ -512,6 +522,8 @@ def test_produce_allows_subthreshold_silence_gap(tmp_path: Path) -> None:
                 "gap",
                 "--db-path",
                 str(db),
+                "--persona",
+                str(persona),
                 "--bgm-dir",
                 str(tmp_path / "nobgm"),
                 "--out-dir",
@@ -529,6 +541,8 @@ def test_produce_long_audio_with_unmeasurable_lufs_exits_without_mp3(tmp_path: P
 
     db = tmp_path / "state.db"
     _seed_draft(db)
+    persona = tmp_path / "persona.yaml"
+    persona.write_text("tts:\n  primary_engine: mock\n", encoding="utf-8")
 
     def _fake_master_to_mp3(audio_wav: bytes, output_path: Path) -> MasteringResult:
         out = Path(output_path)
@@ -554,6 +568,8 @@ def test_produce_long_audio_with_unmeasurable_lufs_exits_without_mp3(tmp_path: P
                 "mock",
                 "--db-path",
                 str(db),
+                "--persona",
+                str(persona),
                 "--bgm-dir",
                 str(tmp_path / "nobgm"),
                 "--out-dir",
@@ -574,6 +590,8 @@ def test_produce_long_audio_with_high_true_peak_exits_without_mp3(tmp_path: Path
 
     db = tmp_path / "state.db"
     _seed_draft(db)
+    persona = tmp_path / "persona.yaml"
+    persona.write_text("tts:\n  primary_engine: mock\n", encoding="utf-8")
 
     def _fake_master_to_mp3(audio_wav: bytes, output_path: Path) -> MasteringResult:
         out = Path(output_path)
@@ -599,6 +617,8 @@ def test_produce_long_audio_with_high_true_peak_exits_without_mp3(tmp_path: Path
                 "mock",
                 "--db-path",
                 str(db),
+                "--persona",
+                str(persona),
                 "--bgm-dir",
                 str(tmp_path / "nobgm"),
                 "--out-dir",
@@ -621,6 +641,8 @@ def test_produce_long_audio_with_unmeasurable_true_peak_exits_without_mp3(
 
     db = tmp_path / "state.db"
     _seed_draft(db)
+    persona = tmp_path / "persona.yaml"
+    persona.write_text("tts:\n  primary_engine: mock\n", encoding="utf-8")
 
     def _fake_master_to_mp3(audio_wav: bytes, output_path: Path) -> MasteringResult:
         out = Path(output_path)
@@ -646,6 +668,8 @@ def test_produce_long_audio_with_unmeasurable_true_peak_exits_without_mp3(
                 "mock",
                 "--db-path",
                 str(db),
+                "--persona",
+                str(persona),
                 "--bgm-dir",
                 str(tmp_path / "nobgm"),
                 "--out-dir",
@@ -665,6 +689,8 @@ def test_produce_long_audio_with_unmeasurable_true_peak_exits_without_mp3(
 def test_produce_dry_run_generates_mp3(tmp_path: Path) -> None:
     db = tmp_path / "state.db"
     _seed_draft(db)
+    persona = tmp_path / "persona.yaml"
+    persona.write_text("tts:\n  primary_engine: mock\n", encoding="utf-8")
     result = runner.invoke(
         app,
         [
@@ -674,6 +700,8 @@ def test_produce_dry_run_generates_mp3(tmp_path: Path) -> None:
             "mock",
             "--db-path",
             str(db),
+            "--persona",
+            str(persona),
             "--bgm-dir",
             str(tmp_path / "nobgm"),
             "--out-dir",
@@ -690,6 +718,8 @@ def test_produce_dry_run_generates_mp3(tmp_path: Path) -> None:
 def test_produce_persists_audio_version(tmp_path: Path) -> None:
     db = tmp_path / "state.db"
     _seed_draft(db)
+    persona = tmp_path / "persona.yaml"
+    persona.write_text("tts:\n  primary_engine: mock\n", encoding="utf-8")
     result = runner.invoke(
         app,
         [
@@ -698,6 +728,8 @@ def test_produce_persists_audio_version(tmp_path: Path) -> None:
             "mock",
             "--db-path",
             str(db),
+            "--persona",
+            str(persona),
             "--bgm-dir",
             str(tmp_path / "nobgm"),
             "--out-dir",
@@ -719,12 +751,18 @@ def test_produce_persists_audio_version(tmp_path: Path) -> None:
 def test_produce_repeated_runs_do_not_overwrite_audio_path(tmp_path: Path) -> None:
     db = tmp_path / "state.db"
     _seed_draft(db)
+    # 実 config/hal_persona.yaml に依存させない (本番 asr_gate: true が whisper 未導入の
+    # テスト環境で設計どおり fail-fast し、本テストの関心事と無関係に落ちるため)。
+    persona = tmp_path / "persona.yaml"
+    persona.write_text("tts:\n  primary_engine: mock\n", encoding="utf-8")
     args = [
         "produce",
         "--engine",
         "mock",
         "--db-path",
         str(db),
+        "--persona",
+        str(persona),
         "--bgm-dir",
         str(tmp_path / "nobgm"),
         "--out-dir",
