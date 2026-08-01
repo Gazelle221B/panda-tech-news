@@ -538,6 +538,7 @@ def produce(
     from karyu_tech_news.store.repo import init_db as init_database
     from karyu_tech_news.store.schema import EpisodeDraft
     from karyu_tech_news.tts.annotate import load_emoji_annotation
+    from karyu_tech_news.tts.asr_gate import AsrUnavailableError, WhisperAsrBackend
     from karyu_tech_news.tts.coverage import analyze_coverage, format_coverage_summary
     from karyu_tech_news.tts.engine import TTSError, select_engine
     from karyu_tech_news.tts.normalize import load_reading_dict, strip_markdown_structure
@@ -552,6 +553,7 @@ def produce(
     reading_path = Path("config/reading_dict.yaml")
     auto_reading_path = Path("data/reading_dict.auto.yaml")  # T56, Issue #52
     caption: str | None = None  # VoiceDesign 話法キャプション (T34, 対応エンジンのみ使用)
+    asr_gate_enabled = False  # ASR 品質ゲート (T58, Issue #54)。既定 false
     if persona_file.exists():
         try:
             persona = yaml.safe_load(persona_file.read_text(encoding="utf-8")) or {}
@@ -562,6 +564,7 @@ def produce(
             if tts_cfg.get("auto_reading_dict"):
                 auto_reading_path = Path(tts_cfg["auto_reading_dict"])
             caption = tts_cfg.get("caption") or None
+            asr_gate_enabled = bool(tts_cfg.get("asr_gate", False))
         except Exception as exc:  # noqa: BLE001
             typer.secho(
                 f"WARN: persona 読み込み失敗 (既定で続行): {type(exc).__name__}",
@@ -635,9 +638,29 @@ def produce(
             typer.secho(f"ERROR: {exc}", fg=typer.colors.RED, err=True)
             raise typer.Exit(code=1) from exc
 
-        synth = synthesize_script(
-            script, tts, reading_dict, emoji_mapping=emoji_mapping, caption=caption
-        )
+        # ASR 品質ゲート (T58, Issue #54): 明示的に有効化した場合のみ構築する。
+        # WhisperAsrBackend の構築自体は常に安全 (whisper 実体は transcribe 時に遅延
+        # ロードするため)。未導入で有効化された場合は synthesize_script 内から
+        # AsrUnavailableError が伝播し、ここで fail-fast する (黙って無効化しない)。
+        asr_backend = WhisperAsrBackend() if asr_gate_enabled else None
+        try:
+            synth = synthesize_script(
+                script,
+                tts,
+                reading_dict,
+                emoji_mapping=emoji_mapping,
+                caption=caption,
+                asr_backend=asr_backend,
+            )
+        except AsrUnavailableError as exc:
+            typer.secho(
+                f"ERROR: ASR ゲートが有効ですが ASR が利用できません: {exc}",
+                fg=typer.colors.RED,
+                err=True,
+            )
+            raise typer.Exit(code=1) from exc
+        if synth.asr_retried_sentences:
+            typer.echo(f"ASR ゲート: {synth.asr_retried_sentences} 文をリトライで復旧")
         if synth.skipped_sentences:
             typer.secho(
                 "ERROR: TTS 合成で欠落文があります "
