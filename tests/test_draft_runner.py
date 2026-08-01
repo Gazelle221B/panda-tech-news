@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 from karyu_tech_news.config import SourceCategory, SourceConfig, SourceTier
 from karyu_tech_news.llm.client import LLMResponse
 from karyu_tech_news.llm.profile import LLMProfile, ResolvedRoles
+from karyu_tech_news.script.ruby import load_auto_readings
 from karyu_tech_news.script.runner import DraftRunResult, run_draft
 from karyu_tech_news.store.repo import create_db_engine, init_db, upsert_source
 from karyu_tech_news.store.schema import (
@@ -218,3 +219,42 @@ def test_run_draft_writer_violations_use_template(session: Session) -> None:
     assert result is not None
     assert result.method_counts == {"template": 2}
     assert "**Hook:**" in result.episode.markdown  # テンプレでも契約適合
+
+
+def test_run_draft_extracts_ruby_and_updates_auto_dict(
+    session: Session, tmp_path: Path
+) -> None:
+    """writer が本文に埋め込んだ [[表記|カナ読み]] を抽出し、保存 markdown はクリーン化・
+    自動読み辞書 (data/reading_dict.auto.yaml 相当) へ蓄積する (T56, Issue #52)."""
+    _seed_items(session)
+    editor = _client(EDITOR_JSON)
+    body_with_ruby = (
+        "**Hook:** [[零一万物|レイイチバンブツ]] が新モデルを発表しました。\n"
+        "**Insight:** 日本の開発者にも API 経由で利用でき、選択肢が広がります。\n"
+        "**Action:** 公式リリースノートの性能比較に注目です。"
+    )
+    writer = _client(body_with_ruby, VALID_BODY)
+    auto_path = tmp_path / "reading_dict.auto.yaml"
+
+    result = run_draft(
+        session,
+        editor=editor,
+        writer=writer,
+        roles=_roles(),
+        variant="A",
+        now=NOW,
+        auto_reading_dict_path=auto_path,
+    )
+
+    assert result is not None
+    assert "[[" not in result.episode.markdown  # ルビ記法は本文から除去される
+    assert "零一万物" in result.episode.markdown  # 表記自体は残る
+
+    assert auto_path.exists()
+    assert load_auto_readings(auto_path) == {"零一万物": "レイイチバンブツ"}
+
+    draft = session.execute(select(EpisodeDraft)).scalar_one()
+    assert "[[" not in str(draft.markdown)  # DB 保存済み markdown もクリーン
+
+    scripts = session.execute(select(ScriptVersion)).scalars().all()
+    assert all("[[" not in str(s.body) for s in scripts)  # 個別トピック本文もクリーン

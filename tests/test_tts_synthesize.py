@@ -263,11 +263,13 @@ def test_synthesize_script_fail_open_on_sentence_error() -> None:
             return Capabilities(emoji_style=False, voice_clone=False, streaming=False, max_chars=100)
 
         def synthesize(self, req: SynthesisRequest) -> SynthesisResult:
-            if "BOOM" in req.text:
+            # "boom" は小文字: T57 の ASCII 略語カナ綴りフォールバック (全大文字 2〜5 文字
+            # のみ対象) の影響を受けず、prepare_tts_text 通過後も文字列一致で検知できる。
+            if "boom" in req.text:
                 raise TTSError("synth failed")
             return MockTTSEngine().synthesize(req)
 
-    res = synthesize_script(_script(("正常。BOOM。", "neutral")), _FlakyEngine(), {})
+    res = synthesize_script(_script(("正常。boom。", "neutral")), _FlakyEngine(), {})
     assert _nframes(res.audio) > 0  # 「正常。」の音声は残る
     assert res.attempted_sentences == 2
     assert res.synthesized_sentences == 1
