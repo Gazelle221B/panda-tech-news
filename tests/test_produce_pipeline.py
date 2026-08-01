@@ -1147,6 +1147,260 @@ def test_strip_markdown_structure_drops_headers_and_meta() -> None:
     assert "コード生成特化モデルを公開します" in out
 
 
+# ---------- T62 (Issue #65): トピック境界セグメント分割 + SFX トランジション統合 ----------
+
+
+def _multi_topic_markdown() -> str:
+    return (
+        "# テスト番組\n"
+        "生成日時: 2026-08-01 10:00 / LLM profile: A\n\n"
+        "タイトルコールです。\n"
+        "オープニングです。\n\n"
+        "## 1. トピック1\n"
+        "トピック1の本文です。\n\n"
+        "## 2. トピック2\n"
+        "トピック2の本文です。\n"
+    )
+
+
+def test_produce_splits_multiple_topics_into_segments_and_synthesizes_each(
+    tmp_path: Path,
+) -> None:
+    """`## ` 見出しが複数ある draft は segment ごとに synthesize_script が呼ばれる (T62)。
+
+    ffmpeg 非依存 (master_to_mp3 をモック・sfx.enabled: false で単純連結) にして、
+    セグメント分割そのものの配線を検証する。
+    """
+    from karyu_tech_news.mix.master import MasteringResult
+    from karyu_tech_news.tts.engine import (
+        Capabilities,
+        MockTTSEngine,
+        SynthesisRequest,
+        SynthesisResult,
+        Voice,
+    )
+
+    db = tmp_path / "state.db"
+    _seed_draft(db, markdown=_multi_topic_markdown())
+    persona = tmp_path / "persona.yaml"
+    persona.write_text("tts:\n  primary_engine: mock\n", encoding="utf-8")
+    show_format = tmp_path / "show_format.yaml"
+    show_format.write_text(
+        "sfx:\n  enabled: false\n  transition: assets/sfx/transition.wav\n", encoding="utf-8"
+    )
+
+    seen_texts: list[str] = []
+
+    class _RecordingEngine:
+        def __init__(self) -> None:
+            self._inner = MockTTSEngine()
+
+        def name(self) -> str:
+            return "mock"
+
+        def voices(self) -> list[Voice]:
+            return self._inner.voices()
+
+        def capabilities(self) -> Capabilities:
+            return self._inner.capabilities()
+
+        def synthesize(self, req: SynthesisRequest) -> SynthesisResult:
+            seen_texts.append(req.text)
+            return self._inner.synthesize(req)
+
+    def _fake_master_to_mp3(audio_wav: bytes, output_path: Path) -> MasteringResult:
+        out = Path(output_path)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_bytes(b"id3")
+        return MasteringResult(
+            path=str(out),
+            target_lufs=-16.0,
+            measured_lufs=-16.0,
+            true_peak_dbtp=-1.0,
+            duration_sec=5.0,
+            bitrate="192k",
+            sample_rate=48000,
+        )
+
+    out_dir = tmp_path / "episodes"
+    with (
+        patch("karyu_tech_news.tts.engine.select_engine", return_value=_RecordingEngine()),
+        patch("karyu_tech_news.mix.master.master_to_mp3", side_effect=_fake_master_to_mp3),
+    ):
+        result = runner.invoke(
+            app,
+            [
+                "produce",
+                "--dry-run",
+                "--db-path",
+                str(db),
+                "--persona",
+                str(persona),
+                "--show-format",
+                str(show_format),
+                "--bgm-dir",
+                str(tmp_path / "nobgm"),
+                "--out-dir",
+                str(out_dir),
+            ],
+        )
+    assert result.exit_code == 0, result.output
+    combined = "".join(seen_texts)
+    assert "トピック1の本文です" in combined
+    assert "トピック2の本文です" in combined
+    assert "タイトルコールです" in combined
+    assert "テスト番組" not in combined  # 見出し行は合成対象に含まれない
+    assert "生成日時" not in combined  # 生成メタも含まれない
+    assert len(list(out_dir.glob("episode_1_*.mp3"))) == 1
+
+
+def test_produce_aggregates_skipped_sentences_across_segments(tmp_path: Path) -> None:
+    """欠落文の集計は全 segment 合算で行われ、従来どおり fail-fast する (T62)。"""
+    from karyu_tech_news.tts.engine import Capabilities, SynthesisRequest, SynthesisResult, Voice
+
+    db = tmp_path / "state.db"
+    markdown = (
+        "# テスト\n\nイントロです。\n\n## 1. A\nトピックAです。\n\n## 2. B\nトピックBです。\n"
+    )
+    _seed_draft(db, markdown=markdown)
+    persona = tmp_path / "persona.yaml"
+    persona.write_text("tts:\n  primary_engine: mock\n", encoding="utf-8")
+
+    class _PartialEngine:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def name(self) -> str:
+            return "partial"
+
+        def voices(self) -> list[Voice]:
+            return [Voice(id="hal", name="HAL")]
+
+        def capabilities(self) -> Capabilities:
+            return Capabilities(
+                emoji_style=False, voice_clone=False, streaming=False, max_chars=200
+            )
+
+        def synthesize(self, req: SynthesisRequest) -> SynthesisResult:
+            self.calls += 1
+            # 3 segment × 1 文 = 計3文。3文目 (トピックB) だけ無音にして skip させる。
+            audio = _silent_wav_bytes(48000) if self.calls == 3 else _wav_with_silence_gap(0.0)
+            return SynthesisResult(audio=audio, sample_rate=48000)
+
+    out_dir = tmp_path / "episodes"
+    with patch("karyu_tech_news.tts.engine.select_engine", return_value=_PartialEngine()):
+        result = runner.invoke(
+            app,
+            [
+                "produce",
+                "--engine",
+                "partial",
+                "--db-path",
+                str(db),
+                "--persona",
+                str(persona),
+                "--bgm-dir",
+                str(tmp_path / "nobgm"),
+                "--out-dir",
+                str(out_dir),
+            ],
+        )
+    assert result.exit_code == 1
+    assert "TTS 合成で欠落文があります 1/3 文" in result.output
+    assert not list(out_dir.glob("*.mp3"))
+
+
+def test_produce_show_format_yaml_broken_fails_open_without_sfx(tmp_path: Path) -> None:
+    """show_format.yaml が壊れていても SFX なしで続行する (fail-open, persona と同じ流儀)。"""
+    from karyu_tech_news.mix.master import MasteringResult
+
+    db = tmp_path / "state.db"
+    _seed_draft(db)  # 見出し無しの旧形式 (単一 segment)
+    persona = tmp_path / "persona.yaml"
+    persona.write_text("tts:\n  primary_engine: mock\n", encoding="utf-8")
+    show_format = tmp_path / "show_format.yaml"
+    show_format.write_text("sfx: [not, a, mapping", encoding="utf-8")  # 壊れた YAML
+
+    def _fake_master_to_mp3(audio_wav: bytes, output_path: Path) -> MasteringResult:
+        out = Path(output_path)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_bytes(b"id3")
+        return MasteringResult(
+            path=str(out),
+            target_lufs=-16.0,
+            measured_lufs=-16.0,
+            true_peak_dbtp=-1.0,
+            duration_sec=5.0,
+            bitrate="192k",
+            sample_rate=48000,
+        )
+
+    out_dir = tmp_path / "episodes"
+    with patch("karyu_tech_news.mix.master.master_to_mp3", side_effect=_fake_master_to_mp3):
+        result = runner.invoke(
+            app,
+            [
+                "produce",
+                "--dry-run",
+                "--engine",
+                "mock",
+                "--db-path",
+                str(db),
+                "--persona",
+                str(persona),
+                "--show-format",
+                str(show_format),
+                "--bgm-dir",
+                str(tmp_path / "nobgm"),
+                "--out-dir",
+                str(out_dir),
+            ],
+        )
+    assert result.exit_code == 0, result.output
+    assert "WARN: show_format 読み込み失敗" in result.output
+
+
+@pytest.mark.skipif(not _HAS_FFMPEG, reason="ffmpeg 不在")
+def test_produce_with_sfx_enabled_and_multiple_topics_generates_mp3(tmp_path: Path) -> None:
+    """sfx.enabled: true + 実在する transition ファイルで、実 ffmpeg concat 経路まで通す。"""
+    db = tmp_path / "state.db"
+    _seed_draft(db, markdown=_multi_topic_markdown())
+    persona = tmp_path / "persona.yaml"
+    persona.write_text("tts:\n  primary_engine: mock\n", encoding="utf-8")
+
+    sfx_dir = tmp_path / "sfx"
+    sfx_dir.mkdir()
+    transition = sfx_dir / "transition.wav"
+    transition.write_bytes(_wav_with_silence_gap(0.0))  # 有効な短い wav であれば足りる
+    show_format = tmp_path / "show_format.yaml"
+    show_format.write_text(
+        f"sfx:\n  enabled: true\n  transition: {transition.as_posix()}\n", encoding="utf-8"
+    )
+
+    out_dir = tmp_path / "episodes"
+    result = runner.invoke(
+        app,
+        [
+            "produce",
+            "--dry-run",
+            "--engine",
+            "mock",
+            "--db-path",
+            str(db),
+            "--persona",
+            str(persona),
+            "--show-format",
+            str(show_format),
+            "--bgm-dir",
+            str(tmp_path / "nobgm"),
+            "--out-dir",
+            str(out_dir),
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert len(list(out_dir.glob("episode_1_*.mp3"))) == 1
+
+
 @pytest.mark.skipif(
     # Windows では CreateProcess の探索順により "bash" が WSL bash に解決され、
     # Windows パスを解釈できない (詳細は test_daily_pipeline.py の pytestmark 参照)。

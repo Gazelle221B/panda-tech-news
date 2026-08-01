@@ -22,7 +22,9 @@ spike_feedparser_result.txt
 assets/jingles/*
 assets/bgm/*
 assets/voice_reference/*
+assets/sfx/*
 !assets/**/.gitkeep
+!assets/sfx/README.md
 
 # ===== Python =====
 __pycache__/

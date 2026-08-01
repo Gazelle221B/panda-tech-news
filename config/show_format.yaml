@@ -62,6 +62,15 @@ audio:
   bitrate: 192k
   sample_rate_hz: 48000         # Irodori 出力に合わせる
 
+# トピック境界トランジション SFX (T62, Issue #65 スコープA)。produce が
+# mix/transitions.py::concat_with_transitions へ配線する。音源は Stable Audio 3
+# Small-SFX で生成 (scripts/gen_sfx.py)。enabled: false の既定運用では produce の
+# 挙動を一切変えない (ファイル欠落/ffmpeg失敗も fail-open で SFX なし連結)。
+# 採用音源決定後 (Issue #65 スコープB) に true へ切り替える。
+sfx:
+  enabled: false
+  transition: assets/sfx/transition.wav
+
 video:
   type: still_image + waveform   # ffmpeg showwaves + 番組ロゴ
   container: mp4

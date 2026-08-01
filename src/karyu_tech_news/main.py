@@ -502,6 +502,11 @@ def produce(
     persona_file: Path = typer.Option(
         Path("config/hal_persona.yaml"), "--persona", help="hal_persona.yaml のパス"
     ),
+    show_format_file: Path = typer.Option(
+        Path("config/show_format.yaml"),
+        "--show-format",
+        help="show_format.yaml のパス (sfx トランジション設定)",
+    ),
     bgm_dir: Path = typer.Option(
         Path("assets/bgm"), "--bgm-dir", help="BGM 素材ディレクトリ (無ければ素通し)"
     ),
@@ -513,12 +518,14 @@ def produce(
         False, "--dry-run", help="mp3 は生成するが DB 記録・Discord 投稿はしない"
     ),
 ) -> None:
-    """保存済み台本から 1 エピソードの完パケ mp3 を生成 (Sprint 2 T29/T30/T31)。
+    """保存済み台本から 1 エピソードの完パケ mp3 を生成 (Sprint 2 T29/T30/T31, T62)。
 
-    structure → 文単位合成 → BGM ミックス(素材があれば) → -16 LUFS 正規化 + mp3 →
-    audio_versions 記録 → (Discord 添付)。文単位合成は最後まで試して欠落数を集計するが、
-    欠落文がある完パケは produce 境界で fail-fast する。BGM 無し/Discord 失敗は
-    fail-open。ローカルで実音声を出すには `--engine kokoro` を指定する。
+    structure → トピック境界セグメント分割 (T62) → segment ごとに文単位合成 →
+    SFX トランジション挿入 (sfx.enabled 時, T62) → BGM ミックス(素材があれば) →
+    -16 LUFS 正規化 + mp3 → audio_versions 記録 → (Discord 添付)。文単位合成は
+    segment ごとに最後まで試して欠落数を集計するが、全 segment 合算で欠落文がある
+    完パケは produce 境界で fail-fast する。SFX/BGM 無し・Discord 失敗は fail-open。
+    ローカルで実音声を出すには `--engine kokoro` を指定する。
     """
     import math
     from datetime import UTC, datetime
@@ -529,6 +536,7 @@ def produce(
     from karyu_tech_news.deliver.discord import post_audio
     from karyu_tech_news.mix.master import MasteringError, master_to_mp3
     from karyu_tech_news.mix.mixer import find_bgm, mix_bgm
+    from karyu_tech_news.mix.transitions import concat_with_transitions
     from karyu_tech_news.script.ruby import load_auto_readings
     from karyu_tech_news.script.structure import Segment, StructuredScript
     from karyu_tech_news.store.repo import (
@@ -542,7 +550,7 @@ def produce(
     from karyu_tech_news.tts.asr_gate import AsrUnavailableError, WhisperAsrBackend
     from karyu_tech_news.tts.coverage import analyze_coverage, format_coverage_summary
     from karyu_tech_news.tts.engine import TTSError, select_engine
-    from karyu_tech_news.tts.normalize import load_reading_dict, strip_markdown_structure
+    from karyu_tech_news.tts.normalize import load_reading_dict, split_markdown_topics
     from karyu_tech_news.tts.quality import analyze_wav_signal
     from karyu_tech_news.tts.synthesize import synthesize_script
 
@@ -597,21 +605,15 @@ def produce(
         markdown = str(draft.markdown)
         title = str(draft.title)
 
-        # 保存済み markdown を 1 topic segment として構造化 (JudgedTopic は非永続のため、
-        # markdown 再パースの脆さを避け全体を 1 segment にする。文分割は synthesize 側)。
-        # 見出し (中国語原文タイトル) と生成メタは発話しない (要件 §9.6・editorial §1/§10)。
-        script = StructuredScript(
-            variant=variant,
-            generated_at=now,
-            segments=[
-                Segment(
-                    kind="topic",
-                    text=strip_markdown_structure(markdown),
-                    tone="neutral",
-                    bgm="neutral",
-                )
-            ],
-        )
+        # 保存済み markdown をトピック境界 (`## ` 見出し) で複数 segment に構造化する
+        # (T62, Issue #65)。JudgedTopic は非永続のため markdown 再パースに頼るが、
+        # 見出し無しの旧形式は split_markdown_topics が単一パートで返し従来と等価。
+        # 見出し (中国語原文タイトル) と生成メタは発話しない (要件 §9.6・editorial §1/§10、
+        # 各パートへ strip_markdown_structure 適用済み)。文分割は synthesize 側。
+        segments = [
+            Segment(kind="topic", text=text, tone="neutral", bgm="neutral")
+            for text in split_markdown_topics(markdown)
+        ]
         # 読み辞書の二層マージ (T56, Issue #52): auto は writer LLM のインラインルビ由来の
         # 自動蓄積、manual は人間が確認済みの読み。競合時は manual を常に優先する。
         manual_reading_dict = load_reading_dict(reading_path) if reading_path.exists() else {}
@@ -620,9 +622,9 @@ def produce(
         # 読み辞書カバレッジ観測 (T46): TTS 合成前の情報出力のみ。既存の成功条件・
         # fail-fast 挙動には影響しない (失敗しても合成は続行する, 観測は fail-open)。
         try:
-            # 全セグメントを結合して観測する (現状 produce は単一セグメントだが、
-            # 将来 multi-segment 化しても先頭だけに縮退しないようにする)。
-            coverage_text = "\n".join(seg.text for seg in script.segments)
+            # 全セグメントを結合して観測する (T62 で multi-segment 化済み。先頭だけに
+            # 縮退しないよう全 segment のテキストを結合する)。
+            coverage_text = "\n".join(seg.text for seg in segments)
             coverage = analyze_coverage(coverage_text, reading_dict)
             typer.echo(format_coverage_summary(coverage))
         except Exception as exc:  # noqa: BLE001
@@ -644,15 +646,33 @@ def produce(
         # ロードするため)。未導入で有効化された場合は synthesize_script 内から
         # AsrUnavailableError が伝播し、ここで fail-fast する (黙って無効化しない)。
         asr_backend = WhisperAsrBackend() if asr_gate_enabled else None
+
+        # segment ごとに synthesize_script を個別呼び出しする (T62, Issue #65)。
+        # per-sentence QA・ASR ゲートは各呼び出し内で従来どおり働き、attempted/
+        # synthesized/skipped/asr_retried/asr_failed は全 segment 合算で従来の
+        # fail-fast 判定を維持する。segment wav は SFX 挿入 (concat_with_transitions)
+        # のためリストで保持する。
+        segment_wavs: list[bytes] = []
+        attempted_sentences = 0
+        synthesized_sentences = 0
+        skipped_sentences = 0
+        asr_retried_sentences = 0
         try:
-            synth = synthesize_script(
-                script,
-                tts,
-                reading_dict,
-                emoji_mapping=emoji_mapping,
-                caption=caption,
-                asr_backend=asr_backend,
-            )
+            for seg in segments:
+                seg_script = StructuredScript(variant=variant, generated_at=now, segments=[seg])
+                seg_synth = synthesize_script(
+                    seg_script,
+                    tts,
+                    reading_dict,
+                    emoji_mapping=emoji_mapping,
+                    caption=caption,
+                    asr_backend=asr_backend,
+                )
+                segment_wavs.append(seg_synth.audio)
+                attempted_sentences += seg_synth.attempted_sentences
+                synthesized_sentences += seg_synth.synthesized_sentences
+                skipped_sentences += seg_synth.skipped_sentences
+                asr_retried_sentences += seg_synth.asr_retried_sentences
         except AsrUnavailableError as exc:
             typer.secho(
                 f"ERROR: ASR ゲートが有効ですが ASR が利用できません: {exc}",
@@ -660,25 +680,49 @@ def produce(
                 err=True,
             )
             raise typer.Exit(code=1) from exc
-        if synth.asr_retried_sentences:
-            typer.echo(f"ASR ゲート: {synth.asr_retried_sentences} 文をリトライで復旧")
-        if synth.skipped_sentences:
+        if asr_retried_sentences:
+            typer.echo(f"ASR ゲート: {asr_retried_sentences} 文をリトライで復旧")
+        if skipped_sentences:
             typer.secho(
                 "ERROR: TTS 合成で欠落文があります "
-                f"{synth.skipped_sentences}/{synth.attempted_sentences} 文 "
+                f"{skipped_sentences}/{attempted_sentences} 文 "
                 "。不完全な mp3 の生成を中止します。",
                 fg=typer.colors.RED,
                 err=True,
             )
             raise typer.Exit(code=1)
-        if synth.synthesized_sentences == 0:
+        if synthesized_sentences == 0:
             typer.secho(
                 "ERROR: TTS 合成成功文が 0 件です。無音 mp3 の生成を中止します。",
                 fg=typer.colors.RED,
                 err=True,
             )
             raise typer.Exit(code=1)
-        signal = analyze_wav_signal(synth.audio)
+
+        # sfx.enabled (show_format.yaml, T62) が true かつ transition ファイルが実在する
+        # ときだけ実パスを渡す。既定 (enabled: false) では sfx_path=None のままとなり、
+        # concat_with_transitions は SFX なしの単純連結に縮退する (挙動不変)。
+        # ファイル欠落・YAML 破損は fail-open で SFX なし続行 (persona 読み込みと同じ流儀)。
+        sfx_path: Path | None = None
+        if show_format_file.exists():
+            try:
+                show_format_cfg = (
+                    yaml.safe_load(show_format_file.read_text(encoding="utf-8")) or {}
+                )
+                sfx_cfg = show_format_cfg.get("sfx") or {}
+                transition_value = sfx_cfg.get("transition")
+                if bool(sfx_cfg.get("enabled", False)) and transition_value:
+                    candidate = Path(str(transition_value))
+                    sfx_path = candidate if candidate.exists() else None
+            except Exception as exc:  # noqa: BLE001
+                typer.secho(
+                    f"WARN: show_format 読み込み失敗 (SFX なしで続行): {type(exc).__name__}",
+                    fg=typer.colors.YELLOW,
+                    err=True,
+                )
+        combined_audio = concat_with_transitions(segment_wavs, sfx_path)
+
+        signal = analyze_wav_signal(combined_audio)
         if not signal.has_pcm_signal:
             typer.secho(
                 "ERROR: TTS 合成結果が無音です。mp3 配信を中止します。",
@@ -695,7 +739,7 @@ def produce(
                 err=True,
             )
             raise typer.Exit(code=1)
-        mixed = mix_bgm(synth.audio, bgm_path=find_bgm(bgm_dir))
+        mixed = mix_bgm(combined_audio, bgm_path=find_bgm(bgm_dir))
 
         stamp = now.strftime("%Y%m%dT%H%M%S%fZ")
         out_path = out_dir / f"episode_{draft_pk}_{stamp}.mp3"
