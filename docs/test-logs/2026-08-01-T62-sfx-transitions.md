@@ -323,3 +323,42 @@ $ git diff --check
 - **SFX ダミー素材の振幅調整はテスト側の問題として処理**: 3種同時投入時の true peak 超過は
   `master_to_mp3` の loudnorm 挙動そのものであり、実装のバグではないと判断した (実際の採用
   音源はピーク -3dBFS 正規化済みのため、実運用でこの現象が起きる可能性は低い)。
+
+---
+
+## 追記 (同日, フォローアップ): README/config のドキュメント補完
+
+PR #66 (本チケットの上記2コミット) はマージ済み。マージ後、オーケストレータからのレビューで
+`assets/sfx/README.md` に各音源の具体的な特徴描写が無いこと (transition=マリンバ2音 /
+opening=エレピ+パルス / ending=解決コード) を指摘され、`agent/T62-followup-readme-impl`
+ブランチ (`origin/main` から新規に切り直し。マージ済みブランチは使い回さない, AGENTS.md §8.2)
+で以下を追記した:
+
+- `assets/sfx/README.md`: 各音源の内容を一文で追記
+  (transition=マリンバ2音のドライなスティンガー / opening=エレピ+パルスの立ち上がり /
+  ending=解決コードで締める短いフレーズ) + Stability Community License の明記位置を調整。
+- `config/show_format.yaml`: `sfx.{transition,opening,ending}` の各行にゲイン値
+  (`-6dB`/`-3dB`/`-3dB`, `mix/transitions.py` の既定値と一致) をインラインコメントで追記。
+  YAML パースに影響しないことを `yaml.safe_load` で確認済み。
+
+コード変更は無し (ドキュメントのみ)。品質ゲートは新規 worktree (origin/main ベース) で再実行:
+
+```
+$ uv run pytest -v
+678 passed, 11 skipped
+
+$ uv run ruff check .
+All checks passed!
+
+$ uv run mypy src tests
+Success: no issues found in 94 source files
+
+$ uv run mypy scripts/gen_sfx.py
+Success: no issues found in 1 source file
+
+$ uv lock --check
+Resolved 126 packages (差分なし)
+
+$ git diff --check
+(出力なし = クリーン)
+```
