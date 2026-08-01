@@ -12,6 +12,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from karyu_tech_news.llm.asr_judge import (
+    ASR_JUDGE_SYSTEM_PROMPT,
     DEFAULT_ASR_JUDGE_PROFILE,
     AsrJudgeError,
     LLMAsrJudge,
@@ -147,3 +148,76 @@ def test_number_mismatch_detected_end_to_end_via_verify_sentence() -> None:
     _, kwargs = client.chat.call_args
     assert expected in kwargs["user"]
     assert transcript in kwargs["user"]
+
+
+# ---------- judge プロンプト精緻化 (T66b, Issue #76 続き): 実測 draft #5 の同音異字誤検出対応 ----------
+#
+# 実戦投入 (draft #5 produce, 全25文中曖昧域6文) で以下の誤判定が判明した:
+# - 「実需を測る」↔「実需を図る」(同音異字 はかる) が mismatch に誤検出
+# - 「四半期決算」↔「市販機決算」(同音 しはんき) が mismatch に誤検出
+# - 「強制製品認証（シーシーシー認証）」↔「強制製品認証各区、CCC認証」
+#   (括弧読み下しに伴う聞き取りノイズ) が insertion に誤検出
+# - 「半導体市況」↔「半導体ガシモン」(同音ではない、TTS の実誤読の可能性) は mismatch の
+#   ままで良い (真陽性疑い)
+#
+# プロンプトが実際にこれらを正しく判定するかは実 API でしか検証できないため、ここでは
+# (a) プロンプトが該当基準・実例を含むこと (プロンプト文言の存在アサート) と、
+# (b) fake LLM 応答を注入した場合に LLMAsrJudge がその verdict をそのまま通すこと
+# (配線確認、既存の fake 方式を踏襲) の 2 点を固定する。実 API は呼ばない。
+
+
+def test_prompt_mentions_transcript_is_imperfect_asr_output() -> None:
+    assert "不完全な ASR" in ASR_JUDGE_SYSTEM_PROMPT
+
+
+def test_prompt_treats_homophone_kanji_variance_as_ok() -> None:
+    assert "測る" in ASR_JUDGE_SYSTEM_PROMPT
+    assert "図る" in ASR_JUDGE_SYSTEM_PROMPT
+    assert "四半期" in ASR_JUDGE_SYSTEM_PROMPT
+    assert "市販機" in ASR_JUDGE_SYSTEM_PROMPT
+
+
+def test_prompt_treats_parenthetical_readout_noise_as_ok() -> None:
+    assert "括弧" in ASR_JUDGE_SYSTEM_PROMPT
+    assert "シーシーシー認証" in ASR_JUDGE_SYSTEM_PROMPT
+
+
+def test_prompt_mismatch_definition_requires_non_homophone_difference() -> None:
+    assert "同音" in ASR_JUDGE_SYSTEM_PROMPT
+    assert "半導体市況" in ASR_JUDGE_SYSTEM_PROMPT
+    assert "半導体ガシモン" in ASR_JUDGE_SYSTEM_PROMPT
+
+
+def test_prompt_insertion_definition_restricted_to_phrase_or_sentence_level() -> None:
+    assert "フレーズ単位" in ASR_JUDGE_SYSTEM_PROMPT
+    assert "単語 1 個" in ASR_JUDGE_SYSTEM_PROMPT
+
+
+def test_llm_asr_judge_homophone_kanji_hakaru_returns_ok() -> None:
+    # 「測る」↔「図る」(同音異字 はかる) は ok と判定されるべき (fake 応答で配線確認)
+    client = _mock_client('{"verdict": "ok", "reason": "同音異字(測る/図る)の認識ゆれ"}')
+    judge = LLMAsrJudge(client)
+    assert judge.judge("実需を測る。", "実需を図る") == "ok"
+
+
+def test_llm_asr_judge_homophone_shihanki_returns_ok() -> None:
+    # 「四半期」↔「市販機」(同音 しはんき) は ok と判定されるべき (fake 応答で配線確認)
+    client = _mock_client('{"verdict": "ok", "reason": "同音(四半期/市販機)の認識ゆれ"}')
+    judge = LLMAsrJudge(client)
+    assert judge.judge("四半期決算。", "市販機決算") == "ok"
+
+
+def test_llm_asr_judge_parenthetical_readout_noise_returns_ok() -> None:
+    # 括弧読み下しに伴う聞き取りノイズは ok と判定されるべき (fake 応答で配線確認)
+    client = _mock_client('{"verdict": "ok", "reason": "括弧読み下しの聞き取りノイズ"}')
+    judge = LLMAsrJudge(client)
+    expected = "強制製品認証（シーシーシー認証）。"
+    transcript = "強制製品認証各区、CCC認証"
+    assert judge.judge(expected, transcript) == "ok"
+
+
+def test_llm_asr_judge_true_misread_gashimon_returns_mismatch() -> None:
+    # 「半導体市況」↔「半導体ガシモン」(同音ではない) は mismatch のまま (真陽性疑い、fake 応答で配線確認)
+    client = _mock_client('{"verdict": "mismatch", "reason": "同音では説明できない相違"}')
+    judge = LLMAsrJudge(client)
+    assert judge.judge("半導体市況。", "半導体ガシモン") == "mismatch"
