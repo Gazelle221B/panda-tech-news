@@ -89,6 +89,34 @@ def test_llm_profile_allows_empty_api_key_env() -> None:
     assert p.api_key_env == ""
 
 
+def test_llm_profile_new_fields_default_for_backward_compat() -> None:
+    """token_param/send_temperature/seed 無指定時は既存プロファイルの挙動を保つ既定値 (T64)."""
+    p = LLMProfile.model_validate(_profile_dict())
+    assert p.token_param == "max_tokens"
+    assert p.send_temperature is True
+    assert p.seed is None
+
+
+def test_llm_profile_accepts_max_completion_tokens_send_temperature_false_and_seed() -> None:
+    p = LLMProfile.model_validate(
+        _profile_dict(
+            "openai-luna",
+            api_key_env="OPENAI_API_KEY",
+            token_param="max_completion_tokens",
+            send_temperature=False,
+            seed=42,
+        )
+    )
+    assert p.token_param == "max_completion_tokens"
+    assert p.send_temperature is False
+    assert p.seed == 42
+
+
+def test_llm_profile_rejects_unknown_token_param() -> None:
+    with pytest.raises(ValidationError):
+        LLMProfile.model_validate(_profile_dict(token_param="max_new_tokens"))
+
+
 # ---------- LLMProfilesFile ----------
 
 def test_profiles_file_valid() -> None:
@@ -146,13 +174,19 @@ def test_load_real_llm_profiles_yaml() -> None:
     """実 config/llm_profiles.yaml の確定構成を固定する結合テスト."""
     f = load_llm_profiles(DEFAULT_LLM_PROFILES_PATH)
     labels = [p.label for p in f.profiles]
-    assert labels == ["deepseek", "mimo", "mimo-openrouter", "local-ollama"]
+    assert labels == ["deepseek", "mimo", "openai-luna", "mimo-openrouter", "local-ollama"]
     assert set(f.ab_test) == {"A", "B", "C"}
 
-    # ADR-0005: A 案 (推奨初期) = editor MiMo / writer DeepSeek
+    # T64 (Issue #70): A 案の editor を mimo → openai-luna へ切替 (OpenAI キャンペーン枠)
     roles = f.resolve_roles("A")
-    assert roles.editor.label == "mimo"
+    assert roles.editor.label == "openai-luna"
     assert roles.writer.label == "deepseek"
+
+    # openai-luna は 2026-08-02 実機スモークの互換制約を反映 (max_completion_tokens 必須 / temperature 送信不可)
+    luna = f.profile_by_label("openai-luna")
+    assert luna.token_param == "max_completion_tokens"
+    assert luna.send_temperature is False
+    assert luna.seed == 42
 
     # 秘密値は環境変数名のみ保持 (実キーを YAML に書かない)
     for p in f.profiles:

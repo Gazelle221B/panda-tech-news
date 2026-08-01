@@ -42,6 +42,20 @@ def _ollama_profile() -> LLMProfile:
     )
 
 
+def _luna_profile(**overrides: object) -> LLMProfile:
+    """T64: temperature 送信不可・max_completion_tokens 必須なプロファイル."""
+    base: dict[str, object] = {
+        "label": "openai-luna",
+        "base_url": "https://api.openai.com/v1",
+        "model": "gpt-5.6-luna",
+        "token_param": "max_completion_tokens",
+        "send_temperature": False,
+        "seed": 42,
+    }
+    base.update(overrides)
+    return _profile(**base)
+
+
 def _chat_response_json(content: str = "こんにちは") -> dict[str, Any]:
     return {
         "model": "deepseek-chat",
@@ -137,6 +151,74 @@ def test_chat_temperature_override(monkeypatch: pytest.MonkeyPatch) -> None:
         client.chat(system="s", user="u", temperature=0.0)
 
     assert mock_post.call_args.kwargs["json"]["temperature"] == 0.0
+
+
+def test_chat_token_param_switches_body_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    """token_param=max_completion_tokens のプロファイルは同名キーで送る (T64)."""
+    monkeypatch.setenv("TEST_LLM_API_KEY", "sk-test-123")
+    client = LLMClient(_luna_profile())
+    mock_resp = _mock_resp(_chat_response_json())
+
+    with patch(
+        "karyu_tech_news.llm.client.httpx.post", return_value=mock_resp
+    ) as mock_post:
+        client.chat(system="s", user="u")
+
+    body = mock_post.call_args.kwargs["json"]
+    assert body["max_completion_tokens"] == 1800
+    assert "max_tokens" not in body
+
+
+def test_chat_send_temperature_false_omits_temperature_even_with_override(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """send_temperature=False は呼び出し側の temperature 引数指定も無視して省略する (T64)."""
+    monkeypatch.setenv("TEST_LLM_API_KEY", "sk-test-123")
+    client = LLMClient(_luna_profile())
+    mock_resp = _mock_resp(_chat_response_json())
+
+    with patch(
+        "karyu_tech_news.llm.client.httpx.post", return_value=mock_resp
+    ) as mock_post:
+        client.chat(system="s", user="u", temperature=0.0)
+
+    assert "temperature" not in mock_post.call_args.kwargs["json"]
+
+
+def test_chat_seed_is_added_when_profile_specifies_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """profile.seed 指定時のみ body に seed を付与する (T64: 決定性補完)."""
+    monkeypatch.setenv("TEST_LLM_API_KEY", "sk-test-123")
+    client = LLMClient(_luna_profile())
+    mock_resp = _mock_resp(_chat_response_json())
+
+    with patch(
+        "karyu_tech_news.llm.client.httpx.post", return_value=mock_resp
+    ) as mock_post:
+        client.chat(system="s", user="u")
+
+    assert mock_post.call_args.kwargs["json"]["seed"] == 42
+
+
+def test_chat_existing_profile_without_new_fields_is_unchanged(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """token_param/send_temperature/seed 無指定の既存プロファイルは挙動不変 (後方互換, T64)."""
+    monkeypatch.setenv("TEST_LLM_API_KEY", "sk-test-123")
+    client = LLMClient(_profile())
+    mock_resp = _mock_resp(_chat_response_json())
+
+    with patch(
+        "karyu_tech_news.llm.client.httpx.post", return_value=mock_resp
+    ) as mock_post:
+        client.chat(system="s", user="u")
+
+    body = mock_post.call_args.kwargs["json"]
+    assert body["max_tokens"] == 1800
+    assert "max_completion_tokens" not in body
+    assert body["temperature"] == 0.3
+    assert "seed" not in body
 
 
 def test_chat_ollama_forces_think_false_and_no_auth_header() -> None:

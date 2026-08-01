@@ -73,7 +73,10 @@ class LLMClient:
         json_mode=True で response_format=json_object を要求する
         (編集判定 T15 用。台本生成はプレーンテキスト, IMPLEMENTATION_PLAN-1B §8)。
         temperature は通常 profile 値を使い、編集判定 (temp=0 固定,
-        design-inheritance §4.2) のみ呼び出し側で上書きする。
+        design-inheritance §4.2) のみ呼び出し側で上書きする。ただし
+        profile.send_temperature=False のモデル (T64: temperature 指定不可の
+        OpenAI Luna 系) では、この引数の指定有無に関わらず body から
+        temperature を完全に省略する。
         """
         body: dict[str, Any] = {
             "model": self.profile.model,
@@ -81,10 +84,15 @@ class LLMClient:
                 {"role": "system", "content": system},
                 {"role": "user", "content": user},
             ],
-            "max_tokens": self.profile.max_tokens,
-            "temperature": self.profile.temperature if temperature is None else temperature,
+            self.profile.token_param: self.profile.max_tokens,
             "stream": False,
         }
+        if self.profile.send_temperature:
+            body["temperature"] = (
+                self.profile.temperature if temperature is None else temperature
+            )
+        if self.profile.seed is not None:
+            body["seed"] = self.profile.seed
         if json_mode:
             body["response_format"] = {"type": "json_object"}
         if self.profile.provider is LLMProvider.OLLAMA:

@@ -23,14 +23,15 @@ def test_draft_dry_run_lists_candidates_without_llm(tmp_path: Path) -> None:
     result = runner.invoke(app, ["draft", "--dry-run", "--db-path", str(db)])
     assert result.exit_code == 0
     assert "DRY RUN" in result.output
-    assert "editor=mimo" in result.output  # variant A の既定 (ADR-0005)
+    assert "editor=openai-luna" in result.output  # variant A の既定 (T64: Issue #70 でキャンペーン枠へ切替)
 
 
 def test_draft_without_api_key_exits_1(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     # styleguide §9: 未設定は setenv("") で固定 (.env 再投入を防ぐ)
-    monkeypatch.setenv("MIMO_API_KEY", "")
+    # T64 (Issue #70): variant A の editor は mimo → openai-luna へ変更済み
+    monkeypatch.setenv("OPENAI_API_KEY", "")
     monkeypatch.setenv("DEEPSEEK_API_KEY", "")
     db = tmp_path / "state.db"
 

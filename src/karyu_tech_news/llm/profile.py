@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from enum import StrEnum
 from pathlib import Path
-from typing import Annotated, NamedTuple
+from typing import Annotated, Literal, NamedTuple
 
 import yaml
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -38,6 +38,9 @@ class LLMProfile(BaseModel):
     model: Annotated[str, Field(min_length=1)]
     max_tokens: Annotated[int, Field(gt=0)]
     temperature: Annotated[float, Field(ge=0.0, le=2.0)]
+    token_param: Literal["max_tokens", "max_completion_tokens"] = "max_tokens"
+    send_temperature: bool = True
+    seed: int | None = None
     notes: str = ""
 
     @field_validator("base_url")
