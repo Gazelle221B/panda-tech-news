@@ -699,28 +699,44 @@ def produce(
             )
             raise typer.Exit(code=1)
 
-        # sfx.enabled (show_format.yaml, T62) が true かつ transition ファイルが実在する
-        # ときだけ実パスを渡す。既定 (enabled: false) では sfx_path=None のままとなり、
-        # concat_with_transitions は SFX なしの単純連結に縮退する (挙動不変)。
-        # ファイル欠落・YAML 破損は fail-open で SFX なし続行 (persona 読み込みと同じ流儀)。
-        sfx_path: Path | None = None
+        # sfx.enabled (show_format.yaml, T62) が true のときだけ transition/opening/ending
+        # の実パスを渡す。既定 (enabled: false) では全て None のままとなり、
+        # concat_with_transitions は SFX なしの単純連結に縮退する (挙動不変)。各ファイルは
+        # 個別に fail-open (欠落したものだけスキップ)。ファイル欠落・YAML 破損は fail-open で
+        # SFX なし続行 (persona 読み込みと同じ流儀)。
+        transition_path: Path | None = None
+        opening_path: Path | None = None
+        ending_path: Path | None = None
         if show_format_file.exists():
             try:
                 show_format_cfg = (
                     yaml.safe_load(show_format_file.read_text(encoding="utf-8")) or {}
                 )
                 sfx_cfg = show_format_cfg.get("sfx") or {}
-                transition_value = sfx_cfg.get("transition")
-                if bool(sfx_cfg.get("enabled", False)) and transition_value:
-                    candidate = Path(str(transition_value))
-                    sfx_path = candidate if candidate.exists() else None
+                if bool(sfx_cfg.get("enabled", False)):
+
+                    def _resolve_sfx_path(key: str) -> Path | None:
+                        value = sfx_cfg.get(key)
+                        if not value:
+                            return None
+                        candidate = Path(str(value))
+                        return candidate if candidate.exists() else None
+
+                    transition_path = _resolve_sfx_path("transition")
+                    opening_path = _resolve_sfx_path("opening")
+                    ending_path = _resolve_sfx_path("ending")
             except Exception as exc:  # noqa: BLE001
                 typer.secho(
                     f"WARN: show_format 読み込み失敗 (SFX なしで続行): {type(exc).__name__}",
                     fg=typer.colors.YELLOW,
                     err=True,
                 )
-        combined_audio = concat_with_transitions(segment_wavs, sfx_path)
+        combined_audio = concat_with_transitions(
+            segment_wavs,
+            transition_path=transition_path,
+            opening_path=opening_path,
+            ending_path=ending_path,
+        )
 
         signal = analyze_wav_signal(combined_audio)
         if not signal.has_pcm_signal:

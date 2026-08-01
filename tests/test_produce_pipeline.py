@@ -82,6 +82,18 @@ def _seed_draft(db: Path, markdown: str = "# テスト\n\nこんにちは。本�
         return int(d.id)
 
 
+def _sfx_disabled_show_format(tmp_path: Path) -> Path:
+    """SFX 無効の show_format.yaml を作る (T62, Issue #65).
+
+    実 `config/show_format.yaml` は `sfx.enabled: true` が既定 (採用音源同梱済み) のため、
+    SFX 挙動を検証しないテストが実 config・実 assets/sfx/*.wav に依存しないよう明示的に
+    分離する (T60 の `--persona` hermetic 化と同じ流儀)。
+    """
+    path = tmp_path / "show_format.yaml"
+    path.write_text("sfx:\n  enabled: false\n", encoding="utf-8")
+    return path
+
+
 # ---------- T29 mixer (素材非依存) ----------
 
 
@@ -462,6 +474,8 @@ def test_produce_long_silence_gap_exits_without_mp3(tmp_path: Path) -> None:
                 str(db),
                 "--persona",
                 str(persona),
+                "--show-format",
+                str(_sfx_disabled_show_format(tmp_path)),
                 "--bgm-dir",
                 str(tmp_path / "nobgm"),
                 "--out-dir",
@@ -524,6 +538,8 @@ def test_produce_allows_subthreshold_silence_gap(tmp_path: Path) -> None:
                 str(db),
                 "--persona",
                 str(persona),
+                "--show-format",
+                str(_sfx_disabled_show_format(tmp_path)),
                 "--bgm-dir",
                 str(tmp_path / "nobgm"),
                 "--out-dir",
@@ -570,6 +586,8 @@ def test_produce_long_audio_with_unmeasurable_lufs_exits_without_mp3(tmp_path: P
                 str(db),
                 "--persona",
                 str(persona),
+                "--show-format",
+                str(_sfx_disabled_show_format(tmp_path)),
                 "--bgm-dir",
                 str(tmp_path / "nobgm"),
                 "--out-dir",
@@ -619,6 +637,8 @@ def test_produce_long_audio_with_high_true_peak_exits_without_mp3(tmp_path: Path
                 str(db),
                 "--persona",
                 str(persona),
+                "--show-format",
+                str(_sfx_disabled_show_format(tmp_path)),
                 "--bgm-dir",
                 str(tmp_path / "nobgm"),
                 "--out-dir",
@@ -670,6 +690,8 @@ def test_produce_long_audio_with_unmeasurable_true_peak_exits_without_mp3(
                 str(db),
                 "--persona",
                 str(persona),
+                "--show-format",
+                str(_sfx_disabled_show_format(tmp_path)),
                 "--bgm-dir",
                 str(tmp_path / "nobgm"),
                 "--out-dir",
@@ -702,6 +724,8 @@ def test_produce_dry_run_generates_mp3(tmp_path: Path) -> None:
             str(db),
             "--persona",
             str(persona),
+            "--show-format",
+            str(_sfx_disabled_show_format(tmp_path)),
             "--bgm-dir",
             str(tmp_path / "nobgm"),
             "--out-dir",
@@ -730,6 +754,8 @@ def test_produce_persists_audio_version(tmp_path: Path) -> None:
             str(db),
             "--persona",
             str(persona),
+            "--show-format",
+            str(_sfx_disabled_show_format(tmp_path)),
             "--bgm-dir",
             str(tmp_path / "nobgm"),
             "--out-dir",
@@ -763,6 +789,8 @@ def test_produce_repeated_runs_do_not_overwrite_audio_path(tmp_path: Path) -> No
         str(db),
         "--persona",
         str(persona),
+        "--show-format",
+        str(_sfx_disabled_show_format(tmp_path)),
         "--bgm-dir",
         str(tmp_path / "nobgm"),
         "--out-dir",
@@ -798,6 +826,8 @@ def test_produce_uses_config_primary_engine(tmp_path: Path) -> None:
             str(db),
             "--persona",
             str(persona),
+            "--show-format",
+            str(_sfx_disabled_show_format(tmp_path)),
             "--bgm-dir",
             str(tmp_path / "nobgm"),
             "--out-dir",
@@ -868,6 +898,8 @@ def test_produce_merges_auto_and_manual_reading_dicts_manual_wins(tmp_path: Path
                 str(db),
                 "--persona",
                 str(persona),
+                "--show-format",
+                str(_sfx_disabled_show_format(tmp_path)),
                 "--bgm-dir",
                 str(tmp_path / "nobgm"),
                 "--out-dir",
@@ -1371,7 +1403,7 @@ def test_produce_with_sfx_enabled_and_multiple_topics_generates_mp3(tmp_path: Pa
     sfx_dir = tmp_path / "sfx"
     sfx_dir.mkdir()
     transition = sfx_dir / "transition.wav"
-    transition.write_bytes(_wav_with_silence_gap(0.0))  # 有効な短い wav であれば足りる
+    transition.write_bytes(_wav_bytes(48000))  # 控えめな振幅の有効な wav であれば足りる
     show_format = tmp_path / "show_format.yaml"
     show_format.write_text(
         f"sfx:\n  enabled: true\n  transition: {transition.as_posix()}\n", encoding="utf-8"
@@ -1397,6 +1429,200 @@ def test_produce_with_sfx_enabled_and_multiple_topics_generates_mp3(tmp_path: Pa
             str(out_dir),
         ],
     )
+    assert result.exit_code == 0, result.output
+    assert len(list(out_dir.glob("episode_1_*.mp3"))) == 1
+
+
+def _sfx_show_format(
+    tmp_path: Path,
+    *,
+    transition: Path | None = None,
+    opening: Path | None = None,
+    ending: Path | None = None,
+) -> Path:
+    """sfx.enabled: true の show_format.yaml を組む (opening/transition/ending は個別指定可)。"""
+    lines = ["sfx:", "  enabled: true"]
+    if transition is not None:
+        lines.append(f"  transition: {transition.as_posix()}")
+    if opening is not None:
+        lines.append(f"  opening: {opening.as_posix()}")
+    if ending is not None:
+        lines.append(f"  ending: {ending.as_posix()}")
+    path = tmp_path / "show_format.yaml"
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return path
+
+
+@pytest.mark.skipif(not _HAS_FFMPEG, reason="ffmpeg 不在")
+def test_produce_sfx_opening_only_generates_mp3(tmp_path: Path) -> None:
+    """opening のみ設定 (transition/ending 無し) でも produce は完走する (Issue #65 拡張)。"""
+    db = tmp_path / "state.db"
+    _seed_draft(db, markdown=_multi_topic_markdown())
+    persona = tmp_path / "persona.yaml"
+    persona.write_text("tts:\n  primary_engine: mock\n", encoding="utf-8")
+
+    opening = tmp_path / "opening.wav"
+    opening.write_bytes(_wav_bytes(48000))  # 控えめな振幅 (true peak ゲート回避)
+    show_format = _sfx_show_format(tmp_path, opening=opening)
+
+    out_dir = tmp_path / "episodes"
+    result = runner.invoke(
+        app,
+        [
+            "produce",
+            "--dry-run",
+            "--engine",
+            "mock",
+            "--db-path",
+            str(db),
+            "--persona",
+            str(persona),
+            "--show-format",
+            str(show_format),
+            "--bgm-dir",
+            str(tmp_path / "nobgm"),
+            "--out-dir",
+            str(out_dir),
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert len(list(out_dir.glob("episode_1_*.mp3"))) == 1
+
+
+@pytest.mark.skipif(not _HAS_FFMPEG, reason="ffmpeg 不在")
+def test_produce_sfx_ending_only_generates_mp3(tmp_path: Path) -> None:
+    """ending のみ設定 (transition/opening 無し) でも produce は完走する (Issue #65 拡張)。"""
+    db = tmp_path / "state.db"
+    _seed_draft(db, markdown=_multi_topic_markdown())
+    persona = tmp_path / "persona.yaml"
+    persona.write_text("tts:\n  primary_engine: mock\n", encoding="utf-8")
+
+    ending = tmp_path / "ending.wav"
+    ending.write_bytes(_wav_bytes(48000))  # 控えめな振幅 (true peak ゲート回避)
+    show_format = _sfx_show_format(tmp_path, ending=ending)
+
+    out_dir = tmp_path / "episodes"
+    result = runner.invoke(
+        app,
+        [
+            "produce",
+            "--dry-run",
+            "--engine",
+            "mock",
+            "--db-path",
+            str(db),
+            "--persona",
+            str(persona),
+            "--show-format",
+            str(show_format),
+            "--bgm-dir",
+            str(tmp_path / "nobgm"),
+            "--out-dir",
+            str(out_dir),
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert len(list(out_dir.glob("episode_1_*.mp3"))) == 1
+
+
+@pytest.mark.skipif(not _HAS_FFMPEG, reason="ffmpeg 不在")
+def test_produce_sfx_all_three_kinds_generates_mp3(tmp_path: Path) -> None:
+    """transition + opening + ending の3種すべて設定した完全経路が完走する (Issue #65 拡張)。"""
+    db = tmp_path / "state.db"
+    _seed_draft(db, markdown=_multi_topic_markdown())
+    persona = tmp_path / "persona.yaml"
+    persona.write_text("tts:\n  primary_engine: mock\n", encoding="utf-8")
+
+    sfx_dir = tmp_path / "sfx"
+    sfx_dir.mkdir()
+    # 控えめな振幅 (true peak ゲート回避。3種同時に敷いてもマスタリング後に超過しない)
+    transition = sfx_dir / "transition.wav"
+    transition.write_bytes(_wav_bytes(48000))
+    opening = sfx_dir / "opening.wav"
+    opening.write_bytes(_wav_bytes(48000))
+    ending = sfx_dir / "ending.wav"
+    ending.write_bytes(_wav_bytes(48000))
+    show_format = _sfx_show_format(tmp_path, transition=transition, opening=opening, ending=ending)
+
+    out_dir = tmp_path / "episodes"
+    result = runner.invoke(
+        app,
+        [
+            "produce",
+            "--dry-run",
+            "--engine",
+            "mock",
+            "--db-path",
+            str(db),
+            "--persona",
+            str(persona),
+            "--show-format",
+            str(show_format),
+            "--bgm-dir",
+            str(tmp_path / "nobgm"),
+            "--out-dir",
+            str(out_dir),
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert len(list(out_dir.glob("episode_1_*.mp3"))) == 1
+
+
+def test_produce_sfx_enabled_but_all_files_missing_falls_open(tmp_path: Path) -> None:
+    """sfx.enabled: true でも参照先の3ファイルが全て欠落していれば SFX なしで完走する.
+
+    ffmpeg 非依存 (master_to_mp3 をモック) — concat_with_transitions は3種とも
+    None に解決されるため単純連結に縮退し、ffmpeg は一切呼ばれない。
+    """
+    from karyu_tech_news.mix.master import MasteringResult
+
+    db = tmp_path / "state.db"
+    _seed_draft(db, markdown=_multi_topic_markdown())
+    persona = tmp_path / "persona.yaml"
+    persona.write_text("tts:\n  primary_engine: mock\n", encoding="utf-8")
+
+    show_format = _sfx_show_format(
+        tmp_path,
+        transition=tmp_path / "missing_transition.wav",
+        opening=tmp_path / "missing_opening.wav",
+        ending=tmp_path / "missing_ending.wav",
+    )
+
+    def _fake_master_to_mp3(audio_wav: bytes, output_path: Path) -> MasteringResult:
+        out = Path(output_path)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_bytes(b"id3")
+        return MasteringResult(
+            path=str(out),
+            target_lufs=-16.0,
+            measured_lufs=-16.0,
+            true_peak_dbtp=-1.0,
+            duration_sec=5.0,
+            bitrate="192k",
+            sample_rate=48000,
+        )
+
+    out_dir = tmp_path / "episodes"
+    with patch("karyu_tech_news.mix.master.master_to_mp3", side_effect=_fake_master_to_mp3):
+        result = runner.invoke(
+            app,
+            [
+                "produce",
+                "--dry-run",
+                "--engine",
+                "mock",
+                "--db-path",
+                str(db),
+                "--persona",
+                str(persona),
+                "--show-format",
+                str(show_format),
+                "--bgm-dir",
+                str(tmp_path / "nobgm"),
+                "--out-dir",
+                str(out_dir),
+            ],
+        )
     assert result.exit_code == 0, result.output
     assert len(list(out_dir.glob("episode_1_*.mp3"))) == 1
 

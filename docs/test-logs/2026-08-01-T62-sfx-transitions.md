@@ -201,3 +201,125 @@ $ git diff --check
   使っておらず (`asr_retried_sentences` と `skipped_sentences` のみ使用)、集計しても未使用な
   ため、segment ループでの集計対象から意図的に除外した (mypy strict の未使用変数を避ける意図
   もある)。
+
+---
+
+## 追記 (同日, スコープ拡張): opening/ending 挿入 + 採用音源同梱
+
+オーケストレータから (1) 実機検証済みの stable-audio-3 API 詳細、(2) プロダクトオーナー選定済み
+音源 3種の同梱と opening/ending 対応、の2件の追加指示を受け、以下を反映した。
+
+### 実機検証を反映した `scripts/gen_sfx.py` の修正
+
+- `StableAudioModel.from_pretrained("small-sfx")` のエイリアス必須 (フル repo id を渡すと
+  ValueError) は実装済みだったため変更なし。
+- `model.generate()` の返り値は `torch.Tensor` (stereo, 44100Hz) であることを実機確認。
+  batch 次元 (dim==3) が付く場合があるため `audio[0]` を取り、float32 化した上でピーク振幅が
+  1.0 超のときのみスケールダウンしてクリップを防ぐよう `generate_candidates` を修正
+  (旧実装は無条件で `audio[0]` を取っていたのみで、dim 判定・正規化が無かった)。
+- transition の既定プロンプトを実績ベースで更新: 「ドライな打楽器系スティンガー (マリンバ/
+  シロフォン)」が良い当たりを出し、whoosh/持続音系はノイズ化するという実機知見を反映し
+  `"short news stinger, two quick bright marimba notes, clean studio recording, dry, no
+  whoosh, no noise"` に変更。
+- `flash_attn not installed, disabling Flash Attention` (Windows/CPU で必ず出る無害な警告) は
+  例外ではなくログ出力のため、既存の `_load_model` の例外変換ロジックには影響しない旨をコメント
+  で明記。
+- `pyproject.toml` の `sfx` extra に `torchaudio`/`soundfile` を明示的な直接依存として追加
+  (`uv add torchaudio soundfile --optional sfx`)。従来は `stable-audio-3` 経由の推移的依存
+  でのみ入っていた。バージョン解決は変わらず (torch/torchaudio とも 2.7.1 のまま)。
+
+### opening/ending 挿入対応 (`src/karyu_tech_news/mix/transitions.py`)
+
+- `concat_with_transitions` のシグネチャを変更:
+  `concat_with_transitions(segment_wavs, *, transition_path=None, opening_path=None,
+  ending_path=None, transition_gain_db=-6.0, opening_gain_db=-3.0, ending_gain_db=-3.0) ->
+  bytes`。第2引数だった `sfx_path` は廃止し、3種を独立したキーワード専用引数にした。
+- 出力順は `[opening?, seg0, transition, seg1, transition, ..., segN-1, ending?]`。
+  transition は従来どおりトピック間のみ (segment が2個以上かつ transition 指定時のみ)。
+  opening/ending は **segment 数に関わらず** 独立して先頭前・末尾後に挿入できる (単一
+  segment の episode でも opening/ending だけは効く)。
+- 各 `*_path` は `_resolve_sfx()` で個別に fail-open 判定 (None/欠落なら `_SfxPiece` を作らず
+  その種類だけ挿入しない)。3種すべて未指定/欠落かつ transition 条件も満たさない場合のみ
+  ffmpeg を呼ばず単純連結に縮退する。
+- `_build_ffmpeg_concat` を汎用化し、`_add(path, gain_db)` ヘルパーで segment (`gain_db=None`,
+  ゲイン調整なし) と SFX (種類別ゲイン適用) を統一的に inputs/filter へ積む方式に書き換えた。
+
+### 設定・採用音源同梱
+
+- `config/show_format.yaml`: `sfx.enabled` の既定を **true** に変更 (採用音源同梱済みのため)。
+  `opening`/`ending` キーを追加。
+- `assets/sfx/transition.wav` (2.0s) / `opening.wav` (4.0s) / `ending.wav` (3.0s) — ピーク
+  -3dBFS 正規化済みの確定音源をコミットに含めた (worktree に既に配置されていたものを使用)。
+  `.gitkeep` は不要になったため削除。`.gitignore` に `!assets/sfx/{transition,opening,
+  ending}.wav` を追加し、`assets/sfx/*` の blanket ignore / グローバル `*.wav` ignore の
+  両方から明示的に除外した (jingles/bgm/voice_reference は引き続き素材本体を追跡しない方針の
+  ままなので、sfx だけの例外である旨をコメントに明記)。README.md も確定音源の説明に更新。
+
+### `main.py` の配線更新
+
+- show_format 読み込みブロックを、transition 1本の解決から `_resolve_sfx_path(key)` による
+  transition/opening/ending 独立解決に変更。`concat_with_transitions` へキーワード引数で3パスを
+  渡す。
+
+### テストの hermetic 化 (T60 の教訓の再適用)
+
+`sfx.enabled` の既定が true になったことで、実 `config/show_format.yaml` は実在する
+`assets/sfx/*.wav` を参照するようになった。`--show-format` を明示していない既存 produce
+テストがこの実 config に依存してしまうと、`--persona` で確立していた hermetic 化の原則が
+崩れる。全 produce テストの呼び出し箇所を洗い出し、実際に SFX 解決コードへ到達する
+(= skipped_sentences ゲート等で早期リターンしない) 10箇所に `--show-format
+<tmp_path 上の sfx.enabled: false ファイル>` を追加した (新規ヘルパー
+`_sfx_disabled_show_format(tmp_path)`)。早期リターンする箇所 (help / no-draft / zero-frame /
+全欠落 / ASR unavailable 等、計9箇所相当) は SFX 解決コードに到達しないため据え置いた。
+
+### 追加テスト
+
+`tests/test_mix_transitions.py`: シグネチャ変更に伴い全面改訂。新規に opening のみで単一
+segment でも ffmpeg 経路に入ること・[opening, seg0, transition, seg1, ending] の順序と各区間の
+信号有無 (RMS)・opening のみ/ending のみ (per-file fail-open)・opening 欠落時も transition は
+通常どおり挿入されること (種類別 fail-open の独立性)・3種全欠落時の単純連結、を追加。
+
+`tests/test_produce_pipeline.py`: 新規ヘルパー `_sfx_show_format()` (transition/opening/ending
+を個別指定可) を追加し、opening のみ・ending のみ・3種すべて・3種とも参照先ファイルが欠落
+(fail-open, ffmpeg 非依存) の4テストを追加。SFX ダミー素材は当初 `_wav_with_silence_gap(0.0)`
+(フル振幅) を流用したところ、3種同時挿入時にマスタリング後の true peak がゲート上限
+(-1.0dBTP) を超える実失敗を観測したため、`_wav_bytes(48000)` (控えめな振幅) に差し替えて解消
+した (テストデータの振幅選定ミスであり実装の不具合ではない)。
+
+### 品質ゲート (fresh 実行, `sfx` extra 無しの既定環境, 再検証)
+
+```
+$ uv run pytest -v
+678 passed, 11 skipped in 11.45s
+
+$ uv run ruff check .
+All checks passed!
+
+$ uv run mypy src tests
+Success: no issues found in 94 source files
+
+$ uv run mypy scripts/gen_sfx.py
+Success: no issues found in 1 source file
+
+$ uv lock --check
+Resolved 126 packages (差分なし)
+
+$ git diff --check
+(出力なし = クリーン)
+```
+
+### スコープ拡張分の仕様から外れた判断・不確かな点
+
+- **`concat_with_transitions` の第1引数以外を全てキーワード専用にした**: 旧シグネチャは
+  `sfx_path` が位置引数だったが、3種に増えて位置引数の意味が曖昧になるため `segment_wavs`
+  以外を全てキーワード専用にした (呼び出し側の可読性・誤用防止を優先)。
+- **opening/ending は segment 数に関わらず有効**: 依頼文の「[opening?, seg1, transition,
+  seg2, …, segN, ending?]」という出力順の記述をそのまま一般化し、単一トピックの episode
+  (segment 1個) でも opening/ending だけは挿入されるようにした。transition のみ従来どおり
+  「segment が2個以上」を条件にした (トピックが1つしかなければ「間」が存在しないため)。
+- **`.gitignore` の sfx wav 個別許可**: `assets/sfx/*` の blanket ignore を維持したまま
+  3ファイルだけを `!` で明示的に許可する形にした (bgm/jingles/voice_reference との対称性を
+  保ちつつ、sfx だけ「確定済み小容量素材はコミットする」という運用差を明示するため)。
+- **SFX ダミー素材の振幅調整はテスト側の問題として処理**: 3種同時投入時の true peak 超過は
+  `master_to_mp3` の loudnorm 挙動そのものであり、実装のバグではないと判断した (実際の採用
+  音源はピーク -3dBFS 正規化済みのため、実運用でこの現象が起きる可能性は低い)。

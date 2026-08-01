@@ -1,8 +1,10 @@
 """SFX トランジション挿入 (Sprint 2+ Ticket T62, Issue #65).
 
-produce が segment (トピック) ごとに個別合成した wav バイト列のリストを、トピック間
-だけに短い SFX (トランジション音) を挟んで 1 本の wav に連結する。イントロ前・最終
-トピック後には挿入しない (トピック間のみ)。
+produce が segment (トピック) ごとに個別合成した wav バイト列のリストを、
+`[opening?, seg0, transition, seg1, transition, ..., segN-1, ending?]` の順に SFX を
+挟んで 1 本の wav に連結する。transition はトピック間のみに挿入する (先頭セグメント前・
+最終セグメント後には入れない)。opening/ending はセグメント数に関わらず先頭前・末尾後に
+それぞれ独立して挿入できる。
 
 依存方向 (`docs/architecture.md` §1, `docs/IMPLEMENTATION_PLAN-2.md` §3 `script → tts →
 mix` 一方向): mix 層は tts/script を import しない。本モジュールは wav バイト列のみを
@@ -11,15 +13,16 @@ mix` 一方向): mix 層は tts/script を import しない。本モジュール
 レイヤー境界を跨がない)。
 
 設計判断:
-- **fail-open**: SFX 素材が無い/欠落、segment が 1 個以下、または ffmpeg 実行自体が
-  失敗した場合は SFX なしの単純連結へ縮退する。SFX 音源は Issue #65 スコープB
-  (人間試聴・採用) 待ちのため、`sfx.enabled: false` の既定運用でも produce の挙動は
-  一切変えない (呼び出し側 main.py が enabled 判定を持つ)。
+- **fail-open (種類ごとに独立)**: opening/transition/ending はそれぞれ個別に「未指定
+  (None) / ファイル欠落」を判定し、欠落したものだけを挿入せずスキップする (他の2種が
+  有効なら通常どおり挿入される)。SFX 素材が全て無い、または ffmpeg 実行自体が失敗した
+  場合は SFX なしの単純連結へ縮退する。`sfx.enabled: false` の既定運用でも produce の
+  挙動は一切変えない (呼び出し側 main.py が enabled 判定を持つ)。
 - SFX 挿入は ffmpeg concat フィルタで行う (`mix/master.py` の ffmpeg 呼び出し流儀を踏襲:
   タイムアウト必須・stderr 末尾を WARN ログに残す)。SFX のサンプルレート/チャンネル数は
-  先頭セグメントの形式を基準に `aformat`/`aresample` で自動整合し、`volume={sfx_gain_db}dB`
-  で減衰する。同一 SFX ファイルをトピック間の数だけ複数回 `-i` する単純な構成にし、
-  filter label の暗黙 fan-out には頼らない。
+  先頭セグメントの形式を基準に `aformat`/`aresample` で自動整合し、種類別のゲイン
+  (`{transition,opening,ending}_gain_db`) を適用する。同一 SFX ファイルを挿入箇所の数
+  だけ複数回 `-i` する単純な構成にし、filter label の暗黙 fan-out には頼らない。
 """
 from __future__ import annotations
 
@@ -29,13 +32,35 @@ import shutil
 import subprocess
 import tempfile
 import wave
+from dataclasses import dataclass
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_SFX_GAIN_DB = -6.0  # TTS 音声比の減衰量目安 (Issue #65)
+# 種類別ゲイン既定値 (Issue #65, 2026-08-01 プロダクトオーナー選定音源の実測に基づく目安)。
+# 後段の BGM ミックス + loudnorm が全体のラウドネスを揃えるため、ここでは TTS 音声との
+# 相対バランスのみを担保する。
+DEFAULT_TRANSITION_GAIN_DB = -6.0
+DEFAULT_OPENING_GAIN_DB = -3.0
+DEFAULT_ENDING_GAIN_DB = -3.0
+
 FFMPEG_TIMEOUT_SECONDS = 120.0  # SFX 挿入は完パケマスタリングより短時間で完結する想定
 _FALLBACK_SAMPLE_RATE = 48000  # 空入力時の無音 wav 用 (tts/synthesize.py の既定値と同値)
+
+
+@dataclass(frozen=True)
+class _SfxPiece:
+    """挿入対象の SFX 1件 (ファイルパス + 適用ゲイン)."""
+
+    path: Path
+    gain_db: float
+
+
+def _resolve_sfx(path: Path | None, gain_db: float) -> _SfxPiece | None:
+    """path が None/欠落なら None (fail-open, その種類だけ挿入しない)."""
+    if path is None or not path.exists():
+        return None
+    return _SfxPiece(path=path, gain_db=gain_db)
 
 
 def _silent_wav(sample_rate: int = _FALLBACK_SAMPLE_RATE) -> bytes:
@@ -98,35 +123,43 @@ def _wav_format(wav_bytes: bytes) -> tuple[int, int] | None:
 
 def _build_ffmpeg_concat(
     seg_paths: list[Path],
-    sfx_path: Path,
     out_path: Path,
     *,
+    opening: _SfxPiece | None,
+    transition: _SfxPiece | None,
+    ending: _SfxPiece | None,
     channels: int,
     sample_rate: int,
-    sfx_gain_db: float,
 ) -> list[str]:
-    """[seg0, sfx, seg1, sfx, ..., segN-1] を concat する ffmpeg コマンドを組む."""
+    """[opening?, seg0, transition, seg1, ..., segN-1, ending?] を concat する ffmpeg コマンドを組む."""
     layout = "mono" if channels == 1 else "stereo"
     inputs: list[Path] = []
     filters: list[str] = []
     labels: list[str] = []
-    for i, seg_path in enumerate(seg_paths):
+
+    def _add(path: Path, *, gain_db: float | None) -> None:
         idx = len(inputs)
-        inputs.append(seg_path)
+        inputs.append(path)
         label = f"a{idx}"
-        filters.append(
-            f"[{idx}:a]aformat=sample_rates={sample_rate}:channel_layouts={layout}[{label}]"
-        )
-        labels.append(label)
-        if i < len(seg_paths) - 1:  # トピック間のみ (先頭前・末尾後には入れない)
-            idx = len(inputs)
-            inputs.append(sfx_path)
-            label = f"a{idx}"
+        if gain_db is None:  # segment (TTS 音声) はゲイン調整しない
             filters.append(
-                f"[{idx}:a]volume={sfx_gain_db}dB,aresample={sample_rate},"
+                f"[{idx}:a]aformat=sample_rates={sample_rate}:channel_layouts={layout}[{label}]"
+            )
+        else:
+            filters.append(
+                f"[{idx}:a]volume={gain_db}dB,aresample={sample_rate},"
                 f"aformat=sample_rates={sample_rate}:channel_layouts={layout}[{label}]"
             )
-            labels.append(label)
+        labels.append(label)
+
+    if opening is not None:
+        _add(opening.path, gain_db=opening.gain_db)
+    for i, seg_path in enumerate(seg_paths):
+        _add(seg_path, gain_db=None)
+        if transition is not None and i < len(seg_paths) - 1:  # トピック間のみ
+            _add(transition.path, gain_db=transition.gain_db)
+    if ending is not None:
+        _add(ending.path, gain_db=ending.gain_db)
 
     concat_inputs = "".join(f"[{lbl}]" for lbl in labels)
     filter_complex = ";".join(filters) + f";{concat_inputs}concat=n={len(labels)}:v=0:a=1[out]"
@@ -145,18 +178,32 @@ def _build_ffmpeg_concat(
 
 def concat_with_transitions(
     segment_wavs: list[bytes],
-    sfx_path: Path | None,
     *,
-    sfx_gain_db: float = DEFAULT_SFX_GAIN_DB,
+    transition_path: Path | None = None,
+    opening_path: Path | None = None,
+    ending_path: Path | None = None,
+    transition_gain_db: float = DEFAULT_TRANSITION_GAIN_DB,
+    opening_gain_db: float = DEFAULT_OPENING_GAIN_DB,
+    ending_gain_db: float = DEFAULT_ENDING_GAIN_DB,
 ) -> bytes:
-    """複数 segment の wav をトピック間 SFX 付きで 1 本に連結する (T62, Issue #65).
+    """複数 segment の wav を opening/transition/ending SFX 付きで 1 本に連結する (T62, Issue #65).
 
-    SFX はトピック間のみに挿入する (先頭セグメント前・末尾セグメント後には入れない)。
-    `sfx_path` が None/存在しない、または segment が 1 個以下なら SFX なしの単純連結に
-    なる (`sfx.enabled: false` の既定運用ではこの分岐のみを通り、挙動は一切変わらない)。
-    ffmpeg 未導入・実行失敗・タイムアウトは WARN ログの上で単純連結へ fail-open する。
+    出力順は `[opening?, seg0, transition, seg1, transition, ..., segN-1, ending?]`。
+    transition はトピック間のみに挿入する (先頭セグメント前・最終セグメント後には入れない)。
+    opening/ending はセグメント数に関わらず独立して先頭前・末尾後に挿入できる。
+
+    各 `*_path` は None/存在しない場合に個別に fail-open する (その種類だけ挿入しない)。
+    3種すべて未指定・欠落なら SFX なしの単純連結になる (`sfx.enabled: false` の既定運用
+    ではこの分岐のみを通り、挙動は一切変わらない)。ffmpeg 未導入・実行失敗・タイムアウトも
+    WARN ログの上で単純連結へ fail-open する。
     """
-    if sfx_path is None or not sfx_path.exists() or len(segment_wavs) <= 1:
+    opening = _resolve_sfx(opening_path, opening_gain_db)
+    transition = _resolve_sfx(transition_path, transition_gain_db)
+    ending = _resolve_sfx(ending_path, ending_gain_db)
+
+    if not segment_wavs:
+        return _concat_wav_simple(segment_wavs)
+    if opening is None and ending is None and (transition is None or len(segment_wavs) <= 1):
         return _concat_wav_simple(segment_wavs)
 
     ffmpeg = shutil.which("ffmpeg")
@@ -182,11 +229,12 @@ def concat_with_transitions(
             out_path = tmp / "out.wav"
             args = _build_ffmpeg_concat(
                 seg_paths,
-                sfx_path,
                 out_path,
+                opening=opening,
+                transition=transition,
+                ending=ending,
                 channels=channels,
                 sample_rate=sample_rate,
-                sfx_gain_db=sfx_gain_db,
             )
             proc = subprocess.run(
                 [ffmpeg, *args],

@@ -39,7 +39,9 @@ qa-asr = [
 # git 依存 ([tool.uv.sources] 参照)。torch を含む重量級のため CI の既定 (dev group) には
 # 入れず、`uv sync --extra sfx` で明示導入する運用 (qa-asr extra と同じ流儀)。
 sfx = [
+    "soundfile>=0.14.0",
     "stable-audio-3",
+    "torchaudio>=2.7.1",
 ]
 
 [dependency-groups]
