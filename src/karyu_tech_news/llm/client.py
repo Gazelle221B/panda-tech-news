@@ -76,7 +76,10 @@ class LLMClient:
         design-inheritance §4.2) のみ呼び出し側で上書きする。ただし
         profile.send_temperature=False のモデル (T64: temperature 指定不可の
         OpenAI Luna 系) では、この引数の指定有無に関わらず body から
-        temperature を完全に省略する。
+        temperature を完全に省略する。profile.extra_body が指定されていれば
+        最後に body へマージし、既存キーとの衝突は extra_body 側が勝つ
+        (T65: プロバイダ固有の隠しパラメータ、例 deepseek-v4-flash の
+        reasoning_effort="none" による reasoning 垂れ流し抑止)。
         """
         body: dict[str, Any] = {
             "model": self.profile.model,
@@ -98,6 +101,9 @@ class LLMClient:
         if self.profile.provider is LLMProvider.OLLAMA:
             # reasoning モデルの思考出力を抑止 (design-inheritance §9)
             body["think"] = False
+        if self.profile.extra_body:
+            # プロバイダ固有の隠しパラメータ (T65)。既存キーとの衝突は extra_body が勝つ
+            body.update(self.profile.extra_body)
 
         headers = {"Content-Type": "application/json"}
         if self._api_key:
