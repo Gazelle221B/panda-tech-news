@@ -69,9 +69,9 @@ audio:
 # ものだけ挿入をスキップ、ffmpeg 失敗時も SFX なし連結へ縮退)。
 sfx:
   enabled: true
-  transition: assets/sfx/transition.wav
-  opening: assets/sfx/opening.wav
-  ending: assets/sfx/ending.wav
+  transition: assets/sfx/transition.wav   # ゲイン -6dB (mix/transitions.py の既定値)
+  opening: assets/sfx/opening.wav         # ゲイン -3dB (同上)
+  ending: assets/sfx/ending.wav           # ゲイン -3dB (同上)
 
 video:
   type: still_image + waveform   # ffmpeg showwaves + 番組ロゴ

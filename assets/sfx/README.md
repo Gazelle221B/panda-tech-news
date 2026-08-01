@@ -1,8 +1,10 @@
 # assets/sfx/ — オープニング/トランジション/エンディング SFX (T62, Issue #65)
 
 `transition.wav` (2.0s) / `opening.wav` (4.0s) / `ending.wav` (3.0s) は Stable Audio 3
-Small-SFX (`stabilityai/stable-audio-3-small-sfx`, `scripts/gen_sfx.py` で生成) による
-候補からプロダクトオーナーが 2026-08-01 に選定した確定音源で、ピーク -3dBFS に正規化済み。
+Small-SFX (`stabilityai/stable-audio-3-small-sfx`, `scripts/gen_sfx.py` で生成, Stability
+Community License) による候補からプロダクトオーナーが 2026-08-01 に選定した確定音源で、
+ピーク -3dBFS に正規化済み。内容: `transition` = マリンバ2音のドライなスティンガー、
+`opening` = エレピ+パルスの立ち上がり、`ending` = 解決コードで締める短いフレーズ。
 `config/show_format.yaml` の `sfx.{transition,opening,ending}` が参照し、`sfx.enabled: true`
 (既定) で `mix/transitions.py::concat_with_transitions` が produce の完パケに挿入する。
 
