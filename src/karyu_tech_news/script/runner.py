@@ -7,11 +7,14 @@ fail-open:
 - editor の JSON が崩れた日も neutral 判定にフォールバックして番組を出す
   (json_stable=False を llm_runs に記録し、A/B/C 評価に反映)
 - writer の違反は generate_with_fallback (T18) がテンプレで吸収する
+- writer が本文に埋め込んだインライン読み注釈 (T56, Issue #52) の抽出失敗は
+  当該トピックの本文をそのまま残して続行する (_extract_ruby_from_results)
 """
 from __future__ import annotations
 
 import logging
 from datetime import datetime
+from pathlib import Path
 
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -33,8 +36,13 @@ from karyu_tech_news.edit.prescore import (
 from karyu_tech_news.edit.select import select_topics
 from karyu_tech_news.llm.client import LLMError, LLMResponse
 from karyu_tech_news.llm.profile import ResolvedRoles
-from karyu_tech_news.script.fallback import generate_with_fallback
+from karyu_tech_news.script.fallback import TopicScriptResult, generate_with_fallback
 from karyu_tech_news.script.generate import EpisodeScript, assemble_episode
+from karyu_tech_news.script.ruby import (
+    DEFAULT_AUTO_READING_DICT_PATH,
+    append_auto_readings,
+    extract_ruby,
+)
 from karyu_tech_news.store.dto import (
     EpisodeDraftInput,
     ScriptVersionInput,
@@ -137,6 +145,36 @@ def _judge_with_neutral_fallback(
     return filled, False
 
 
+def _extract_ruby_from_results(
+    results: list[tuple[JudgedTopic, TopicScriptResult]],
+) -> tuple[list[tuple[JudgedTopic, TopicScriptResult]], dict[str, str]]:
+    """各トピック本文のインライン読み注釈 `[[表記|カナ読み]]` (Issue #52) を抽出し、
+    本文からは表記だけを残してクリーン化する.
+
+    表記が複数トピックにまたがって重複する場合は最初に出現した読みを採用する
+    (extract_ruby のテキスト内優先ルールを draft 全体に拡張)。ルビ処理自体の
+    失敗 (想定外の例外) は当該トピックの本文をそのまま残して続行する
+    (fail-open, WARN ログ。draft 全体を止めない)。
+    """
+    mapping: dict[str, str] = {}
+    cleaned_results: list[tuple[JudgedTopic, TopicScriptResult]] = []
+    for topic, result in results:
+        try:
+            cleaned_body, pairs = extract_ruby(result.body)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "ruby extraction failed (item_id=%d), keep body as-is: %s",
+                topic.candidate.item_id,
+                exc,
+            )
+            cleaned_results.append((topic, result))
+            continue
+        for surface, reading in pairs.items():
+            mapping.setdefault(surface, reading)
+        cleaned_results.append((topic, result.model_copy(update={"body": cleaned_body})))
+    return cleaned_results, mapping
+
+
 def run_draft(
     session: Session,
     *,
@@ -146,10 +184,13 @@ def run_draft(
     variant: str,
     now: datetime,
     lookback_hours: int = DEFAULT_LOOKBACK_HOURS,
+    auto_reading_dict_path: Path = DEFAULT_AUTO_READING_DICT_PATH,
 ) -> DraftRunResult | None:
     """draft を 1 回実行し、結果を SQLite に保存して返す.
 
     候補ゼロ / 編集ゲート全滅の日は None (draft 行を作らない)。
+    `auto_reading_dict_path` は writer が本文に埋め込んだ読み注釈の蓄積先
+    (T56, Issue #52。既定は `data/reading_dict.auto.yaml`)。
     """
     candidates = extract_candidates(session, now=now, lookback_hours=lookback_hours)
     if not candidates:
@@ -169,6 +210,9 @@ def run_draft(
         return None
 
     results = [(topic, generate_with_fallback(writer_rec, topic)) for topic in arranged]
+    results, ruby_mapping = _extract_ruby_from_results(results)
+    if ruby_mapping:
+        append_auto_readings(auto_reading_dict_path, ruby_mapping)
     episode = assemble_episode(
         [(topic, result.body) for topic, result in results], variant, now
     )

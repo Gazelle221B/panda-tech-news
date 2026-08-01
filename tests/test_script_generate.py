@@ -97,6 +97,14 @@ def test_writer_prompts_rumor_instruction_for_tier4() -> None:
     assert "噂" in user
 
 
+def test_writer_prompts_include_ruby_instruction() -> None:
+    """新出固有名詞にインライン読み注釈を付けさせる指示 (T56, Issue #52)."""
+    system, _ = build_writer_prompts(_topic())
+    assert "[[表記|カタカナ読み]]" in system
+    assert "簡体字" in system
+    assert "AI・IT" in system  # 定着済み略語には不要、の除外例
+
+
 # ---------- generate_topic_script ----------
 
 def test_generate_topic_script_plain_text_mode() -> None:

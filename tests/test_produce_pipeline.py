@@ -770,6 +770,79 @@ def test_produce_uses_config_primary_engine(tmp_path: Path) -> None:
     assert "engine=mock" in result.output  # config(tts.primary_engine) 由来で mock が選ばれた
 
 
+@pytest.mark.skipif(not _HAS_FFMPEG, reason="ffmpeg 不在")
+def test_produce_merges_auto_and_manual_reading_dicts_manual_wins(tmp_path: Path) -> None:
+    """produce は auto (writer ルビ由来) / manual 読み辞書を二層マージし、
+    同一表記は manual (人間確認済み) が常に勝つ (T56, Issue #52)。"""
+    from karyu_tech_news.tts.engine import (
+        Capabilities,
+        MockTTSEngine,
+        SynthesisRequest,
+        SynthesisResult,
+        Voice,
+    )
+
+    db = tmp_path / "state.db"
+    _seed_draft(db, markdown="# テスト\n\nダブル辞書用語について話します。")
+
+    manual = tmp_path / "reading_dict.yaml"
+    manual.write_text("companies:\n  ダブル辞書用語: マニュアルヨミ\n", encoding="utf-8")
+    auto = tmp_path / "reading_dict.auto.yaml"
+    auto.write_text("ダブル辞書用語: オートヨミ\n単独オート用語: 単独オートヨミ\n", encoding="utf-8")
+    persona = tmp_path / "persona.yaml"
+    persona.write_text(
+        "tts:\n"
+        "  primary_engine: mock\n"
+        f"  reading_dict: {manual}\n"
+        f"  auto_reading_dict: {auto}\n",
+        encoding="utf-8",
+    )
+
+    seen_texts: list[str] = []
+
+    class _RecordingEngine:
+        """実 MockTTSEngine に委譲しつつ、エンジンに渡された正規化後テキストを記録する."""
+
+        def __init__(self) -> None:
+            self._inner = MockTTSEngine()
+
+        def name(self) -> str:
+            return "mock"
+
+        def voices(self) -> list[Voice]:
+            return self._inner.voices()
+
+        def capabilities(self) -> Capabilities:
+            return self._inner.capabilities()
+
+        def synthesize(self, req: SynthesisRequest) -> SynthesisResult:
+            seen_texts.append(req.text)
+            return self._inner.synthesize(req)
+
+    out_dir = tmp_path / "episodes"
+    with patch("karyu_tech_news.tts.engine.select_engine", return_value=_RecordingEngine()):
+        result = runner.invoke(
+            app,
+            [
+                "produce",
+                "--dry-run",
+                "--db-path",
+                str(db),
+                "--persona",
+                str(persona),
+                "--bgm-dir",
+                str(tmp_path / "nobgm"),
+                "--out-dir",
+                str(out_dir),
+            ],
+        )
+
+    assert result.exit_code == 0, result.output
+    combined = "".join(seen_texts)
+    assert "マニュアルヨミ" in combined  # 競合キーは manual が勝つ
+    assert "オートヨミ" not in combined  # auto の読みは使われない (manual に上書きされる)
+
+
 # ---------- 回帰: エンジン既定声フォールバック (実 smoke で発見) ----------
 
 

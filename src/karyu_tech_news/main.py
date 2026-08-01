@@ -355,6 +355,7 @@ def draft(
     """
     from datetime import UTC, datetime
 
+    import yaml
     from sqlalchemy.orm import Session
 
     from karyu_tech_news.deliver.discord import post_markdown
@@ -401,6 +402,24 @@ def draft(
             )
             raise typer.Exit(code=1) from exc
 
+        # 自動読み辞書パス (T56, Issue #52): 既定は data/reading_dict.auto.yaml。
+        # config/hal_persona.yaml の tts.auto_reading_dict で上書き可能
+        # (produce の reading_dict 読み込みと同じ流儀)。
+        auto_reading_dict_path = Path("data/reading_dict.auto.yaml")
+        persona_file = Path("config/hal_persona.yaml")
+        if persona_file.exists():
+            try:
+                persona = yaml.safe_load(persona_file.read_text(encoding="utf-8")) or {}
+                tts_cfg = persona.get("tts") or {}
+                if tts_cfg.get("auto_reading_dict"):
+                    auto_reading_dict_path = Path(tts_cfg["auto_reading_dict"])
+            except Exception as exc:  # noqa: BLE001
+                typer.secho(
+                    f"WARN: persona 読み込み失敗 (既定で続行): {type(exc).__name__}",
+                    fg=typer.colors.YELLOW,
+                    err=True,
+                )
+
         result = run_draft(
             session,
             editor=editor,
@@ -409,6 +428,7 @@ def draft(
             variant=variant,
             now=now,
             lookback_hours=lookback_hours,
+            auto_reading_dict_path=auto_reading_dict_path,
         )
         if result is None:
             typer.secho(
@@ -508,6 +528,7 @@ def produce(
     from karyu_tech_news.deliver.discord import post_audio
     from karyu_tech_news.mix.master import MasteringError, master_to_mp3
     from karyu_tech_news.mix.mixer import find_bgm, mix_bgm
+    from karyu_tech_news.script.ruby import load_auto_readings
     from karyu_tech_news.script.structure import Segment, StructuredScript
     from karyu_tech_news.store.repo import (
         create_db_engine,
@@ -529,6 +550,7 @@ def produce(
     # (構造は `tts: {primary_engine, reading_dict}`。Codex 指摘で `voice` 誤読を修正)
     eng_name = engine_name
     reading_path = Path("config/reading_dict.yaml")
+    auto_reading_path = Path("data/reading_dict.auto.yaml")  # T56, Issue #52
     caption: str | None = None  # VoiceDesign 話法キャプション (T34, 対応エンジンのみ使用)
     if persona_file.exists():
         try:
@@ -537,6 +559,8 @@ def produce(
             eng_name = eng_name or tts_cfg.get("primary_engine")
             if tts_cfg.get("reading_dict"):
                 reading_path = Path(tts_cfg["reading_dict"])
+            if tts_cfg.get("auto_reading_dict"):
+                auto_reading_path = Path(tts_cfg["auto_reading_dict"])
             caption = tts_cfg.get("caption") or None
         except Exception as exc:  # noqa: BLE001
             typer.secho(
@@ -584,7 +608,11 @@ def produce(
                 )
             ],
         )
-        reading_dict = load_reading_dict(reading_path) if reading_path.exists() else {}
+        # 読み辞書の二層マージ (T56, Issue #52): auto は writer LLM のインラインルビ由来の
+        # 自動蓄積、manual は人間が確認済みの読み。競合時は manual を常に優先する。
+        manual_reading_dict = load_reading_dict(reading_path) if reading_path.exists() else {}
+        auto_reading_dict = load_auto_readings(auto_reading_path)
+        reading_dict = {**auto_reading_dict, **manual_reading_dict}
         # 読み辞書カバレッジ観測 (T46): TTS 合成前の情報出力のみ。既存の成功条件・
         # fail-fast 挙動には影響しない (失敗しても合成は続行する, 観測は fail-open)。
         try:
