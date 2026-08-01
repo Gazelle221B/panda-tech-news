@@ -47,12 +47,18 @@ tts:
   reading_dict: config/reading_dict.yaml               # FR-092 固有名詞読み辞書 (Sprint 2 で整備)
   # VoiceDesign キャプション (T34): 参照音声(地声)に対し「どう話すか」を上書きする自然文。
   # Irodori 600M VoiceDesign checkpoint でのみ有効 (500M は server が無視)。
-  caption: "落ち着いた知的な女性ニュースキャスター。明瞭で聞き取りやすく、信頼感のある一定したトーン。過度な感情を抑えた語り口。"
+  # 2026-08-01 無効化: HAL 声を参照音声ベース (server の voices/hal.wav = miyu 参照) へ切替。
+  # 実測 (2026-07-31 dry-run + プロダクトオーナー試聴) で caption が参照音声と競合し、文単位の
+  # 声質混入・抑揚の乱れを誘発したため。VoiceDesign 完全合成声へ戻す場合のみ再有効化する。
+  # 旧値: "落ち着いた知的な女性ニュースキャスター。明瞭で聞き取りやすく、信頼感のある一定したトーン。過度な感情を抑えた語り口。"
+  caption: null
   # T36 ASR QA: 絵文字スタイル注釈は Irodori で異物読み/音声の伸長を誘発したため、
   # production 既定では無効。再採用する場合のみ true にして、ASR + 聴感で再検証する。
   emoji_annotation_enabled: false
   # T58 ASR 品質ゲート (Issue #54): 文単位合成後にローカル ASR で幻話疑いを検出しリトライする。extra qa-asr が必要。
-  asr_gate: false
+  # 2026-08-01 有効化: 参照音声ベースの HAL 声は幻話 (台本外発話) を確率的に挿入する実測があるため、
+  # 本番 produce では常時オン。実行環境は `uv sync --extra qa-asr` 済みであること (未導入なら produce は fail-fast)。
+  asr_gate: true
   emoji_annotation:                                    # tone別の感情注釈 (台本生成後に機械挿入)
     # Irodori-TTS v3 公式の絵文字ボイス制御語彙 (EMOJI_ANNOTATIONS.md) のみ使用する。
     # 語彙外の絵文字 (☺️ U+263A / 💡 / 😔 / ✨ 等) はモデルが認識せず無視されるため
