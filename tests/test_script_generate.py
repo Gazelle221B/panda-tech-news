@@ -1,7 +1,7 @@
 """script.generate のユニットテスト (Sprint 1B Ticket T17). LLM はモック."""
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -12,8 +12,11 @@ from karyu_tech_news.script.generate import (
     TOPIC_CHAR_LIMIT,
     WRITER_CHAR_BUDGET,
     EpisodeScript,
+    ShowPhrases,
+    apply_date_placeholder,
     assemble_episode,
     build_writer_prompts,
+    format_broadcast_date,
     generate_topic_script,
     load_show_phrases,
     script_char_count,
@@ -245,10 +248,14 @@ def test_assemble_episode_headlines() -> None:
 
 
 def test_load_show_phrases_reads_real_show_format_yaml() -> None:
-    """実 config/show_format.yaml から確定フレーズ 3 種を読み込む."""
+    """実 config/show_format.yaml から確定フレーズ 3 種を読み込む.
+
+    opening は `{date}` プレースホルダを含んだ生の状態で返る (T63, Issue #69: 日付置換は
+    `load_show_phrases` ではなく `apply_date_placeholder` の責務)。
+    """
     phrases = load_show_phrases()
     assert phrases.title_call == "華流テック通信、HAL Daily Briefing — 中華圏テックの今を、5分で。"
-    assert phrases.opening.startswith("キャスターのHALです。")
+    assert phrases.opening.startswith("{date}。キャスターのHALです。")
     assert phrases.closing.startswith("今日の華流テック通信は以上です。")
 
 
@@ -346,3 +353,95 @@ def test_assemble_episode_respects_custom_show_format_path(tmp_path: Path) -> No
     assert "テスト用タイトルコール" in episode.markdown
     assert "テスト用オープニング" in episode.markdown
     assert "テスト用クロージング" in episode.markdown
+
+
+# ---------- format_broadcast_date (T63, Issue #69: イントロへの当日日付組み込み) ----------
+
+
+def test_format_broadcast_date_no_zero_pad_two_digit_month_day() -> None:
+    """月日はゼロ埋めしない (Irodori が自然に読める表記)."""
+    dt = datetime(2026, 12, 25, 7, 0, tzinfo=UTC)  # JST 2026-12-25 16:00, 金曜日
+    assert format_broadcast_date(dt) == "12月25日、金曜日"
+
+
+def test_format_broadcast_date_single_digit_month_and_day() -> None:
+    dt = datetime(2026, 3, 5, 7, 0, tzinfo=UTC)  # JST 2026-03-05 16:00, 木曜日
+    assert format_broadcast_date(dt) == "3月5日、木曜日"
+
+
+def test_format_broadcast_date_omits_year() -> None:
+    """年は要件外 (Issue #69 仕様: 月日+曜日のみ)."""
+    assert "2026" not in format_broadcast_date(NOW)
+
+
+def test_format_broadcast_date_naive_datetime_treated_as_utc() -> None:
+    """tzinfo 無しの naive datetime は UTC とみなして JST へ変換する
+    (deliver/discord.py::format_summary と同じ防御的方針)."""
+    naive = datetime(2026, 6, 10, 7, 0)
+    aware = datetime(2026, 6, 10, 7, 0, tzinfo=UTC)
+    assert format_broadcast_date(naive) == format_broadcast_date(aware) == "6月10日、水曜日"
+
+
+def test_format_broadcast_date_utc_to_jst_day_boundary() -> None:
+    """UTC 15:00 (= JST 0:00) を跨ぐと日付が繰り上がる境界を確認する."""
+    before = datetime(2026, 8, 1, 14, 59, tzinfo=UTC)
+    after = datetime(2026, 8, 1, 15, 0, tzinfo=UTC)
+    assert format_broadcast_date(before) == "8月1日、土曜日"
+    assert format_broadcast_date(after) == "8月2日、日曜日"
+
+
+def test_format_broadcast_date_all_weekdays_in_japanese() -> None:
+    """月〜日、全曜日が正しい日本語表記 (「○曜日」) になることを確認する."""
+    base = datetime(2026, 6, 7, 20, 0, tzinfo=UTC)  # JST 2026-06-08 05:00, 月曜日始まり
+    expected_weekdays = ["月", "火", "水", "木", "金", "土", "日"]
+    for i, weekday_ja in enumerate(expected_weekdays):
+        dt = base + timedelta(days=i)
+        assert format_broadcast_date(dt).endswith(f"、{weekday_ja}曜日")
+
+
+# ---------- apply_date_placeholder (T63, Issue #69: {date} 置換の fail-open 契約) ----------
+
+
+def test_apply_date_placeholder_substitutes_in_all_phrase_fields() -> None:
+    phrases = ShowPhrases(
+        title_call="タイトル{date}コール",
+        opening="{date}。オープニング",
+        closing="クロージング{date}",
+    )
+    result = apply_date_placeholder(phrases, "8月2日、日曜日")
+    assert result == ShowPhrases(
+        title_call="タイトル8月2日、日曜日コール",
+        opening="8月2日、日曜日。オープニング",
+        closing="クロージング8月2日、日曜日",
+    )
+
+
+def test_apply_date_placeholder_passes_through_when_no_placeholder() -> None:
+    """プレースホルダを含まない旧フレーズは無変化でそのまま通す (fail-open, str.replace は
+    対象が無ければ何もしない)."""
+    phrases = ShowPhrases(
+        title_call="旧タイトルコール",
+        opening="旧オープニング",
+        closing="旧クロージング",
+    )
+    assert apply_date_placeholder(phrases, "8月2日、日曜日") == phrases
+
+
+# ---------- assemble_episode への日付統合 (T63, Issue #69) ----------
+
+
+def test_assemble_episode_injects_broadcast_date_into_markdown() -> None:
+    """draft 実行時刻 (generated_at, JST 変換) の当日日付がイントロに組み込まれる."""
+    topics = [(_topic(1, title="話題A"), VALID_BODY)]
+    episode = assemble_episode(topics, variant="A", generated_at=NOW)
+    assert format_broadcast_date(NOW) in episode.markdown
+    assert "6月10日、水曜日。キャスターのHALです。" in episode.markdown
+
+
+def test_assemble_episode_date_tracks_generated_at_not_hardcoded() -> None:
+    """日付は generated_at 由来 (固定文言のハードコードではない)."""
+    topics = [(_topic(1, title="話題A"), VALID_BODY)]
+    other_now = datetime(2026, 12, 25, 7, 0, tzinfo=UTC)
+    episode = assemble_episode(topics, variant="A", generated_at=other_now)
+    assert "12月25日、金曜日" in episode.markdown
+    assert "6月10日、水曜日" not in episode.markdown

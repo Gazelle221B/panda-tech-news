@@ -248,9 +248,13 @@ def test_run_draft_full_pipeline(session: Session) -> None:
     assert result.editor_json_stable is True
     assert result.method_counts == {"llm": 2}
     assert "華流テック通信" in result.episode.markdown
+    # T63, Issue #69: イントロに draft 実行時刻 (now=NOW, JST 変換) の当日日付が入る。
+    # NOW = 2026-06-11 07:00 UTC -> JST 2026-06-11 16:00 (木曜日)
+    assert "6月11日、木曜日" in result.episode.markdown
 
     draft = session.execute(select(EpisodeDraft)).scalar_one()
     assert draft.variant == "A"
+    assert "6月11日、木曜日" in str(draft.markdown)  # DB 保存済み markdown にも反映
 
     candidates = session.execute(select(TopicCandidate)).scalars().all()
     assert len(candidates) == 2

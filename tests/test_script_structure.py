@@ -125,6 +125,14 @@ def test_intro_segment_carries_title_call_and_opening() -> None:
     assert "キャスターのHALです。支度の手を止めずに" in intro.text
 
 
+def test_intro_segment_includes_broadcast_date() -> None:
+    """T63, Issue #69: 音声合成に渡る intro segment にも当日日付が入る (TTS 側の反映漏れ防止).
+    NOW = 2026-06-14 07:00 UTC -> JST 2026-06-14 16:00 (日曜日)."""
+    script = build_structured_script([(_topic(1), BODY)], variant="A", generated_at=NOW)
+    intro = script.segments[0]
+    assert "6月14日、日曜日。キャスターのHALです。" in intro.text
+
+
 def test_outro_segment_carries_confirmed_closing() -> None:
     script = build_structured_script([(_topic(1), BODY)], variant="A", generated_at=NOW)
     outro = script.segments[-1]
