@@ -105,6 +105,14 @@ def test_writer_prompts_include_ruby_instruction() -> None:
     assert "AI・IT" in system  # 定着済み略語には不要、の除外例
 
 
+def test_writer_prompts_ruby_instruction_has_few_shot_examples() -> None:
+    """deepseek-chat 不追従対策: 具体例2つとカナ表記指示との使い分けを明示 (T59, Issue #59)."""
+    system, _ = build_writer_prompts(_topic())
+    assert "[[零一万物|リンイーワンウー]]" in system
+    assert "[[MoWorld|モワールド]]" in system
+    assert "使い分け" in system
+
+
 # ---------- generate_topic_script ----------
 
 def test_generate_topic_script_plain_text_mode() -> None:
