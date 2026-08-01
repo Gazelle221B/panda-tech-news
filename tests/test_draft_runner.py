@@ -4,12 +4,13 @@ from __future__ import annotations
 from collections.abc import Generator
 from datetime import UTC, datetime
 from pathlib import Path
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 from sqlalchemy import Engine, select
 from sqlalchemy.orm import Session
 
+import karyu_tech_news.script.runner as runner_module
 from karyu_tech_news.config import SourceCategory, SourceConfig, SourceTier
 from karyu_tech_news.llm.client import LLMResponse
 from karyu_tech_news.llm.profile import LLMProfile, ResolvedRoles
@@ -25,6 +26,17 @@ from karyu_tech_news.store.schema import (
 )
 
 NOW = datetime(2026, 6, 11, 7, 0, tzinfo=UTC)
+
+
+@pytest.fixture(autouse=True)
+def _no_real_article_fetch() -> Generator[None, None, None]:
+    """T61: run_draft は enrich_thin_candidates 経由で記事本文を HTTP フェッチしうる。
+    本ファイルの既存テストは薄い summary ("") をシードしており HTTP をモックして
+    いないため、既定でフェッチ失敗 (None) にして実ネットワークアクセスを防ぐ
+    (fail-open のため候補は元のまま = 既存テストの前提を変えない)。
+    """
+    with patch("karyu_tech_news.edit.enrich.fetch_article_text", return_value=None):
+        yield
 
 VALID_BODY = (
     "**Hook:** ディープシーク (DeepSeek) が新モデルを発表しました。\n"
@@ -184,6 +196,36 @@ def test_run_draft_returns_none_when_no_candidates(session: Session) -> None:
         now=NOW,
     )
     assert result is None
+
+
+def test_run_draft_calls_enrich_before_editor_judge(session: Session) -> None:
+    """T61, Issue #61: enrich_thin_candidates は editor 判定 (corroboration_counts/
+    judge) より前に candidates へ適用される."""
+    _seed_items(session)
+    call_order: list[str] = []
+
+    def _fake_enrich(candidates: list[object], **_: object) -> list[object]:
+        call_order.append("enrich")
+        return candidates
+
+    def _fake_corroboration(_session: Session, candidates: list[object]) -> dict[int, int]:
+        call_order.append("corroboration_counts")
+        return {c.item_id: 1 for c in candidates}  # type: ignore[attr-defined]
+
+    with patch.object(runner_module, "enrich_thin_candidates", side_effect=_fake_enrich) as mock_enrich, \
+         patch.object(runner_module, "corroboration_counts", side_effect=_fake_corroboration):
+        result = run_draft(
+            session,
+            editor=_client(EDITOR_JSON),
+            writer=_client(VALID_BODY, VALID_BODY),
+            roles=_roles(),
+            variant="A",
+            now=NOW,
+        )
+
+    assert result is not None
+    assert call_order == ["enrich", "corroboration_counts"]
+    mock_enrich.assert_called_once()
 
 
 def test_run_draft_full_pipeline(session: Session) -> None:
