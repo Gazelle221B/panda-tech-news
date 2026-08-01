@@ -19,7 +19,12 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 from karyu_tech_news.edit.judge import JudgedTopic
-from karyu_tech_news.script.generate import DEFAULT_SHOW_FORMAT_PATH, load_show_phrases
+from karyu_tech_news.script.generate import (
+    DEFAULT_SHOW_FORMAT_PATH,
+    apply_date_placeholder,
+    format_broadcast_date,
+    load_show_phrases,
+)
 
 SegmentKind = Literal["intro", "topic", "outro"]
 
@@ -73,9 +78,12 @@ def build_structured_script(
     intro の発話テキストはタイトルコール + オープニング挨拶の連結 (T54, hal-persona §4)。
     2 フレーズとも「。」で終わるため、`synthesize_script` の文分割で自然に 2 文として
     読まれる (segment を分けなくても不自然な連結にならない)。挨拶フレーズの取得元は
-    `script/generate.py::load_show_phrases` (fail-open) と同一。
+    `script/generate.py::load_show_phrases` (fail-open) と同一。オープニング挨拶の
+    `{date}` プレースホルダは `generated_at` (JST 変換) の当日日付へ置換する
+    (T63, Issue #69。`script/generate.py::assemble_episode` と同じ変換を適用)。
     """
     phrases = load_show_phrases(show_format_path)
+    phrases = apply_date_placeholder(phrases, format_broadcast_date(generated_at))
     segments: list[Segment] = [
         Segment(
             kind="intro",

@@ -20,9 +20,12 @@ length:
 # script/generate.py の load_show_phrases() が読み、opening/closing 生成に反映する
 # (T54)。フィールド欠落・ファイル欠落時は generate.py 内の既定値へ fail-open する。
 # 詳細・トーン指定・選定根拠は docs/hal-persona.md §4 参照。
+# opening 冒頭の {date} は draft 実行時刻 (JST) の当日日付「8月2日、土曜日」形式に
+# 置換される (T63, Issue #69。generate.py::apply_date_placeholder / format_broadcast_date)。
+# プレースホルダを含まないフレーズを書いても壊れない (str.replace の fail-open、必須ではない)。
 phrases:
   title_call: "華流テック通信、HAL Daily Briefing — 中華圏テックの今を、5分で。"
-  opening: "キャスターのHALです。支度の手を止めずに、今朝の中華圏テック、要点だけボクと一緒に追いかけましょう。"
+  opening: "{date}。キャスターのHALです。支度の手を止めずに、今朝の中華圏テック、要点だけボクと一緒に追いかけましょう。"
   closing: "今日の華流テック通信は以上です。それでは皆さん、良い一日を。HALでした。"
 
 # Discover Daily 準拠の構成。各 segment は音響合成レイヤーが時間軸に並べる。

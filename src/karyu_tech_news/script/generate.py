@@ -11,7 +11,7 @@ Sprint 1B Ticket T17。writer LLM に 1 トピック分のプレーンテキス�
 from __future__ import annotations
 
 import math
-from datetime import datetime
+from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
 from typing import NamedTuple
 
@@ -78,6 +78,40 @@ def load_show_phrases(path: Path = DEFAULT_SHOW_FORMAT_PATH) -> ShowPhrases:
         opening=_pick("opening", _DEFAULT_OPENING_PHRASE),
         closing=_pick("closing", _DEFAULT_CLOSING_PHRASE),
     )
+
+
+# イントロに当日日付を組み込む (T63, Issue #69)。deliver/discord.py::format_summary と
+# 同じ固定オフセット JST を使う (zoneinfo は Windows 実行環境で tzdata 別途導入が要るため避ける)。
+JST = timezone(timedelta(hours=9))
+_WEEKDAY_JA = ("月", "火", "水", "木", "金", "土", "日")  # datetime.weekday(): 月=0…日=6
+_DATE_PLACEHOLDER = "{date}"
+
+
+def format_broadcast_date(now: datetime) -> str:
+    """当日日付を JST の「8月2日、土曜日」形式で整形する (T63, Issue #69).
+
+    年は含めず、月日はゼロ埋めしない (Irodori が数字+月日をそのまま自然に読める表記)。
+    曜日は「土曜日」まで書く。naive datetime (tzinfo 無し) は UTC とみなして JST へ変換する
+    (deliver/discord.py::format_summary と同じ防御的方針)。UTC 15:00 以降は JST では
+    日付が繰り上がる境界があるため、呼び出し側は JST 変換後の値をそのまま使うこと。
+    """
+    jst_now = now.astimezone(JST) if now.tzinfo else now.replace(tzinfo=UTC).astimezone(JST)
+    weekday = _WEEKDAY_JA[jst_now.weekday()]
+    return f"{jst_now.month}月{jst_now.day}日、{weekday}曜日"
+
+
+def apply_date_placeholder(phrases: ShowPhrases, date_str: str) -> ShowPhrases:
+    """挨拶フレーズ中の `{date}` プレースホルダを当日日付へ置換する (T63, Issue #69).
+
+    `str.replace` は対象が無ければ何もしないため、プレースホルダを含まない旧フレーズ
+    (プレースホルダ未導入のカスタム config 等) もそのまま素通しする fail-open 契約。
+    """
+    return ShowPhrases(
+        title_call=phrases.title_call.replace(_DATE_PLACEHOLDER, date_str),
+        opening=phrases.opening.replace(_DATE_PLACEHOLDER, date_str),
+        closing=phrases.closing.replace(_DATE_PLACEHOLDER, date_str),
+    )
+
 
 # editorial-policy §10 / hal-persona §3 の禁止表現 (決定的チェック分)
 FORBIDDEN_PHRASES = ("中国すごい", "日本終わった", "中国製は粗悪", "以下は要約です")
@@ -203,9 +237,11 @@ def assemble_episode(
     タイトル・生成日時・タイトルコール・オープニング挨拶・トピック見出し・台本本文・
     ソース一覧・profile・推定尺・注意事項。挨拶フレーズは `show_format_path` の
     `phrases` から読む (T54, 既定は `config/show_format.yaml`。fail-open は
-    `load_show_phrases` 参照)。
+    `load_show_phrases` 参照)。オープニング挨拶の `{date}` プレースホルダは
+    `generated_at` (JST 変換) の当日日付へ置換する (T63, Issue #69)。
     """
     phrases = load_show_phrases(show_format_path)
+    phrases = apply_date_placeholder(phrases, format_broadcast_date(generated_at))
     headlines = [t.candidate.title for t, _ in topics]
     sources = [(t.candidate.title, t.candidate.link) for t, _ in topics]
     notices = [
