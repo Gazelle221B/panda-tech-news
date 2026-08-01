@@ -28,7 +28,7 @@ from dataclasses import dataclass
 
 from karyu_tech_news.script.structure import StructuredScript
 from karyu_tech_news.tts.annotate import annotate_text
-from karyu_tech_news.tts.asr_gate import AsrBackend, verify_sentence
+from karyu_tech_news.tts.asr_gate import AsrBackend, AsrJudge, verify_sentence
 from karyu_tech_news.tts.engine import (
     SynthesisRequest,
     SynthesisResult,
@@ -154,6 +154,7 @@ def synthesize_script(
     caption: str | None = None,
     asr_backend: AsrBackend | None = None,
     asr_max_retries: int = 2,
+    asr_judge: AsrJudge | None = None,
 ) -> SynthesisResult:
     """構造化台本を 1 本の wav に合成する (正規化 → 文分割 → 絵文字注釈 → 合成 → 結合, fail-open).
 
@@ -171,6 +172,10 @@ def synthesize_script(
     ok 以外ならその文だけ再合成してリトライし (最大 asr_max_retries 回)、リトライ後も
     解消しなければ skip する (skipped_sentences に計上、fail-open)。asr_backend 未指定
     時は ASR 経路を一切呼ばない (後方互換: 既存呼び出し元は無変更で従来動作)。
+
+    asr_judge (T66, Issue #76) を渡すと、`verify_sentence` の曖昧域判定にそのまま
+    委譲する (fast path / 明白な不一致では呼ばれない)。asr_backend 未指定時は
+    asr_judge の有無に関わらず ASR 経路自体を通らない。
     """
     if voice_id is None:
         voices = engine.voices()
@@ -233,7 +238,9 @@ def synthesize_script(
             if asr_backend is not None:
                 # 期待文は絵文字注釈前の sentence (絵文字はスタイル制御用トークンで
                 # 発話されないため、比較に混ぜると ASR 書き起こしとの類似度が不当に下がる)。
-                verdict = verify_sentence(sentence, asr_backend.transcribe(final_audio))
+                verdict = verify_sentence(
+                    sentence, asr_backend.transcribe(final_audio), judge=asr_judge
+                )
                 if verdict.status != "ok":
                     retried_audio: bytes | None = None
                     for _ in range(asr_max_retries):
@@ -250,7 +257,7 @@ def synthesize_script(
                         if not retry_signal.valid_wav or not retry_signal.has_pcm_signal:
                             continue
                         retry_verdict = verify_sentence(
-                            sentence, asr_backend.transcribe(retry_res.audio)
+                            sentence, asr_backend.transcribe(retry_res.audio), judge=asr_judge
                         )
                         if retry_verdict.status == "ok":
                             retried_audio = retry_res.audio

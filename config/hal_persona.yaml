@@ -60,6 +60,13 @@ tts:
   # 2026-08-01 有効化: 参照音声ベースの HAL 声は幻話 (台本外発話) を確率的に挿入する実測があるため、
   # 本番 produce では常時オン。実行環境は `uv sync --extra qa-asr` 済みであること (未導入なら produce は fail-fast)。
   asr_gate: true
+  # T66 ASR 曖昧域 LLM 判定 (Issue #76): 機械比較 (類似度/長さ比) だけでは検出できない
+  # 数字誤読 (例: 「2027年」→「2017年」) を、曖昧域 (類似度 0.5〜0.85未満 / 長さ比異常)
+  # のみ LLM に判定させる。既定 openai-luna (T64 のデータ共有キャンペーン枠、
+  # config/llm_profiles.yaml 参照) — editor と同じ無料枠を流用する。呼び出し頻度は
+  # 1エピソードの曖昧域のみ (実測で数文/日) のため枠を圧迫しない想定。より高精度な
+  # 判定が必要になれば "deepseek" 等へ変更可 (LLM 不通時は機械判定へ fail-open)。
+  asr_judge_profile: openai-luna
   emoji_annotation:                                    # tone別の感情注釈 (台本生成後に機械挿入)
     # Irodori-TTS v3 公式の絵文字ボイス制御語彙 (EMOJI_ANNOTATIONS.md) のみ使用する。
     # 語彙外の絵文字 (☺️ U+263A / 💡 / 😔 / ✨ 等) はモデルが認識せず無視されるため
