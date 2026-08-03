@@ -12,6 +12,9 @@ data/
 data/episodes/
 spike_curl_result.txt
 spike_feedparser_result.txt
+# T68 (Issue #91): 上記 `data/` は非アンカーのため `scripts/data/` (レビュー可能な固定
+# フィクスチャ置き場) も意図せず除外してしまう。ここだけ明示的に復元する。
+!scripts/data/
 
 # ===== 生成アセット (mp3/mp4/wav は外部ストレージ or ローカルのみ) =====
 *.mp3
