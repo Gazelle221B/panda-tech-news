@@ -383,6 +383,27 @@ def test_is_server_healthy_requires_loaded_true() -> None:
         )
 
 
+def test_is_server_healthy_reads_nested_runtime_loaded() -> None:
+    """実サーバの health は {"runtime": {"loaded": ...}} とネストしている (初回実走で発覚した回帰)."""
+
+    def handler_true(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"runtime": {"loaded": True}, "voices": {"files": 11}})
+
+    def handler_false(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"runtime": {"loaded": False}})
+
+    with _client_with_handler(handler_true) as client:
+        assert (
+            shadow.is_server_healthy(client, "http://127.0.0.1:8089", require_loaded=True)
+            is True
+        )
+    with _client_with_handler(handler_false) as client:
+        assert (
+            shadow.is_server_healthy(client, "http://127.0.0.1:8089", require_loaded=True)
+            is False
+        )
+
+
 def test_is_server_healthy_loaded_true_passes() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(200, json={"loaded": True})

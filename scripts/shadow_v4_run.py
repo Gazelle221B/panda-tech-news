@@ -500,7 +500,15 @@ def is_server_healthy(client: httpx.Client, base_url: str, *, require_loaded: bo
         body = resp.json()
     except ValueError:
         return False
-    return bool(isinstance(body, dict) and body.get("loaded"))
+    if not isinstance(body, dict):
+        return False
+    # 実サーバの health は {"runtime": {"loaded": true}, ...} とネストしている
+    # (初回実走 2026-08-03 で発覚: トップレベル参照だと永久に False → health タイムアウト)。
+    # 後方互換でトップレベル "loaded" も受ける。
+    runtime = body.get("runtime")
+    if isinstance(runtime, dict) and "loaded" in runtime:
+        return bool(runtime.get("loaded"))
+    return bool(body.get("loaded"))
 
 
 def wait_for_health(
