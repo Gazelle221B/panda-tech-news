@@ -351,6 +351,8 @@ if [ "${PUBLISH_YOUTUBE:-0}" = "1" ]; then
   else
     log "publish スキップ (produce rc=${PRODUCE_RC} — 当日音声が無いまま古い音声を配信しない)"
   fi
+else
+  log "publish スキップ (PUBLISH_YOUTUBE 未設定。動画配信を有効にするにはランナーで PUBLISH_YOUTUBE=1)"
 fi
 
 # --- 本ジョブが起動したサーバのみ停止 (外部起動分は温存) ---
