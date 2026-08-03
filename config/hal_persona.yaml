@@ -67,6 +67,10 @@ tts:
   # 1エピソードの曖昧域のみ (実測で数文/日) のため枠を圧迫しない想定。より高精度な
   # 判定が必要になれば "deepseek" 等へ変更可 (LLM 不通時は機械判定へ fail-open)。
   asr_judge_profile: openai-luna
+  # T67 (v4 移行トラック Phase 2-a, Issue #89): 空白除去後 min_sentence_chars 未満の文を
+  # 隣接文へマージしてから合成する (duration predictor の短文過大予測が幻話の根本原因)。
+  # 0 = 無効 (既定、v3 挙動を完全維持)。v4 移行時は 20 目安 (Issue #88)。
+  min_sentence_chars: 0
   emoji_annotation:                                    # tone別の感情注釈 (台本生成後に機械挿入)
     # Irodori-TTS v3 公式の絵文字ボイス制御語彙 (EMOJI_ANNOTATIONS.md) のみ使用する。
     # 語彙外の絵文字 (☺️ U+263A / 💡 / 😔 / ✨ 等) はモデルが認識せず無視されるため

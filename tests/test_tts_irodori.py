@@ -229,6 +229,61 @@ def test_irodori_no_caption_omits_irodori_key() -> None:
     assert "irodori" not in post.call_args.kwargs["json"]
 
 
+# ---------- irodori_options パススルー (T67, Issue #89) ----------
+
+def test_irodori_options_passed_through_in_body() -> None:
+    # SynthesisRequest.irodori_options はサーバ側仕様のキー (seconds/seed/等) を素通しする
+    wav = _wav_bytes()
+    with patch(
+        "karyu_tech_news.tts.irodori.httpx.post", return_value=_mock_resp(wav)
+    ) as post:
+        IrodoriTTSEngine().synthesize(
+            SynthesisRequest(
+                text="x",
+                voice_id="hal",
+                irodori_options={"seconds": 3.5, "seed": 42},
+            )
+        )
+    assert post.call_args.kwargs["json"]["irodori"] == {"seconds": 3.5, "seed": 42}
+
+
+def test_irodori_options_none_omits_irodori_key() -> None:
+    # irodori_options 未指定 (None, 既定) かつ caption も無ければ irodori キー自体を付けない
+    wav = _wav_bytes()
+    with patch(
+        "karyu_tech_news.tts.irodori.httpx.post", return_value=_mock_resp(wav)
+    ) as post:
+        IrodoriTTSEngine().synthesize(
+            SynthesisRequest(text="x", voice_id="hal", irodori_options=None)
+        )
+    assert "irodori" not in post.call_args.kwargs["json"]
+
+
+def test_irodori_options_merge_with_caption() -> None:
+    # caption と irodori_options は同じ irodori オブジェクトへまとめて乗る
+    wav = _wav_bytes()
+    with patch(
+        "karyu_tech_news.tts.irodori.httpx.post", return_value=_mock_resp(wav)
+    ) as post:
+        IrodoriTTSEngine(caption="既定キャプション").synthesize(
+            SynthesisRequest(text="x", voice_id="hal", irodori_options={"seconds": 2.0})
+        )
+    body_irodori = post.call_args.kwargs["json"]["irodori"]
+    assert body_irodori == {"caption": "既定キャプション", "seconds": 2.0}
+
+
+def test_irodori_options_without_caption_still_sends_irodori_key() -> None:
+    # caption が無くても irodori_options だけで irodori オブジェクトを送る
+    wav = _wav_bytes()
+    with patch(
+        "karyu_tech_news.tts.irodori.httpx.post", return_value=_mock_resp(wav)
+    ) as post:
+        IrodoriTTSEngine().synthesize(
+            SynthesisRequest(text="x", voice_id="hal", irodori_options={"duration_scale": 1.1})
+        )
+    assert post.call_args.kwargs["json"]["irodori"] == {"duration_scale": 1.1}
+
+
 # ---------- select_engine 統合 (FR-090) ----------
 
 def test_select_engine_irodori_by_config_key() -> None:

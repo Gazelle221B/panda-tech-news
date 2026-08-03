@@ -120,9 +120,16 @@ class IrodoriTTSEngine:
         }
         # VoiceDesign: 文ごとの caption (req) を優先、無ければエンジン既定。server の
         # irodori オプション経由で SamplingRequest.caption に渡る (600M でのみ有効)。
+        # T67 (Issue #89): req.irodori_options (seconds/seed/cfg_scale_text/duration_scale 等)
+        # も同じ irodori オブジェクトへまとめて渡す。キーの妥当性検証はサーバ側仕様。
         caption = req.caption or self._caption
+        irodori_body: dict[str, object] = {}
         if caption:
-            body["irodori"] = {"caption": caption}
+            irodori_body["caption"] = caption
+        if req.irodori_options:
+            irodori_body.update(req.irodori_options)
+        if irodori_body:
+            body["irodori"] = irodori_body
         headers = {}
         if self._api_key:  # キーは header のみ (URL/エラーに載せない)
             headers["Authorization"] = f"Bearer {self._api_key}"
