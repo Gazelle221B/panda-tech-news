@@ -14,7 +14,7 @@ from __future__ import annotations
 import hashlib
 import io
 import wave
-from typing import Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
 from pydantic import BaseModel, field_validator
 
@@ -52,6 +52,10 @@ class SynthesisRequest(BaseModel):
     voice_id: str
     speed: float = 1.0
     caption: str | None = None  # VoiceDesign: 話し方を指示する自然文. 非対応エンジンは無視 (T34)
+    # Irodori サーバ独自オプションのパススルー (T67, Issue #89). 例: seconds/seed/
+    # cfg_scale_text/duration_scale。対応キーの検証はサーバ側仕様に委ね、ここでは
+    # 素通しする。非対応エンジン (mock/kokoro) は無視 (後方互換)。
+    irodori_options: dict[str, Any] | None = None
 
     @field_validator("text")
     @classmethod

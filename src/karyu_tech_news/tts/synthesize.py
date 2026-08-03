@@ -24,7 +24,9 @@ import io
 import logging
 import re
 import wave
+from collections.abc import Callable
 from dataclasses import dataclass
+from typing import Any
 
 from karyu_tech_news.script.structure import StructuredScript
 from karyu_tech_news.tts.annotate import annotate_text
@@ -83,6 +85,39 @@ def split_sentences(text: str, max_chars: int) -> list[str]:
             for i in range(0, len(s), max_chars):  # コードポイント単位の切り分け
                 sentences.append(s[i : i + max_chars])
     return sentences
+
+
+def _merge_short_sentences(sentences: list[str], min_chars: int, max_chars: int) -> list[str]:
+    """短文 (空白除去後 min_chars 未満) を隣接文へマージする (T67, Issue #89).
+
+    min_chars<=0 (既定) は無効化 = 完全後方互換で入力をそのまま返す。有効時は
+    **次文優先** でマージし (短文が続く限り前方へ連結)、末尾に残った短文だけ前文へ
+    マージする。マージ後の文が max_chars を超える場合はマージを見送る (安全側)。
+    呼び出し元が split_sentences の結果 (1 segment 分) にのみ適用するため、topic
+    (segment) 境界は自然に越えない。
+    """
+    if min_chars <= 0 or len(sentences) < 2:
+        return sentences
+    merged: list[str] = []
+    i = 0
+    n = len(sentences)
+    while i < n:
+        current = sentences[i]
+        while len(current.strip()) < min_chars and i + 1 < n:
+            candidate = current + sentences[i + 1]
+            if len(candidate) > max_chars:
+                break  # 安全側: マージ回避 (max_chars 超過)
+            current = candidate
+            i += 1
+        merged.append(current)
+        i += 1
+    if len(merged) >= 2 and len(merged[-1].strip()) < min_chars:
+        # 末尾文はマージ相手 (次文) が無いため前文へマージする
+        candidate = merged[-2] + merged[-1]
+        if len(candidate) <= max_chars:
+            merged[-2] = candidate
+            merged.pop()
+    return merged
 
 
 def _concat_wav_with_stats(chunks: list[bytes]) -> _ConcatStats:
@@ -152,6 +187,8 @@ def synthesize_script(
     voice_id: str | None = None,
     emoji_mapping: dict[str, list[str]] | None = None,
     caption: str | None = None,
+    min_sentence_chars: int = 0,
+    sentence_options_fn: Callable[[str], dict[str, Any] | None] | None = None,
     asr_backend: AsrBackend | None = None,
     asr_max_retries: int = 2,
     asr_judge: AsrJudge | None = None,
@@ -166,6 +203,19 @@ def synthesize_script(
     emoji_mapping (tone → 絵文字候補) を渡し、かつエンジンが絵文字スタイル制御に対応
     (capabilities().emoji_style) する場合のみ、**文単位** で tone 別絵文字を挿入する。
     正規化後・合成直前に挿入するため、絵文字は前処理 (strip/normalize) の影響を受けない。
+
+    min_sentence_chars (T67, Issue #89) は 0 (既定) で無効 = 完全後方互換。>0 のとき、
+    文分割直後 (絵文字注釈・ASR ゲートより前) に空白除去で min_sentence_chars 未満の
+    文を隣接文へマージする (次文優先、末尾文は前文へ)。segment (topic) 単位で分割済み
+    リストにのみ適用するため境界は越えない。マージ後が max_chars を超える場合はマージ
+    しない (安全側)。マージ後の文がそのまま ASR ゲートの期待文になる (v4 移行トラック,
+    Issue #88: 短文の duration predictor 過大予測が幻話の根本原因のため)。
+
+    sentence_options_fn (T67, Issue #89) を渡すと、(マージ後の) 文ごとに呼び出し、
+    戻り値の dict を `SynthesisRequest.irodori_options` としてそのまま渡す (シャドー
+    ランナーが irodori.seconds 推定を注入する口)。None を返した文はオプションなし。
+    ASR リトライ合成にも同じ戻り値を渡す。sentence_options_fn 未指定時は irodori_options
+    を渡さない (後方互換: 既存呼び出し元は無変更で従来動作)。
 
     asr_backend (T58, Issue #54) を渡すと、機械的品質チェックを通過した各文をさらに
     ASR で書き起こし、絵文字注釈前の文と突き合わせる (`tts/asr_gate.verify_sentence`)。
@@ -194,7 +244,12 @@ def synthesize_script(
         # TTS 前処理: Markdown/URL/原語読みを整理し、中国語原題 quote は発話退避する。
         # quote 退避を読み辞書より先に行い、辞書由来のカナ混入で中国語判定が潰れるのを防ぐ。
         normalized = prepare_tts_text(seg.text, reading_dict)
-        for sentence in split_sentences(normalized, max_chars):
+        seg_sentences = split_sentences(normalized, max_chars)
+        # 短文マージ (T67, Issue #89): 絵文字注釈・ASR ゲートより前に適用し、マージ後の
+        # 文がそのまま以降の期待文になるようにする。min_sentence_chars<=0 なら no-op。
+        if min_sentence_chars > 0:
+            seg_sentences = _merge_short_sentences(seg_sentences, min_sentence_chars, max_chars)
+        for sentence in seg_sentences:
             attempted_sentences += 1
             # 絵文字は正規化後・文単位で挿入 (segment 単位だと 1 文しか効かないため, T33+)
             text = (
@@ -202,9 +257,19 @@ def synthesize_script(
                 if emoji_enabled and emoji_mapping is not None
                 else sentence
             )
+            # per-sentence irodori オプション注入口 (T67, Issue #89): マージ後・絵文字注釈前
+            # の sentence を渡す (発話されない絵文字トークンで推定が歪むのを避ける)。
+            sentence_options = (
+                sentence_options_fn(sentence) if sentence_options_fn is not None else None
+            )
             try:
                 res = engine.synthesize(
-                    SynthesisRequest(text=text, voice_id=voice_id, caption=effective_caption)
+                    SynthesisRequest(
+                        text=text,
+                        voice_id=voice_id,
+                        caption=effective_caption,
+                        irodori_options=sentence_options,
+                    )
                 )
             except TTSError as exc:
                 logger.warning("synth failed (fail-open), skipped: %s", exc)
@@ -247,7 +312,10 @@ def synthesize_script(
                         try:
                             retry_res = engine.synthesize(
                                 SynthesisRequest(
-                                    text=text, voice_id=voice_id, caption=effective_caption
+                                    text=text,
+                                    voice_id=voice_id,
+                                    caption=effective_caption,
+                                    irodori_options=sentence_options,
                                 )
                             )
                         except TTSError as exc:

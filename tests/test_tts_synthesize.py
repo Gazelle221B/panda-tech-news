@@ -8,6 +8,7 @@ from __future__ import annotations
 import io
 import wave
 from datetime import UTC, datetime
+from typing import Any
 from unittest.mock import patch
 
 import pytest
@@ -147,7 +148,7 @@ def test_synthesize_sanitizes_chinese_title_before_reading_dict() -> None:
     assert "ドウバオ" not in joined
 
 
-def _recording_engine(received: list[str], *, emoji_style: bool):  # type: ignore[no-untyped-def]
+def _recording_engine(received: list[str], *, emoji_style: bool, max_chars: int = 100):  # type: ignore[no-untyped-def]
     class _Rec:
         def name(self) -> str:
             return "rec"
@@ -157,7 +158,7 @@ def _recording_engine(received: list[str], *, emoji_style: bool):  # type: ignor
 
         def capabilities(self) -> Capabilities:
             return Capabilities(
-                emoji_style=emoji_style, voice_clone=False, streaming=False, max_chars=100
+                emoji_style=emoji_style, voice_clone=False, streaming=False, max_chars=max_chars
             )
 
         def synthesize(self, req: SynthesisRequest) -> SynthesisResult:
@@ -248,6 +249,174 @@ def test_synthesize_script_drops_caption_when_not_voice_design() -> None:
         caption="落ち着いた知的な声",
     )
     assert captions == [None]
+
+
+# ---------- 短文マージ (min_sentence_chars, T67, Issue #89) ----------
+
+def test_synthesize_script_no_merge_when_min_sentence_chars_default() -> None:
+    # 既定 (未指定 = 0) は無効 = 完全後方互換。短文でもマージしない
+    received: list[str] = []
+    synthesize_script(
+        _script(("また。深刻な状況です。", "neutral")),
+        _recording_engine(received, emoji_style=False),
+        {},
+    )
+    assert received == ["また。", "深刻な状況です。"]
+
+
+def test_synthesize_script_no_merge_when_min_sentence_chars_explicit_zero() -> None:
+    # 明示的に 0 を渡しても無効 (既定と同じ完全後方互換)
+    received: list[str] = []
+    synthesize_script(
+        _script(("また。深刻な状況です。", "neutral")),
+        _recording_engine(received, emoji_style=False),
+        {},
+        min_sentence_chars=0,
+    )
+    assert received == ["また。", "深刻な状況です。"]
+
+
+def test_synthesize_script_merges_short_sentence_with_next() -> None:
+    # 有効時 (>0): 短文は次文優先でマージされる
+    received: list[str] = []
+    synthesize_script(
+        _script(("また。深刻な状況です。", "neutral")),
+        _recording_engine(received, emoji_style=False),
+        {},
+        min_sentence_chars=5,
+    )
+    assert received == ["また。深刻な状況です。"]
+
+
+def test_synthesize_script_merges_trailing_short_sentence_backward() -> None:
+    # 末尾に短文が残った場合はマージ相手 (次文) が無いため前文へマージする
+    received: list[str] = []
+    synthesize_script(
+        _script(("これは長い文章です。あ。", "neutral")),
+        _recording_engine(received, emoji_style=False),
+        {},
+        min_sentence_chars=5,
+    )
+    assert received == ["これは長い文章です。あ。"]
+
+
+def test_synthesize_script_merge_respects_max_chars_safety() -> None:
+    # マージ後の文が max_chars を超える場合はマージを見送る (安全側)
+    received: list[str] = []
+    synthesize_script(
+        _script(("短い。普通の文章です。", "neutral")),
+        _recording_engine(received, emoji_style=False, max_chars=10),
+        {},
+        min_sentence_chars=5,
+    )
+    # 「短い。」(3文字) は短文だが、「普通の文章です。」(8文字) と結合すると 11 > max_chars(10)
+    # になるためマージされず、そのまま (依然短文のまま) 個別に合成される
+    assert received == ["短い。", "普通の文章です。"]
+
+
+def test_synthesize_script_merge_does_not_cross_segment_boundary() -> None:
+    # topic (segment) 境界は越えない。segment 1 の末尾短文は segment 1 内でのみマージされ、
+    # segment 2 の先頭文とは結合しない
+    received: list[str] = []
+    synthesize_script(
+        _script(("これは長い文章です。あ。", "neutral"), ("次のトピックです。", "bright")),
+        _recording_engine(received, emoji_style=False),
+        {},
+        min_sentence_chars=5,
+    )
+    assert received == ["これは長い文章です。あ。", "次のトピックです。"]
+
+
+# ---------- sentence_options_fn フック (T67, Issue #89) ----------
+
+def _options_recording_engine(options: list[dict[str, Any] | None]):  # type: ignore[no-untyped-def]
+    class _Rec:
+        def name(self) -> str:
+            return "rec"
+
+        def voices(self) -> list[Voice]:
+            return [Voice(id="hal", name="HAL")]
+
+        def capabilities(self) -> Capabilities:
+            return Capabilities(emoji_style=False, voice_clone=False, streaming=False, max_chars=100)
+
+        def synthesize(self, req: SynthesisRequest) -> SynthesisResult:
+            options.append(req.irodori_options)
+            return MockTTSEngine().synthesize(req)
+
+    return _Rec()
+
+
+def test_synthesize_script_no_sentence_options_fn_omits_irodori_options() -> None:
+    # sentence_options_fn 未指定 (既定) なら irodori_options は None のまま (後方互換)
+    options: list[dict[str, Any] | None] = []
+    synthesize_script(
+        _script(("一文目。", "neutral")), _options_recording_engine(options), {}
+    )
+    assert options == [None]
+
+
+def test_synthesize_script_sentence_options_fn_passes_irodori_options() -> None:
+    # 文ごとに呼び出し、戻り値をそのまま SynthesisRequest.irodori_options として渡す
+    options: list[dict[str, Any] | None] = []
+
+    def _fn(sentence: str) -> dict[str, Any] | None:
+        return {"seconds": len(sentence)}
+
+    synthesize_script(
+        _script(("一文目。二文目。", "neutral")),
+        _options_recording_engine(options),
+        {},
+        sentence_options_fn=_fn,
+    )
+    assert options == [{"seconds": 4}, {"seconds": 4}]  # 「一文目。」「二文目。」いずれも4文字
+
+
+def test_synthesize_script_sentence_options_fn_sees_merged_sentence() -> None:
+    # min_sentence_chars と併用時、フックにはマージ後の文が渡る (マージ前の断片ではない)
+    received_sentences: list[str] = []
+
+    def _fn(sentence: str) -> dict[str, Any] | None:
+        received_sentences.append(sentence)
+        return None
+
+    synthesize_script(
+        _script(("また。深刻な状況です。", "neutral")),
+        MockTTSEngine(),
+        {},
+        min_sentence_chars=5,
+        sentence_options_fn=_fn,
+    )
+    assert received_sentences == ["また。深刻な状況です。"]
+
+
+def test_synthesize_script_sentence_options_fn_propagates_to_asr_retry() -> None:
+    # ASR リトライ時も同じ irodori_options が再送される
+    options: list[dict[str, Any] | None] = []
+
+    class _Rec:
+        def name(self) -> str:
+            return "rec"
+
+        def voices(self) -> list[Voice]:
+            return [Voice(id="hal", name="HAL")]
+
+        def capabilities(self) -> Capabilities:
+            return Capabilities(emoji_style=False, voice_clone=False, streaming=False, max_chars=100)
+
+        def synthesize(self, req: SynthesisRequest) -> SynthesisResult:
+            options.append(req.irodori_options)
+            return MockTTSEngine().synthesize(req)
+
+    backend = _ScriptedAsrBackend(["違う内容です", "一文目"])  # 初回不一致 → リトライで ok
+    synthesize_script(
+        _script(("一文目。", "neutral")),
+        _Rec(),
+        {},
+        sentence_options_fn=lambda _s: {"seed": 42},
+        asr_backend=backend,
+    )
+    assert options == [{"seed": 42}, {"seed": 42}]  # 初回・リトライとも同じオプション
 
 
 def test_synthesize_script_fail_open_on_sentence_error() -> None:

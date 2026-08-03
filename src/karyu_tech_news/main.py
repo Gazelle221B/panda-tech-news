@@ -565,6 +565,7 @@ def produce(
     caption: str | None = None  # VoiceDesign 話法キャプション (T34, 対応エンジンのみ使用)
     asr_gate_enabled = False  # ASR 品質ゲート (T58, Issue #54)。既定 false
     asr_judge_profile_label = "openai-luna"  # 曖昧域 LLM 判定のプロファイル既定 (T66, Issue #76)
+    min_sentence_chars = 0  # 短文マージ (T67, Issue #89)。既定 0 = 無効 (v3 挙動を完全維持)
     if persona_file.exists():
         try:
             persona = yaml.safe_load(persona_file.read_text(encoding="utf-8")) or {}
@@ -577,6 +578,7 @@ def produce(
             caption = tts_cfg.get("caption") or None
             asr_gate_enabled = bool(tts_cfg.get("asr_gate", False))
             asr_judge_profile_label = str(tts_cfg.get("asr_judge_profile") or "openai-luna")
+            min_sentence_chars = int(tts_cfg.get("min_sentence_chars") or 0)
         except Exception as exc:  # noqa: BLE001
             typer.secho(
                 f"WARN: persona 読み込み失敗 (既定で続行): {type(exc).__name__}",
@@ -674,6 +676,7 @@ def produce(
                     reading_dict,
                     emoji_mapping=emoji_mapping,
                     caption=caption,
+                    min_sentence_chars=min_sentence_chars,
                     asr_backend=asr_backend,
                     asr_judge=asr_judge,
                 )

@@ -913,6 +913,105 @@ def test_produce_merges_auto_and_manual_reading_dicts_manual_wins(tmp_path: Path
     assert "オートヨミ" not in combined  # auto の読みは使われない (manual に上書きされる)
 
 
+# ---------- T67 短文マージ (Issue #89): persona 設定の薄い契約テスト ----------
+
+
+def _min_sentence_chars_recording_engine(received: list[str]):  # type: ignore[no-untyped-def]
+    from karyu_tech_news.tts.engine import (
+        Capabilities,
+        MockTTSEngine,
+        SynthesisRequest,
+        SynthesisResult,
+        Voice,
+    )
+
+    class _RecordingEngine:
+        def name(self) -> str:
+            return "mock"
+
+        def voices(self) -> list[Voice]:
+            return [Voice(id="hal", name="HAL")]
+
+        def capabilities(self) -> Capabilities:
+            return Capabilities(emoji_style=False, voice_clone=False, streaming=False, max_chars=100)
+
+        def synthesize(self, req: SynthesisRequest) -> SynthesisResult:
+            received.append(req.text)
+            return MockTTSEngine().synthesize(req)
+
+    return _RecordingEngine()
+
+
+@pytest.mark.skipif(not _HAS_FFMPEG, reason="ffmpeg 不在")
+def test_produce_min_sentence_chars_default_zero_no_merge(tmp_path: Path) -> None:
+    # persona に min_sentence_chars 未設定なら 0 (既定) = マージしない (v3 完全互換)
+    db = tmp_path / "state.db"
+    _seed_draft(db, markdown="# テスト\n\nまた。深刻な状況です。")
+    persona = tmp_path / "persona.yaml"
+    persona.write_text("tts:\n  primary_engine: mock\n", encoding="utf-8")
+
+    received: list[str] = []
+    with patch(
+        "karyu_tech_news.tts.engine.select_engine",
+        return_value=_min_sentence_chars_recording_engine(received),
+    ):
+        result = runner.invoke(
+            app,
+            [
+                "produce",
+                "--dry-run",
+                "--db-path",
+                str(db),
+                "--persona",
+                str(persona),
+                "--show-format",
+                str(_sfx_disabled_show_format(tmp_path)),
+                "--bgm-dir",
+                str(tmp_path / "nobgm"),
+                "--out-dir",
+                str(tmp_path / "ep"),
+            ],
+        )
+    assert result.exit_code == 0, result.output
+    assert received == ["また。", "深刻な状況です。"]
+
+
+@pytest.mark.skipif(not _HAS_FFMPEG, reason="ffmpeg 不在")
+def test_produce_min_sentence_chars_from_persona_merges_short_sentences(tmp_path: Path) -> None:
+    # persona の tts.min_sentence_chars が synthesize_script へ伝搬し、短文がマージされる (T67)
+    db = tmp_path / "state.db"
+    _seed_draft(db, markdown="# テスト\n\nまた。深刻な状況です。")
+    persona = tmp_path / "persona.yaml"
+    persona.write_text(
+        "tts:\n  primary_engine: mock\n  min_sentence_chars: 5\n", encoding="utf-8"
+    )
+
+    received: list[str] = []
+    with patch(
+        "karyu_tech_news.tts.engine.select_engine",
+        return_value=_min_sentence_chars_recording_engine(received),
+    ):
+        result = runner.invoke(
+            app,
+            [
+                "produce",
+                "--dry-run",
+                "--db-path",
+                str(db),
+                "--persona",
+                str(persona),
+                "--show-format",
+                str(_sfx_disabled_show_format(tmp_path)),
+                "--bgm-dir",
+                str(tmp_path / "nobgm"),
+                "--out-dir",
+                str(tmp_path / "ep"),
+            ],
+        )
+    assert result.exit_code == 0, result.output
+    assert received == ["また。深刻な状況です。"]  # マージされ 1 リクエストになる
+
+
 # ---------- T58 ASR 品質ゲート (Issue #54): persona 設定の薄い契約テスト ----------
 # WhisperAsrBackend は main.py の produce 内で `karyu_tech_news.tts.asr_gate` から
 # import される。構築有無だけを検証するため patch し、実 whisper は使わない。
