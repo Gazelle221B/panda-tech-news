@@ -5,10 +5,13 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from unittest.mock import MagicMock
 
+import yaml
+
 from karyu_tech_news.edit.judge import JudgedTopic, Tone
 from karyu_tech_news.edit.prescore import ScoredCandidate
 from karyu_tech_news.llm.client import LLMResponse
 from karyu_tech_news.script.generate import (
+    DEFAULT_SHOW_FORMAT_PATH,
     TOPIC_CHAR_LIMIT,
     WRITER_CHAR_BUDGET,
     EpisodeScript,
@@ -88,7 +91,7 @@ def test_writer_prompts_enforce_contract() -> None:
     assert "Hook" in system
     assert "Insight" in system
     assert "Action" in system
-    assert "300" in system
+    assert str(TOPIC_CHAR_LIMIT) in system
     assert "カナ" in system
     assert "転載" in system
     assert "DeepSeek 发布新模型" in user
@@ -148,18 +151,37 @@ def test_validate_flags_over_char_limit() -> None:
         + "\n**Insight:** い\n**Action:** う"
     )
     violations = validate_topic_script(body)
-    assert any("300" in v for v in violations)
+    assert any(str(TOPIC_CHAR_LIMIT) in v for v in violations)
 
 
-def test_validate_char_limit_is_strict_at_300() -> None:
-    """ラベル込みの全体で 300 文字 (空白除く) を厳密適用 (PR #10 Copilot 指摘)."""
-    # ラベル 3 つで空白除き 32 文字 → 残り 268 文字で合計ちょうど 300
+def test_validate_char_limit_is_strict_at_360() -> None:
+    """ラベル込みの全体で 360 文字 (空白除く) を厳密適用する境界テスト.
+
+    元は 300 字上限だったが、2026-08-04 障害・Issue #95 (deepseek-v4-flash +
+    T61 記事本文補強後は 301〜357 字の僅少超過が頻発し template 落ちしていた)
+    を受けて 360 に緩和された (PR #10 Copilot 指摘の境界厳密性テスト自体は維持)。
+    pad 長はラベル文字数から動的に算出し、TOPIC_CHAR_LIMIT 変更に追従させる。
+    """
     base = "**Hook:** {pad}\n**Insight:** い\n**Action:** う"
-    exactly_300 = base.format(pad="あ" * 266)
-    over_by_one = base.format(pad="あ" * 267)
-    assert script_char_count(exactly_300) == TOPIC_CHAR_LIMIT
-    assert validate_topic_script(exactly_300) == []
-    assert any("300" in v for v in validate_topic_script(over_by_one))
+    label_chars = script_char_count(base.format(pad=""))
+    pad_len = TOPIC_CHAR_LIMIT - label_chars
+    exactly_at_limit = base.format(pad="あ" * pad_len)
+    over_by_one = base.format(pad="あ" * (pad_len + 1))
+    assert script_char_count(exactly_at_limit) == TOPIC_CHAR_LIMIT
+    assert validate_topic_script(exactly_at_limit) == []
+    assert any(str(TOPIC_CHAR_LIMIT) in v for v in validate_topic_script(over_by_one))
+
+
+def test_topic_char_limit_matches_show_format_yaml() -> None:
+    """TOPIC_CHAR_LIMIT (ハード検証値) と config/show_format.yaml の
+    topic_structure.char_limit_jp (正本の目安表記) が食い違わないことを固定する。
+
+    どちらか一方だけを変更する将来の事故を防ぐための整合テスト
+    (codex terra レビュー blocking-2, PR #96)。config から動的に読んで検証に使う
+    設計変更はしない (現状 char_limit_jp を読むコードは無く、依存を増やさない)。
+    """
+    raw = yaml.safe_load(DEFAULT_SHOW_FORMAT_PATH.read_text(encoding="utf-8"))
+    assert raw["topic_structure"]["char_limit_jp"] == TOPIC_CHAR_LIMIT
 
 
 def test_validate_flags_url_in_body() -> None:

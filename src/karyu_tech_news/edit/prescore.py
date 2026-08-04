@@ -10,19 +10,31 @@ Sprint 1B Ticket T14。LLM を呼ぶ前にキーワード辞書と Tier ボー�
 - source の Tier ボーナスを加算 (editorial-policy §4: Tier1/2 は単独採用可)
 - summary が薄い (40 字未満) 候補は減点する (T60, Issue #60: 薄記事が writer の
   全リトライ失敗を招き T18 テンプレへ fail-open する事故の再発防止)
+- 直近 RECENTLY_AIRED_LOOKBACK_DAYS 日以内に selected=True で放送済みの item_id は
+  候補プールから除外する (Issue #95: 放送済みネタの再選防止。テンプレ放送だった
+  ネタも除外対象に含む)
 """
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+import logging
+from datetime import datetime, timedelta, timezone
 
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from karyu_tech_news.store.schema import Item, Source
+from karyu_tech_news.store.schema import EpisodeDraft, Item, Source, TopicCandidate
+
+logger = logging.getLogger(__name__)
 
 CANDIDATE_LIMIT = 40  # design-inheritance §5: 候補上限 40
 DEFAULT_LOOKBACK_HOURS = 48
+
+# 放送済みネタの再選防止 (Issue #95)。直近この日数以内の draft で selected=True に
+# なった item_id は、次回以降の候補プールから除外する。T18 テンプレで放送された
+# ネタも含めて除外する (Issue #95 記載の許容 trade-off: テンプレで無内容だった
+# ネタでも一度取り上げた話題を翌日以降に再選しない方を優先する)。
+RECENTLY_AIRED_LOOKBACK_DAYS = 7
 
 # バケツごとの重み。中国語 (簡体字) を主、日本語/英語を従とする。
 # 緊急・セキュリティ・障害 (+30)
@@ -98,6 +110,34 @@ def prescore_text(title: str, summary: str) -> int:
     return score
 
 
+def _recently_aired_item_ids(
+    session: Session, now: datetime, lookback_days: int
+) -> set[int]:
+    """直近 lookback_days 日以内の draft で selected=True になった item_id 集合を返す
+    (Issue #95: 放送済みネタの再選防止).
+
+    `episode_drafts.created_at` は naive UTC (tzinfo 無し) として保存されている
+    前提 (store/repo.py::create_episode_draft は `EpisodeDraftInput.generated_at`
+    をそのまま渡すのみで、tzinfo の正規化はしない。この repo は SQLite 専用で
+    DATETIME 列は文字列比較になるため、比較対象の表記を保存形式に合わせておく
+    必要がある)。`now` は aware/naive どちらでも受け付け、aware の場合はここで
+    UTC の naive datetime に変換してから `since` を比較に使う
+    (codex terra レビュー blocking-1, PR #96)。
+    """
+    since = now - timedelta(days=lookback_days)
+    if since.tzinfo is not None:
+        since = since.astimezone(timezone.utc).replace(tzinfo=None)
+    rows = session.execute(
+        select(TopicCandidate.item_id)
+        .join(EpisodeDraft, TopicCandidate.draft_id == EpisodeDraft.id)
+        .where(
+            TopicCandidate.selected.is_(True),
+            EpisodeDraft.created_at >= since,
+        )
+    ).all()
+    return {int(row[0]) for row in rows}
+
+
 def extract_candidates(
     session: Session,
     now: datetime,
@@ -108,6 +148,8 @@ def extract_candidates(
 
     フィルタは fetched_at 基準 (収集が止まっていた日の翌朝も拾える)。
     並びは prescore 降順 → fetched_at 降順 (新しい方が先)。
+    直近 RECENTLY_AIRED_LOOKBACK_DAYS 日以内に selected=True で放送済みの item_id は
+    候補プールから除外する (Issue #95)。
     """
     since = now - timedelta(hours=lookback_hours)
     rows = session.execute(
@@ -116,8 +158,16 @@ def extract_candidates(
         .where(Item.fetched_at >= since)
     ).all()
 
+    aired_item_ids = _recently_aired_item_ids(
+        session, now, RECENTLY_AIRED_LOOKBACK_DAYS
+    )
+
     candidates = []
+    excluded_count = 0
     for item, source in rows:
+        if int(item.id) in aired_item_ids:
+            excluded_count += 1
+            continue
         summary = str(item.summary or "")
         tier = int(source.tier)
         score = (
@@ -139,6 +189,14 @@ def extract_candidates(
                 canonical_url_hash=str(item.canonical_url_hash or ""),
                 prescore=score,
             )
+        )
+
+    if excluded_count:
+        logger.info(
+            "excluded %d recently aired item(s) from candidate pool "
+            "(selected within last %d days)",
+            excluded_count,
+            RECENTLY_AIRED_LOOKBACK_DAYS,
         )
 
     # prescore 降順、同点は fetched_at 降順 (安定ソートの 2 段重ね)
