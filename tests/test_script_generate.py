@@ -5,10 +5,13 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from unittest.mock import MagicMock
 
+import yaml
+
 from karyu_tech_news.edit.judge import JudgedTopic, Tone
 from karyu_tech_news.edit.prescore import ScoredCandidate
 from karyu_tech_news.llm.client import LLMResponse
 from karyu_tech_news.script.generate import (
+    DEFAULT_SHOW_FORMAT_PATH,
     TOPIC_CHAR_LIMIT,
     WRITER_CHAR_BUDGET,
     EpisodeScript,
@@ -167,6 +170,18 @@ def test_validate_char_limit_is_strict_at_360() -> None:
     assert script_char_count(exactly_at_limit) == TOPIC_CHAR_LIMIT
     assert validate_topic_script(exactly_at_limit) == []
     assert any(str(TOPIC_CHAR_LIMIT) in v for v in validate_topic_script(over_by_one))
+
+
+def test_topic_char_limit_matches_show_format_yaml() -> None:
+    """TOPIC_CHAR_LIMIT (ハード検証値) と config/show_format.yaml の
+    topic_structure.char_limit_jp (正本の目安表記) が食い違わないことを固定する。
+
+    どちらか一方だけを変更する将来の事故を防ぐための整合テスト
+    (codex terra レビュー blocking-2, PR #96)。config から動的に読んで検証に使う
+    設計変更はしない (現状 char_limit_jp を読むコードは無く、依存を増やさない)。
+    """
+    raw = yaml.safe_load(DEFAULT_SHOW_FORMAT_PATH.read_text(encoding="utf-8"))
+    assert raw["topic_structure"]["char_limit_jp"] == TOPIC_CHAR_LIMIT
 
 
 def test_validate_flags_url_in_body() -> None:

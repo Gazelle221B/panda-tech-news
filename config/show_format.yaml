@@ -56,7 +56,8 @@ topic_structure:
   hook: つかみ — 何が起きたか
   insight: なぜ重要か — 日本のリスナー視点での意味
   action: リスナーが取れる行動 — 注目ポイント/追うべきリポジトリ/イベント
-  char_limit_jp: 300            # 1トピックの日本語文字数目安 (design-inheritance §5)
+  char_limit_jp: 360            # 1トピックの日本語文字数目安 (design-inheritance §5)。
+                                 # 2026-08-04 Issue #95 で 300→360 に緩和 (僅少超過テンプレ落ち対策)
 
 audio:
   bgm: lo-fi + 中華風アンビエント (全編に薄く)

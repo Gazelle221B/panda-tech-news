@@ -17,7 +17,7 @@ Sprint 1B Ticket T14。LLM を呼ぶ前にキーワード辞書と Tier ボー�
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from pydantic import BaseModel
 from sqlalchemy import select
@@ -114,8 +114,19 @@ def _recently_aired_item_ids(
     session: Session, now: datetime, lookback_days: int
 ) -> set[int]:
     """直近 lookback_days 日以内の draft で selected=True になった item_id 集合を返す
-    (Issue #95: 放送済みネタの再選防止)."""
+    (Issue #95: 放送済みネタの再選防止).
+
+    `episode_drafts.created_at` は naive UTC (tzinfo 無し) として保存されている
+    前提 (store/repo.py::create_episode_draft は `EpisodeDraftInput.generated_at`
+    をそのまま渡すのみで、tzinfo の正規化はしない。この repo は SQLite 専用で
+    DATETIME 列は文字列比較になるため、比較対象の表記を保存形式に合わせておく
+    必要がある)。`now` は aware/naive どちらでも受け付け、aware の場合はここで
+    UTC の naive datetime に変換してから `since` を比較に使う
+    (codex terra レビュー blocking-1, PR #96)。
+    """
     since = now - timedelta(days=lookback_days)
+    if since.tzinfo is not None:
+        since = since.astimezone(timezone.utc).replace(tzinfo=None)
     rows = session.execute(
         select(TopicCandidate.item_id)
         .join(EpisodeDraft, TopicCandidate.draft_id == EpisodeDraft.id)

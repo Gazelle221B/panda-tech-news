@@ -109,6 +109,21 @@ def _writer_forcing_template(target_title: str) -> MagicMock:
     return client
 
 
+def _writer_forcing_templates(target_titles: set[str]) -> MagicMock:
+    """target_titles に含まれる topic だけ契約違反本文を返し、複数 topic を
+    まとめて template へ fail-open させる (Issue #95 部分ドロップ統合テスト用。
+    単一タイトル版の _writer_forcing_template の複数版)."""
+    client = MagicMock()
+
+    def _chat(system: str, user: str, **_: object) -> LLMResponse:
+        if any(f"タイトル: {title}" in user for title in target_titles):
+            return LLMResponse(content="違反本文", prompt_tokens=10, completion_tokens=5)
+        return LLMResponse(content=VALID_BODY, prompt_tokens=10, completion_tokens=5)
+
+    client.chat.side_effect = _chat
+    return client
+
+
 _CATEGORIES = (
     SourceCategory.AI,
     SourceCategory.TECH,
@@ -456,6 +471,55 @@ def test_run_draft_keeps_template_at_floor(session: Session) -> None:
     candidates = session.execute(select(TopicCandidate)).scalars().all()
     assert all(bool(c.selected) for c in candidates)
     assert sorted(int(c.position) for c in candidates) == [1, 2, 3]
+
+
+def test_run_draft_partial_drop_real1_template4_end_to_end(session: Session) -> None:
+    """実1+テンプレ4 (計5本) の部分ドロップを run_draft 経由で確認する統合テスト
+    (codex terra レビュー non-blocking, PR #96)。実1+テンプレ2 の計3本が放送され、
+    markdown/ソース一覧は3本のみになる一方、topic_candidates の selected/position と
+    script_versions の監査証跡 (除外分2本も残る) は整合していることを確認する。"""
+    _seed_n_items(session, 5)
+    editor = _client(_editor_json(5))
+    # 話题1 のみ正常な LLM 出力、話题2〜5 はすべてテンプレへ fail-open させる
+    writer = _writer_forcing_templates({"话题2", "话题3", "话题4", "话题5"})
+
+    result = run_draft(
+        session,
+        editor=editor,
+        writer=writer,
+        roles=_roles(),
+        variant="A",
+        now=NOW,
+    )
+
+    assert result is not None
+    assert result.selected_count == 3
+    assert result.dropped_count == 2
+    assert result.method_counts == {"llm": 1, "template": 4}
+
+    # markdown / ソース一覧は放送された3本のみ (話题4, 話题5 はドロップされ現れない)
+    assert result.episode.markdown.count("**Hook:**") == 3
+    assert len(result.episode.sources) == 3
+    assert "话题4" not in result.episode.markdown
+    assert "话题5" not in result.episode.markdown
+
+    # topic_candidates: 放送された3本のみ selected=True / position=1..3、
+    # ドロップされた2本は selected=False / position=None
+    candidates = session.execute(select(TopicCandidate)).scalars().all()
+    assert len(candidates) == 5
+    selected = [c for c in candidates if bool(c.selected)]
+    assert len(selected) == 3
+    assert sorted(int(c.position) for c in selected) == [1, 2, 3]
+    dropped = [c for c in candidates if not bool(c.selected)]
+    assert len(dropped) == 2
+    assert all(c.position is None for c in dropped)
+
+    # script_versions: 除外分含め全5件が監査証跡として残る (llm 1件 + template 4件)
+    scripts = session.execute(select(ScriptVersion)).scalars().all()
+    assert len(scripts) == 5
+    method_by_item = {int(s.item_id): str(s.method) for s in scripts}
+    assert sum(1 for m in method_by_item.values() if m == "llm") == 1
+    assert sum(1 for m in method_by_item.values() if m == METHOD_TEMPLATE) == 4
 
 
 # ---------- _drop_overflow_templates 部分ドロップ (Issue #95) ----------
