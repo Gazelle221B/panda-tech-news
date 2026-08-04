@@ -43,7 +43,8 @@ import httpx
 import yaml
 from sqlalchemy.orm import Session
 
-from karyu_tech_news.config import PROJECT_ROOT
+from karyu_tech_news.config import PROJECT_ROOT, load_settings
+from karyu_tech_news.deliver.discord import post_summary
 from karyu_tech_news.script.ruby import load_auto_readings
 from karyu_tech_news.store.repo import create_db_engine, get_latest_episode_draft, init_db
 from karyu_tech_news.tts.asr_gate import AsrBackend, AsrUnavailableError, WhisperAsrBackend
@@ -822,6 +823,40 @@ def post_issue_comment(comment: str, *, issue_number: int) -> bool:
     return True
 
 
+# ---------- Discord 通知 (Issue #95 PR-B) ----------
+
+
+def build_discord_summary(report: ShadowRunReport) -> str:
+    """Discord 投稿用の1行サマリーを組み立てる (Issue #95 PR-B 指定)."""
+    return (
+        f"🔬 v4 シャドーラン {report.run_id}: "
+        f"文数 {report.sentence_count()} (エラー {report.error_count()}) / "
+        f"幻話疑い {report.hallucination_suspect_count()} / "
+        f"Kana-CER 中央値 {_format_optional_float(report.cer_median())}。"
+        "詳細: Issue #88"
+    )
+
+
+def post_shadow_summary_to_discord(report: ShadowRunReport) -> bool:
+    """シャドーラン結果のサマリーを Discord Webhook へ投稿する.
+
+    レポート出力・Issue #88 コメント投稿の後段に位置づける。既存の `deliver/discord.py`
+    (`post_summary`) を再利用し、投稿失敗は fail-open (WARNING ログのみ、呼び出し元の
+    exit code には影響させない)。DISCORD_WEBHOOK_URL 未設定時は投稿を試みず、
+    黙って skip せず INFO ログで明示する。
+    """
+    settings = load_settings(PROJECT_ROOT / ".env")
+    webhook_url = settings.discord_webhook_url
+    if not webhook_url:
+        logger.info("DISCORD_WEBHOOK_URL 未設定のため v4 シャドーラン通知をスキップします")
+        return False
+
+    ok = post_summary(webhook_url, build_discord_summary(report))
+    if not ok:
+        logger.warning("v4 シャドーラン Discord 通知の送信に失敗しました (fail-open)")
+    return ok
+
+
 # ---------- オーケストレーション (実サーバ依存, 単体テスト対象外) ----------
 
 
@@ -1018,6 +1053,8 @@ def main(argv: list[str] | None = None) -> int:
     if args.report_issue:
         comment = build_issue_comment(report, config_changed=config_changed)
         post_issue_comment(comment, issue_number=args.issue_number)
+
+    post_shadow_summary_to_discord(report)
 
     return 0
 
