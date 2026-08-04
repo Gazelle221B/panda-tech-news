@@ -23,6 +23,12 @@ set -uo pipefail
 # /opt/homebrew/bin (Apple Silicon) / /usr/local/bin (Intel) を明示しないと ffmpeg 不在で produce が rc=1。
 export PATH="${HOME}/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:${PATH:-}"
 
+# Issue #95 根因4: Task Scheduler 経由では .cmd 側の `set PYTHONUTF8=1` が cmd.exe の
+# UTF-8/cp932 誤パース事故 (rem 行がコマンド断片として実行される) で失効することがある。
+# bash 層でも冗長に設定し、.cmd 側が失効しても Python の stdout/stderr が UTF-8 になる
+# 二重化を行う (main.py 側の stdio hardening と合わせた多層防御)。
+export PYTHONUTF8=1
+
 # パスは env で上書き可。既定はスクリプト位置 / $HOME / PATH から解決しポータビリティを確保する。
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="${KARYU_PROJECT_DIR:-$(cd "${SCRIPT_DIR}/.." && pwd)}"

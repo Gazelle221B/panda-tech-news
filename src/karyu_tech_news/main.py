@@ -6,6 +6,7 @@ Sprint 1B コマンド: draft / evaluate (T21)。
 from __future__ import annotations
 
 import logging
+import sys
 from pathlib import Path
 
 import typer
@@ -26,6 +27,30 @@ app = typer.Typer(
     no_args_is_help=True,
     add_completion=False,
 )
+
+
+def _harden_stdio_encoding() -> None:
+    """stdout/stderr のエンコード不能文字で CLI プロセスごと落ちるのを防ぐ最後の砦.
+
+    Task Scheduler 経由の cmd.exe 実行では、.cmd 側の `set PYTHONUTF8=1` が cmd.exe の
+    UTF-8/cp932 誤パース事故で失効することがある (scripts/*_task.cmd 参照、Issue #95
+    根因4)。その場合 stdout は cp932 などの非 UTF-8 エンコーディングのままになり、
+    em dash 等のエンコード不能文字を含む draft の markdown echo が UnicodeEncodeError で
+    プロセスごとクラッシュする実障害を実運用で確認した。encoding 自体は変更せず errors
+    のみ backslashreplace にして「化けても止まらない」を保証する (fail-open)。
+    reconfigure 非対応のストリーム (テスト用の差し替え等) やここでの失敗は無視する。
+    """
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is None:
+            continue
+        try:
+            reconfigure(errors="backslashreplace")
+        except (ValueError, OSError):
+            pass
+
+
+_harden_stdio_encoding()
 
 MIN_LUFS_REQUIRED_DURATION_SEC = 5.0
 MAX_TTS_SILENCE_SEC = 3.0

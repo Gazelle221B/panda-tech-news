@@ -753,3 +753,54 @@ def test_post_issue_comment_fail_open_on_timeout() -> None:
 def test_post_issue_comment_fail_open_on_oserror() -> None:
     with patch("subprocess.run", side_effect=OSError("gh not found")):
         assert shadow.post_issue_comment("body", issue_number=88) is False
+
+
+# ---------- build_discord_summary / post_shadow_summary_to_discord (Issue #95 PR-B) ----------
+
+
+def test_build_discord_summary_includes_counts_and_issue_reference() -> None:
+    report = _dummy_report(cer_values=[0.0, 0.5, 1.0])
+    summary = shadow.build_discord_summary(report)
+    assert report.run_id in summary
+    assert "文数 3" in summary
+    assert "幻話疑い 2" in summary
+    assert "Issue #88" in summary
+
+
+def test_post_shadow_summary_to_discord_skips_when_webhook_unset(caplog: Any) -> None:
+    report = _dummy_report()
+    fake_settings = type("_S", (), {"discord_webhook_url": ""})()
+    with (
+        patch.object(shadow, "load_settings", return_value=fake_settings),
+        patch.object(shadow, "post_summary") as mock_post,
+        caplog.at_level("INFO"),
+    ):
+        assert shadow.post_shadow_summary_to_discord(report) is False
+    mock_post.assert_not_called()
+    assert "未設定" in caplog.text
+
+
+def test_post_shadow_summary_to_discord_posts_when_webhook_set() -> None:
+    report = _dummy_report()
+    fake_settings = type("_S", (), {"discord_webhook_url": "https://discord.example/webhook"})()
+    with (
+        patch.object(shadow, "load_settings", return_value=fake_settings),
+        patch.object(shadow, "post_summary", return_value=True) as mock_post,
+    ):
+        assert shadow.post_shadow_summary_to_discord(report) is True
+    mock_post.assert_called_once()
+    called_url, called_content = mock_post.call_args.args
+    assert called_url == "https://discord.example/webhook"
+    assert report.run_id in called_content
+
+
+def test_post_shadow_summary_to_discord_fail_open_when_post_fails(caplog: Any) -> None:
+    report = _dummy_report()
+    fake_settings = type("_S", (), {"discord_webhook_url": "https://discord.example/webhook"})()
+    with (
+        patch.object(shadow, "load_settings", return_value=fake_settings),
+        patch.object(shadow, "post_summary", return_value=False),
+        caplog.at_level("WARNING"),
+    ):
+        assert shadow.post_shadow_summary_to_discord(report) is False
+    assert "失敗" in caplog.text
