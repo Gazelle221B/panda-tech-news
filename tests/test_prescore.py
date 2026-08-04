@@ -6,12 +6,13 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
-from sqlalchemy import Engine
+from sqlalchemy import Engine, select
 from sqlalchemy.orm import Session
 
 from karyu_tech_news.config import SourceCategory, SourceConfig, SourceTier
 from karyu_tech_news.edit.prescore import (
     CANDIDATE_LIMIT,
+    RECENTLY_AIRED_LOOKBACK_DAYS,
     THIN_SUMMARY_CHARS,
     THIN_SUMMARY_PENALTY,
     TIER_BONUS,
@@ -21,7 +22,7 @@ from karyu_tech_news.edit.prescore import (
     thin_summary_penalty,
 )
 from karyu_tech_news.store.repo import create_db_engine, init_db, upsert_source
-from karyu_tech_news.store.schema import Item
+from karyu_tech_news.store.schema import EpisodeDraft, Item, TopicCandidate
 
 NOW = datetime(2026, 6, 10, 0, 0, tzinfo=UTC)
 
@@ -210,3 +211,96 @@ def test_extract_candidates_handles_null_summary(session: Session) -> None:
 
 def test_extract_candidates_empty_db(session: Session) -> None:
     assert extract_candidates(session, now=NOW) == []
+
+
+# ---------- 放送済みネタの再選防止 (Issue #95) ----------
+
+
+def _add_draft_with_topic_candidate(
+    session: Session,
+    item_id: int,
+    *,
+    created_at: datetime,
+    selected: bool = True,
+) -> None:
+    """episode_drafts + topic_candidates に「item_id が selected かどうか」の
+    1 行をシードする (extract_candidates の除外フィルタ用テストヘルパー)."""
+    draft = EpisodeDraft(
+        created_at=created_at,
+        variant="A",
+        title="テスト放送",
+        estimated_minutes=1,
+        notices_json="[]",
+        markdown="dummy",
+    )
+    session.add(draft)
+    session.flush()
+    session.add(
+        TopicCandidate(
+            draft_id=draft.id,
+            item_id=item_id,
+            prescore=0,
+            llm_score=None,
+            tone=None,
+            source_tier=1,
+            corroboration_count=1,
+            selected=selected,
+            position=1 if selected else None,
+        )
+    )
+    session.flush()
+
+
+def test_extract_candidates_excludes_recently_aired_item(session: Session) -> None:
+    _add_source(session, "src-a")
+    _add_item(session, "src-a", "話題A")
+    item_id = session.execute(select(Item).where(Item.title == "話題A")).scalar_one().id
+    # テンプレ放送だったネタでも selected=True であれば除外対象
+    # (topic_candidates は method を持たない = Issue #95 の許容 trade-off)。
+    _add_draft_with_topic_candidate(session, item_id, created_at=NOW - timedelta(days=1))
+
+    candidates = extract_candidates(session, now=NOW)
+
+    assert candidates == []
+
+
+def test_extract_candidates_keeps_item_selected_outside_lookback(session: Session) -> None:
+    _add_source(session, "src-a")
+    _add_item(session, "src-a", "話題A")
+    item_id = session.execute(select(Item).where(Item.title == "話題A")).scalar_one().id
+    _add_draft_with_topic_candidate(
+        session,
+        item_id,
+        created_at=NOW - timedelta(days=RECENTLY_AIRED_LOOKBACK_DAYS, hours=1),
+    )
+
+    candidates = extract_candidates(session, now=NOW)
+
+    assert [c.title for c in candidates] == ["話題A"]
+
+
+def test_extract_candidates_keeps_item_not_selected_in_past_draft(session: Session) -> None:
+    _add_source(session, "src-a")
+    _add_item(session, "src-a", "話題A")
+    item_id = session.execute(select(Item).where(Item.title == "話題A")).scalar_one().id
+    _add_draft_with_topic_candidate(
+        session, item_id, created_at=NOW - timedelta(days=1), selected=False
+    )
+
+    candidates = extract_candidates(session, now=NOW)
+
+    assert [c.title for c in candidates] == ["話題A"]
+
+
+def test_extract_candidates_logs_excluded_count(
+    session: Session, caplog: pytest.LogCaptureFixture
+) -> None:
+    _add_source(session, "src-a")
+    _add_item(session, "src-a", "話題A")
+    item_id = session.execute(select(Item).where(Item.title == "話題A")).scalar_one().id
+    _add_draft_with_topic_candidate(session, item_id, created_at=NOW - timedelta(days=1))
+
+    with caplog.at_level("INFO", logger="karyu_tech_news.edit.prescore"):
+        extract_candidates(session, now=NOW)
+
+    assert any("excluded 1" in record.message for record in caplog.records)

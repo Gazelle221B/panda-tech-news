@@ -88,7 +88,7 @@ def test_writer_prompts_enforce_contract() -> None:
     assert "Hook" in system
     assert "Insight" in system
     assert "Action" in system
-    assert "300" in system
+    assert str(TOPIC_CHAR_LIMIT) in system
     assert "カナ" in system
     assert "転載" in system
     assert "DeepSeek 发布新模型" in user
@@ -148,18 +148,25 @@ def test_validate_flags_over_char_limit() -> None:
         + "\n**Insight:** い\n**Action:** う"
     )
     violations = validate_topic_script(body)
-    assert any("300" in v for v in violations)
+    assert any(str(TOPIC_CHAR_LIMIT) in v for v in violations)
 
 
-def test_validate_char_limit_is_strict_at_300() -> None:
-    """ラベル込みの全体で 300 文字 (空白除く) を厳密適用 (PR #10 Copilot 指摘)."""
-    # ラベル 3 つで空白除き 32 文字 → 残り 268 文字で合計ちょうど 300
+def test_validate_char_limit_is_strict_at_360() -> None:
+    """ラベル込みの全体で 360 文字 (空白除く) を厳密適用する境界テスト.
+
+    元は 300 字上限だったが、2026-08-04 障害・Issue #95 (deepseek-v4-flash +
+    T61 記事本文補強後は 301〜357 字の僅少超過が頻発し template 落ちしていた)
+    を受けて 360 に緩和された (PR #10 Copilot 指摘の境界厳密性テスト自体は維持)。
+    pad 長はラベル文字数から動的に算出し、TOPIC_CHAR_LIMIT 変更に追従させる。
+    """
     base = "**Hook:** {pad}\n**Insight:** い\n**Action:** う"
-    exactly_300 = base.format(pad="あ" * 266)
-    over_by_one = base.format(pad="あ" * 267)
-    assert script_char_count(exactly_300) == TOPIC_CHAR_LIMIT
-    assert validate_topic_script(exactly_300) == []
-    assert any("300" in v for v in validate_topic_script(over_by_one))
+    label_chars = script_char_count(base.format(pad=""))
+    pad_len = TOPIC_CHAR_LIMIT - label_chars
+    exactly_at_limit = base.format(pad="あ" * pad_len)
+    over_by_one = base.format(pad="あ" * (pad_len + 1))
+    assert script_char_count(exactly_at_limit) == TOPIC_CHAR_LIMIT
+    assert validate_topic_script(exactly_at_limit) == []
+    assert any(str(TOPIC_CHAR_LIMIT) in v for v in validate_topic_script(over_by_one))
 
 
 def test_validate_flags_url_in_body() -> None:

@@ -12,10 +12,17 @@ from sqlalchemy.orm import Session
 
 import karyu_tech_news.script.runner as runner_module
 from karyu_tech_news.config import SourceCategory, SourceConfig, SourceTier
+from karyu_tech_news.edit.judge import JudgedTopic, Tone
+from karyu_tech_news.edit.prescore import ScoredCandidate
 from karyu_tech_news.llm.client import LLMResponse
 from karyu_tech_news.llm.profile import LLMProfile, ResolvedRoles
+from karyu_tech_news.script.fallback import METHOD_TEMPLATE, TopicScriptResult
 from karyu_tech_news.script.ruby import load_auto_readings
-from karyu_tech_news.script.runner import DraftRunResult, run_draft
+from karyu_tech_news.script.runner import (
+    DraftRunResult,
+    _drop_overflow_templates,
+    run_draft,
+)
 from karyu_tech_news.store.repo import create_db_engine, init_db, upsert_source
 from karyu_tech_news.store.schema import (
     EpisodeDraft,
@@ -449,3 +456,91 @@ def test_run_draft_keeps_template_at_floor(session: Session) -> None:
     candidates = session.execute(select(TopicCandidate)).scalars().all()
     assert all(bool(c.selected) for c in candidates)
     assert sorted(int(c.position) for c in candidates) == [1, 2, 3]
+
+
+# ---------- _drop_overflow_templates 部分ドロップ (Issue #95) ----------
+#
+# T60 導入時は「1 本でも除外すると MIN_TOPICS を割るなら全部残す」all-or-nothing
+# だった。Issue #95 で、床値を割らない範囲でテンプレを 1 本ずつ (position 順の
+# 後ろから) 落とす部分ドロップへ変更した。
+
+
+def _judged(item_id: int) -> JudgedTopic:
+    return JudgedTopic(
+        candidate=ScoredCandidate(
+            item_id=item_id,
+            source_id="src-a",
+            title=f"话题{item_id}",
+            summary="十分な長さのダミー概要文をここに用意しておく必要がある四十字以上のテキストです。",
+            link=f"https://example.com/{item_id}",
+            published_at=None,
+            fetched_at=NOW,
+            tier=1,
+            category="AI",
+            canonical_url_hash="",
+            prescore=10,
+        ),
+        llm_score=80,
+        tone=Tone.NEUTRAL,
+        corroboration_count=1,
+    )
+
+
+def _result(method: str) -> TopicScriptResult:
+    return TopicScriptResult(body=VALID_BODY, method=method, attempts=1, violations_first=[])
+
+
+def test_drop_overflow_templates_partial_drop_real1_template4() -> None:
+    """実1+テンプレ4 (計5本, MIN_TOPICS=3) → 実1+テンプレ2 の計3本を残し、
+    position 順の後ろから2本落とす."""
+    results = [
+        (_judged(1), _result("llm")),
+        (_judged(2), _result(METHOD_TEMPLATE)),
+        (_judged(3), _result(METHOD_TEMPLATE)),
+        (_judged(4), _result(METHOD_TEMPLATE)),
+        (_judged(5), _result(METHOD_TEMPLATE)),
+    ]
+
+    kept, dropped = _drop_overflow_templates(results)
+
+    assert [t.candidate.item_id for t, _ in kept] == [1, 2, 3]
+    assert [t.candidate.item_id for t, _ in dropped] == [4, 5]
+
+
+def test_drop_overflow_templates_partial_drop_real3_template2() -> None:
+    """実3+テンプレ2 (計5本) → 実3本を残し、テンプレ2本を落とす."""
+    results = [
+        (_judged(1), _result("llm")),
+        (_judged(2), _result("llm")),
+        (_judged(3), _result("llm")),
+        (_judged(4), _result(METHOD_TEMPLATE)),
+        (_judged(5), _result(METHOD_TEMPLATE)),
+    ]
+
+    kept, dropped = _drop_overflow_templates(results)
+
+    assert [t.candidate.item_id for t, _ in kept] == [1, 2, 3]
+    assert [t.candidate.item_id for t, _ in dropped] == [4, 5]
+
+
+def test_drop_overflow_templates_keeps_all_at_floor() -> None:
+    """実1+テンプレ1 (計2本 < MIN_TOPICS) は、実+テンプレ計が MIN_TOPICS を
+    割っているため1本も落とさず全部残す (fail-open: 番組を出すこと優先)."""
+    results = [
+        (_judged(1), _result("llm")),
+        (_judged(2), _result(METHOD_TEMPLATE)),
+    ]
+
+    kept, dropped = _drop_overflow_templates(results)
+
+    assert [t.candidate.item_id for t, _ in kept] == [1, 2]
+    assert dropped == []
+
+
+def test_drop_overflow_templates_no_templates_returns_all_kept() -> None:
+    results = [(_judged(1), _result("llm")), (_judged(2), _result("llm"))]
+
+    kept, dropped = _drop_overflow_templates(results)
+
+    assert kept == results
+    assert dropped == []

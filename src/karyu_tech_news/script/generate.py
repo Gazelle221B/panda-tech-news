@@ -21,9 +21,14 @@ from pydantic import BaseModel
 from karyu_tech_news.config import PROJECT_ROOT
 from karyu_tech_news.edit.judge import ChatClient, JudgedTopic
 
-TOPIC_CHAR_LIMIT = 300  # show_format.yaml topic_structure.char_limit_jp (空白除く)。ハード検証値
-# writer プロンプトに提示する目標予算。ハード上限より厳しめにしてマージンを取る
-# (T22 観察: DeepSeek が 300 字ちょうどを狙うと一貫超過し template 落ちした defect 対策)
+TOPIC_CHAR_LIMIT = 360  # show_format.yaml topic_structure.char_limit_jp (300, 空白除く) の目安より緩いハード検証値。
+# 2026-08-04 障害・Issue #95: deepseek-v4-flash + T61 記事本文補強後は 301〜357 字の
+# 僅少超過が頻発し、完成台本を捨てて無内容な T18 テンプレへ fail-open する実害の方が
+# 300 字厳守より大きいと判断し、360 まで緩和した。
+# writer プロンプトに提示する目標予算はハード上限より厳しめにしてマージンを取る
+# (T22 観察: DeepSeek が 300 字ちょうどを狙うと一貫超過し template 落ちした defect 対策)。
+# こちらは Issue #95 後も 260 のまま据え置き (プロンプト側の目標はそのまま、ハード
+# 上限側だけを緩和して「僅少超過は許容するが目標は変えない」方針)。
 WRITER_CHAR_BUDGET = 260
 PROMPT_TITLE_LIMIT = 180
 PROMPT_SUMMARY_LIMIT = 420
@@ -211,7 +216,7 @@ def validate_topic_script(text: str, *, require_rumor_marker: bool = False) -> l
             violations.append(f"必須セクション欠落: {label.strip('*:')}")
     count = script_char_count(text)
     if count > TOPIC_CHAR_LIMIT:
-        violations.append(f"300 文字超過 (空白除く {count} 文字)")
+        violations.append(f"{TOPIC_CHAR_LIMIT} 文字超過 (空白除く {count} 文字)")
     if "http://" in text or "https://" in text:
         violations.append("本文に URL を含めない (ソース一覧で別掲)")
     if REPLACEMENT_CHARACTER in text:

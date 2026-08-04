@@ -11,11 +11,12 @@ fail-open:
 - writer の違反は generate_with_fallback (T18) がテンプレで吸収する
 - writer が本文に埋め込んだインライン読み注釈 (T56, Issue #52) の抽出失敗は
   当該トピックの本文をそのまま残して続行する (_extract_ruby_from_results)
-- T18 テンプレ (無内容な最終防衛) が生成されたトピックは、除外しても番組が
-  MIN_TOPICS を割らない場合に限り episode markdown / ソース一覧から除外する
-  (T60, Issue #60: 薄記事 → writer 全滅 → 無内容テンプレがそのまま放送された
-  事故対策)。script_versions には除外分も監査証跡として残す
-  (_drop_overflow_templates)
+- T18 テンプレ (無内容な最終防衛) が生成されたトピックは、合計本数が MIN_TOPICS
+  を割らない範囲で episode markdown / ソース一覧から除外する (T60, Issue #60:
+  薄記事 → writer 全滅 → 無内容テンプレがそのまま放送された事故対策)。Issue #95
+  で all-or-nothing (1本でも床値割れなら全部残す) から部分ドロップへ変更し、
+  床値を割らない範囲で position 順の後ろからテンプレを 1 本ずつ落とす。
+  script_versions には除外分も監査証跡として残す (_drop_overflow_templates)
 """
 from __future__ import annotations
 
@@ -204,25 +205,38 @@ def _drop_overflow_templates(
 ) -> tuple[list[tuple[JudgedTopic, TopicScriptResult]], list[tuple[JudgedTopic, TopicScriptResult]]]:
     """T18 テンプレ (無内容な最終防衛) のトピックを、床値を割らない範囲で除外する.
 
-    (T60, Issue #60) writer が全リトライ失敗すると generate_with_fallback は
-    テンプレへ fail-open するが、テンプレ文言 (「今日は○○のニュースを一つ
-    取り上げます」等) は聴取価値が無い。番組を出すこと自体は最優先するため、
-    除外すると MIN_TOPICS を割る場合は何もせず全件を残す (テンプレのまま放送)。
+    (T60, Issue #60; 部分ドロップ化は Issue #95) writer が全リトライ失敗すると
+    generate_with_fallback はテンプレへ fail-open するが、テンプレ文言
+    (「今日は○○のニュースを一つ取り上げます」等) は聴取価値が無い。番組を出す
+    こと自体は最優先するため、非テンプレ本数だけで MIN_TOPICS に届く場合でも、
+    テンプレを 1 本も落とせない all-or-nothing にはしない — 元の並び順 (arc 配置順)
+    の後ろから、合計本数が MIN_TOPICS を割らない範囲でテンプレを 1 本ずつ除外する
+    (例: 実1+テンプレ4 → 実1+テンプレ2 の計3本を残し2本落とす)。全除外しても
+    MIN_TOPICS に届かない分のテンプレは残す (fail-open: 番組を出すこと優先)。
     元の並び順 (arc 配置順) は保持する。
 
     戻り値: (episode に残すトピック, 除外したトピック)。
     """
-    templates = [r for r in results if r[1].method == METHOD_TEMPLATE]
-    if not templates or len(results) - len(templates) < MIN_TOPICS:
+    templates_by_position = [
+        (i, r) for i, r in enumerate(results) if r[1].method == METHOD_TEMPLATE
+    ]
+    if not templates_by_position:
         return results, []
-    kept = [r for r in results if r[1].method != METHOD_TEMPLATE]
-    for topic, _ in templates:
-        logger.warning(
+
+    # 落とせる本数 = 全体本数 - MIN_TOPICS (テンプレ以外がいくつあっても、床値を
+    # 割らない範囲でしか落とさない)。後方 (position 順の後ろ) から優先して落とす。
+    max_droppable = max(0, len(results) - MIN_TOPICS)
+    drop_indices = {i for i, _ in templates_by_position[-max_droppable:]} if max_droppable else set()
+
+    kept = [r for i, r in enumerate(results) if i not in drop_indices]
+    dropped = [r for i, r in enumerate(results) if i in drop_indices]
+    for topic, _ in dropped:
+        logger.info(
             "template fallback dropped from episode (item_id=%d, title=%.30s)",
             topic.candidate.item_id,
             topic.candidate.title,
         )
-    return kept, templates
+    return kept, dropped
 
 
 def run_draft(
