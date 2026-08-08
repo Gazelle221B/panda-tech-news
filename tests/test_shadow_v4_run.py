@@ -910,6 +910,88 @@ def test_kill_pid_fail_open_on_oserror() -> None:
         assert shadow.kill_pid(222, graceful_timeout=0.02, poll_interval=0.01) is False
 
 
+# ---------- stop_v4_server (Windows プロセスツリー kill バグの回帰テスト, Issue #98) ----------
+#
+# 2026-08-08 の v4 プレビュー配信 (PR #104) で、`terminate()`→`wait()` はログ上
+# 成功と記録されるにも関わらず Windows では実サーバ (孫プロセス) が残存する実害が
+# 判明した。本チケットで daily 12:00 のシャドーランにも同根のバグがあると確定したため、
+# Windows は `taskkill /F /T` でプロセスツリーごと終了させる。
+
+
+class _FakePopen:
+    """`subprocess.Popen` の代わりに poll/pid/terminate/wait/kill だけを差し替える fake."""
+
+    def __init__(self, *, alive_after_terminate: bool = False) -> None:
+        self.pid = 9876
+        self.terminated = False
+        self.killed = False
+        self._alive_after_terminate = alive_after_terminate
+
+    def poll(self) -> int | None:
+        if not self.terminated:
+            return None
+        if self._alive_after_terminate and not self.killed:
+            return None
+        return 0
+
+    def terminate(self) -> None:
+        self.terminated = True
+
+    def kill(self) -> None:
+        self.killed = True
+
+    def wait(self, timeout: float | None = None) -> int:
+        if self._alive_after_terminate and not self.killed:
+            raise subprocess.TimeoutExpired(cmd="fake", timeout=timeout or 0)
+        return 0
+
+
+def test_stop_v4_server_already_exited_is_noop(monkeypatch: Any) -> None:
+    proc = _FakePopen()
+    proc.terminated = True  # poll() が None でない (= 既に終了済み) を模す
+    called = {"run": False}
+    monkeypatch.setattr(shadow.subprocess, "run", lambda *a, **k: called.__setitem__("run", True))
+    shadow.stop_v4_server(proc)
+    assert called["run"] is False
+
+
+def test_stop_v4_server_windows_uses_taskkill_with_tree_flag(monkeypatch: Any) -> None:
+    proc = _FakePopen()
+    captured: dict[str, object] = {}
+
+    def _fake_run(cmd: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        captured["cmd"] = cmd
+        return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(shadow.os, "name", "nt")
+    monkeypatch.setattr(shadow.subprocess, "run", _fake_run)
+    shadow.stop_v4_server(proc)
+
+    assert captured["cmd"] == ["taskkill", "/F", "/T", "/PID", "9876"]
+    assert proc.terminated is False  # Windows 経路では Popen.terminate() を使わない
+
+
+def test_stop_v4_server_posix_uses_terminate_not_taskkill(monkeypatch: Any) -> None:
+    proc = _FakePopen()
+
+    def _fail_run(*args: Any, **kwargs: Any) -> None:
+        raise AssertionError("POSIX 経路で taskkill (subprocess.run) を呼んではならない")
+
+    monkeypatch.setattr(shadow.os, "name", "posix")
+    monkeypatch.setattr(shadow.subprocess, "run", _fail_run)
+    shadow.stop_v4_server(proc)
+
+    assert proc.terminated is True
+
+
+def test_stop_v4_server_posix_kills_after_terminate_timeout(monkeypatch: Any) -> None:
+    proc = _FakePopen(alive_after_terminate=True)
+    monkeypatch.setattr(shadow.os, "name", "posix")
+    shadow.stop_v4_server(proc)
+    assert proc.terminated is True
+    assert proc.killed is True
+
+
 # ---------- shutdown_v4_server (Issue #98: ラン終了時の常駐対策) ----------
 
 
@@ -931,11 +1013,41 @@ def test_shutdown_v4_server_skips_when_keep_server_env_set(monkeypatch: Any) -> 
 def test_shutdown_v4_server_stops_self_started_process(monkeypatch: Any) -> None:
     monkeypatch.delenv(shadow.SHADOW_KEEP_SERVER_ENV, raising=False)
     fake_proc = type("_P", (), {"poll": lambda self: 0})()
-    with patch.object(shadow, "stop_v4_server") as mock_stop:
+    with (
+        patch.object(shadow, "stop_v4_server") as mock_stop,
+        patch.object(shadow, "find_listening_pid", return_value=None) as mock_find,
+        patch.object(shadow, "kill_pid") as mock_kill,
+    ):
         shadow.shutdown_v4_server(
             started_by_us=True, proc=fake_proc, reused_existing=False, port=8089
         )
     mock_stop.assert_called_once_with(fake_proc)
+    # バックストップ (Issue #98): stop_v4_server 後もポートを確認する。今回は残存なし。
+    mock_find.assert_called_once_with(8089)
+    mock_kill.assert_not_called()
+
+
+def test_shutdown_v4_server_self_started_backstop_kills_remaining_pid(
+    monkeypatch: Any,
+) -> None:
+    """stop_v4_server 後もポートが LISTEN 中 (taskkill /T が対象漏れ等) なら追加停止する.
+
+    Windows の孫プロセス孤児化 (2026-08-08 実証, PR #104/Issue #98) に対する多層防御の
+    2 段目 — Popen の PID (Windows ではラッパー uv.exe) に頼らず、port の実 listener を
+    netstat で特定して個別に kill_pid する経路が実際に呼ばれることを固定する。
+    """
+    monkeypatch.delenv(shadow.SHADOW_KEEP_SERVER_ENV, raising=False)
+    fake_proc = type("_P", (), {"poll": lambda self: 0})()
+    with (
+        patch.object(shadow, "stop_v4_server"),
+        patch.object(shadow, "find_listening_pid", return_value=777) as mock_find,
+        patch.object(shadow, "kill_pid", return_value=True) as mock_kill,
+    ):
+        shadow.shutdown_v4_server(
+            started_by_us=True, proc=fake_proc, reused_existing=False, port=8089
+        )
+    mock_find.assert_called_once_with(8089)
+    mock_kill.assert_called_once_with(777)
 
 
 def test_shutdown_v4_server_noop_when_self_started_but_no_proc_handle(monkeypatch: Any) -> None:
