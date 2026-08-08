@@ -20,16 +20,24 @@ Issue #88 の P0 診断で、v4 短文幻話の根本原因は duration predicto
   残差が大きく単独では使えない。「同文を v3 で実測した尺」が正)。
 - **model/server/config/ref を SHA 固定** (Sol 指摘, Issue #88): 構成変更を検知したら
   history / Issue コメントに明記し、昇格カウントのリセットを促す。
+- **v4 サーバは常駐させない** (Issue #98 フォローアップ): シャドーランは平日 12:00 の
+  1 日 1 回のみのため、ラン終了時 (成功・失敗問わず) に必ず v4 サーバを停止する。
+  自分で起動した場合はそのプロセスハンドルで、既存稼働を利用した場合はポートから
+  PID を特定して停止する (特定できなければ WARNING ログのみで fail-open)。
+  `SHADOW_KEEP_SERVER=1` で停止を抑止できる (連続手動検証用の逃げ道)。
 
 使い方: `uv run python scripts/shadow_v4_run.py [--no-report-issue] [--v4-server-dir ...]`
 """
+
 from __future__ import annotations
 
 import argparse
+import contextlib
 import difflib
 import hashlib
 import json
 import logging
+import os
 import re
 import statistics
 import subprocess
@@ -89,6 +97,15 @@ HEALTH_CHECK_TIMEOUT_SECONDS = 5.0  # daily_pipeline.sh の --max-time と同値
 GIT_REV_TIMEOUT_SECONDS = 5.0
 GH_COMMENT_TIMEOUT_SECONDS = 15.0
 STOP_SERVER_TIMEOUT_SECONDS = 10.0
+NETSTAT_TIMEOUT_SECONDS = 5.0  # 既存稼働サーバの PID 特定用 (Issue #98)
+TASKLIST_TIMEOUT_SECONDS = 5.0
+TASKKILL_TIMEOUT_SECONDS = 5.0
+STOP_EXISTING_POLL_SECONDS = 0.5
+
+# ラン終了時の v4 サーバ停止を抑止する環境変数 (連続手動検証用の逃げ道, Issue #98)。
+# 既定は停止 (未設定/"0"/"false" は停止する側)。
+SHADOW_KEEP_SERVER_ENV = "SHADOW_KEEP_SERVER"
+_TRUTHY_ENV_VALUES = {"1", "true", "yes", "on"}
 
 # 幻話疑い判定の閾値 (Issue #91 指定)。
 LENGTH_RATIO_SUSPICION_THRESHOLD = 1.15
@@ -299,9 +316,7 @@ def build_daily_draft_sentences(
     return items
 
 
-def _prepare_fixed_sentences(
-    text: str, reading_dict: dict[str, str], max_chars: int
-) -> list[str]:
+def _prepare_fixed_sentences(text: str, reading_dict: dict[str, str], max_chars: int) -> list[str]:
     """既知失敗文/層化回帰セット共通の正規化 (マージは適用しない, 意図的に生の文長を保つ)."""
     return split_sentences(prepare_tts_text(text, reading_dict), max_chars)
 
@@ -488,9 +503,7 @@ def git_rev(repo_dir: Path) -> str | None:
 def is_server_healthy(client: httpx.Client, base_url: str, *, require_loaded: bool) -> bool:
     """`/health` を叩く. require_loaded=True なら JSON body の `loaded` も確認する."""
     try:
-        resp = client.get(
-            f"{base_url.rstrip('/')}/health", timeout=HEALTH_CHECK_TIMEOUT_SECONDS
-        )
+        resp = client.get(f"{base_url.rstrip('/')}/health", timeout=HEALTH_CHECK_TIMEOUT_SECONDS)
     except httpx.HTTPError:
         return False
     if resp.status_code != 200:
@@ -555,7 +568,7 @@ def start_v4_server(
 
 
 def stop_v4_server(proc: subprocess.Popen[bytes]) -> None:
-    """本ジョブが起動した v4 サーバのみ停止する (daily_pipeline.sh と同じ流儀)."""
+    """本ジョブが起動した v4 サーバを停止する (daily_pipeline.sh と同じ流儀)."""
     if proc.poll() is not None:
         return
     proc.terminate()
@@ -564,6 +577,172 @@ def stop_v4_server(proc: subprocess.Popen[bytes]) -> None:
     except subprocess.TimeoutExpired:
         proc.kill()
         proc.wait(timeout=STOP_SERVER_TIMEOUT_SECONDS)
+
+
+def keep_server_requested() -> bool:
+    """`SHADOW_KEEP_SERVER=1` 等で停止抑止が指定されているか (Issue #98 の逃げ道)."""
+    value = os.environ.get(SHADOW_KEEP_SERVER_ENV, "")
+    return value.strip().lower() in _TRUTHY_ENV_VALUES
+
+
+def find_listening_pid(port: int, *, timeout: float = NETSTAT_TIMEOUT_SECONDS) -> int | None:
+    """`netstat -ano` で `port` を LISTENING している PID を特定する.
+
+    既存稼働の v4 サーバを停止するため、自プロセスが起動していない場合の PID 特定に使う
+    (Issue #98)。0 件/複数件/コマンド失敗はすべて fail-open で None を返し、呼び出し元は
+    WARNING ログのみで停止をスキップする (誤って無関係なプロセスを kill しないため)。
+    """
+    try:
+        proc = subprocess.run(
+            ["netstat", "-ano", "-p", "TCP"],
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if proc.returncode != 0:
+        return None
+
+    suffix = f":{port}"
+    pids: set[int] = set()
+    for line in proc.stdout.splitlines():
+        parts = line.split()
+        if len(parts) < 5:
+            continue
+        proto, local_addr, _remote_addr, state, pid_text = (
+            parts[0],
+            parts[1],
+            parts[2],
+            parts[3],
+            parts[4],
+        )
+        if proto.upper() != "TCP" or state.upper() != "LISTENING":
+            continue
+        if not local_addr.endswith(suffix):
+            continue
+        try:
+            pids.add(int(pid_text))
+        except ValueError:
+            continue
+
+    if len(pids) != 1:
+        return None
+    return next(iter(pids))
+
+
+def _pid_exists(pid: int, *, timeout: float = TASKLIST_TIMEOUT_SECONDS) -> bool:
+    """`tasklist` で PID の生死を確認する (取得失敗時は存在するとみなし過剰な /F kill を避ける)."""
+    try:
+        proc = subprocess.run(
+            ["tasklist", "/FI", f"PID eq {pid}"],
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return True
+    if proc.returncode != 0:
+        return True
+    return str(pid) in proc.stdout
+
+
+def kill_pid(
+    pid: int,
+    *,
+    graceful_timeout: float = STOP_SERVER_TIMEOUT_SECONDS,
+    poll_interval: float = STOP_EXISTING_POLL_SECONDS,
+) -> bool:
+    """`taskkill` で PID を停止する (まず通常終了、猶予後に `/F` 強制終了).
+
+    既存稼働 (本ジョブが起動していない) v4 サーバの停止用 (Issue #98)。成否を bool で返し、
+    呼び出し元は fail-open (失敗してもランの exit code は変えない) で扱う。
+    """
+    with contextlib.suppress(OSError, subprocess.TimeoutExpired):
+        subprocess.run(
+            ["taskkill", "/PID", str(pid)],
+            capture_output=True,
+            text=True,
+            timeout=TASKKILL_TIMEOUT_SECONDS,
+            check=False,
+        )
+
+    deadline = time.monotonic() + graceful_timeout
+    while time.monotonic() < deadline:
+        if not _pid_exists(pid):
+            return True
+        time.sleep(poll_interval)
+
+    if not _pid_exists(pid):
+        return True
+
+    try:
+        proc = subprocess.run(
+            ["taskkill", "/PID", str(pid), "/F"],
+            capture_output=True,
+            text=True,
+            timeout=TASKKILL_TIMEOUT_SECONDS,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    return proc.returncode == 0
+
+
+def shutdown_v4_server(
+    *,
+    started_by_us: bool,
+    proc: subprocess.Popen[bytes] | None,
+    reused_existing: bool,
+    port: int,
+) -> None:
+    """ラン終了時の v4 サーバ停止をディスパッチする (Issue #98: 常駐対策).
+
+    `SHADOW_KEEP_SERVER=1` が指定されていれば何もしない (逃げ道)。自分で起動した場合は
+    そのプロセスハンドルで `stop_v4_server` を使い、既存稼働を利用しただけの場合はポート
+    から PID を特定して `kill_pid` で停止する。いずれも fail-open (失敗は WARNING ログの
+    みで呼び出し元の exit code には影響させない)。
+    """
+    if keep_server_requested():
+        logger.info("%s=1 のため v4 シャドーサーバの停止をスキップします", SHADOW_KEEP_SERVER_ENV)
+        return
+
+    if started_by_us:
+        if proc is None:
+            return
+        logger.info("v4 シャドーサーバ (自起動分) を停止します")
+        try:
+            stop_v4_server(proc)
+        except OSError as exc:
+            logger.warning("v4 シャドーサーバ (自起動分) の停止に失敗しました (fail-open): %s", exc)
+            return
+        if proc.poll() is None:
+            logger.warning("v4 シャドーサーバ (自起動分) が停止確認できません (fail-open)")
+        else:
+            logger.info("v4 シャドーサーバ (自起動分) を停止しました")
+        return
+
+    if not reused_existing:
+        return
+
+    pid = find_listening_pid(port)
+    if pid is None:
+        logger.warning(
+            "v4 シャドーサーバ (既存利用分) の PID を特定できず停止をスキップします "
+            "(fail-open, port=%d)",
+            port,
+        )
+        return
+
+    logger.info("v4 シャドーサーバ (既存利用分, PID %d) を停止します", pid)
+    if kill_pid(pid):
+        logger.info("v4 シャドーサーバ (既存利用分, PID %d) を停止しました", pid)
+    else:
+        logger.warning(
+            "v4 シャドーサーバ (既存利用分, PID %d) の停止に失敗しました (fail-open)", pid
+        )
 
 
 def synthesize_wav(
@@ -870,9 +1049,7 @@ def run_shadow(
     started_at = datetime.now(UTC)
     run_id = started_at.strftime("%Y%m%d_%H%M%S")
 
-    manual_reading_dict = (
-        load_reading_dict(args.reading_dict) if args.reading_dict.exists() else {}
-    )
+    manual_reading_dict = load_reading_dict(args.reading_dict) if args.reading_dict.exists() else {}
     auto_reading_dict = load_auto_readings(args.auto_reading_dict)
     reading_dict = {**auto_reading_dict, **manual_reading_dict}
 
@@ -924,7 +1101,9 @@ def run_shadow(
                 )
             )
     elif not v4_available:
-        logger.warning("v4 シャドー利用不可のため文単位測定をスキップ (fail-open): %s", v4_startup_note)
+        logger.warning(
+            "v4 シャドー利用不可のため文単位測定をスキップ (fail-open): %s", v4_startup_note
+        )
 
     finished_at = datetime.now(UTC)
     return ShadowRunReport(
@@ -944,11 +1123,11 @@ def run_shadow(
 
 def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description=(
-            "Irodori-TTS v4 移行トラック: 日次シャドーレンダリング + 三層測定 (Issue #91)"
-        )
+        description=("Irodori-TTS v4 移行トラック: 日次シャドーレンダリング + 三層測定 (Issue #91)")
     )
-    parser.add_argument("--db-path", type=Path, default=DEFAULT_DB_PATH, help="本番 SQLite DB (読み取り専用)")
+    parser.add_argument(
+        "--db-path", type=Path, default=DEFAULT_DB_PATH, help="本番 SQLite DB (読み取り専用)"
+    )
     parser.add_argument("--reading-dict", type=Path, default=DEFAULT_READING_DICT_PATH)
     parser.add_argument("--auto-reading-dict", type=Path, default=DEFAULT_AUTO_READING_DICT_PATH)
     parser.add_argument(
@@ -964,9 +1143,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--v4-health-timeout-sec", type=float, default=DEFAULT_V4_HEALTH_TIMEOUT_SECONDS
     )
-    parser.add_argument(
-        "--v4-health-poll-sec", type=float, default=DEFAULT_V4_HEALTH_POLL_SECONDS
-    )
+    parser.add_argument("--v4-health-poll-sec", type=float, default=DEFAULT_V4_HEALTH_POLL_SECONDS)
     parser.add_argument("--voice", default=IRODORI_DEFAULT_VOICE)
     parser.add_argument("--model", default=IRODORI_MODEL)
     parser.add_argument("--seed", type=int, default=DEFAULT_SEED)
@@ -989,74 +1166,85 @@ def main(argv: list[str] | None = None) -> int:
     args = build_arg_parser().parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
-    with httpx.Client() as client:
-        if not is_server_healthy(client, args.v3_base_url, require_loaded=False):
-            logger.error(
-                "v3 (本番) サーバの health が確認できません。シャドーランを中断します: %s",
-                args.v3_base_url,
-            )
-            return 1
+    # Issue #98: v4 サーバの起動状況を outer try/finally の外側で追跡し、
+    # レポート出力・Issue コメント・Discord 通知の「後」に必ず停止処理を行う
+    # (成功・失敗問わず fail-open。停止の成否は exit code に影響させない)。
+    v4_started = False
+    v4_proc: subprocess.Popen[bytes] | None = None
+    v4_reused_existing = False
 
-        v4_started = False
-        v4_proc: subprocess.Popen[bytes] | None = None
-        v4_available = True
-        v4_startup_note: str | None = None
-        if is_server_healthy(client, args.v4_base_url, require_loaded=True):
-            logger.info("v4 シャドーサーバ: 既に稼働中 (既存を利用)")
-        else:
-            logger.info("v4 シャドーサーバ: 未起動 → 起動")
-            try:
-                v4_proc = start_v4_server(
-                    args.v4_server_dir,
-                    host=args.v4_host,
-                    port=args.v4_port,
-                    log_path=args.v4_log_path,
+    try:
+        with httpx.Client() as client:
+            if not is_server_healthy(client, args.v3_base_url, require_loaded=False):
+                logger.error(
+                    "v3 (本番) サーバの health が確認できません。シャドーランを中断します: %s",
+                    args.v3_base_url,
                 )
-                v4_started = True
-            except OSError as exc:
-                v4_available = False
-                v4_startup_note = f"起動失敗: {type(exc).__name__}: {exc}"
-                logger.warning("v4 シャドーサーバの起動に失敗 (fail-open): %s", exc)
-            if v4_available and not wait_for_health(
-                client,
-                args.v4_base_url,
-                timeout_sec=args.v4_health_timeout_sec,
-                poll_interval_sec=args.v4_health_poll_sec,
-                require_loaded=True,
-            ):
-                v4_available = False
-                v4_startup_note = "health タイムアウト"
-                logger.warning("v4 シャドーサーバが health に到達せず (fail-open)")
+                return 1
 
-        try:
-            report = run_shadow(
-                client=client,
-                args=args,
-                v4_available=v4_available,
-                v4_startup_note=v4_startup_note,
-            )
-        except AsrUnavailableError as exc:
-            logger.error("ASR バックエンドが利用できません。シャドーランを中断します: %s", exc)
-            return 1
-        finally:
-            if v4_started and v4_proc is not None:
-                stop_v4_server(v4_proc)
+            v4_available = True
+            v4_startup_note: str | None = None
+            if is_server_healthy(client, args.v4_base_url, require_loaded=True):
+                v4_reused_existing = True
+                logger.info("v4 シャドーサーバ: 既に稼働中 (既存を利用)")
+            else:
+                logger.info("v4 シャドーサーバ: 未起動 → 起動")
+                try:
+                    v4_proc = start_v4_server(
+                        args.v4_server_dir,
+                        host=args.v4_host,
+                        port=args.v4_port,
+                        log_path=args.v4_log_path,
+                    )
+                    v4_started = True
+                except OSError as exc:
+                    v4_available = False
+                    v4_startup_note = f"起動失敗: {type(exc).__name__}: {exc}"
+                    logger.warning("v4 シャドーサーバの起動に失敗 (fail-open): %s", exc)
+                if v4_available and not wait_for_health(
+                    client,
+                    args.v4_base_url,
+                    timeout_sec=args.v4_health_timeout_sec,
+                    poll_interval_sec=args.v4_health_poll_sec,
+                    require_loaded=True,
+                ):
+                    v4_available = False
+                    v4_startup_note = "health タイムアウト"
+                    logger.warning("v4 シャドーサーバが health に到達せず (fail-open)")
 
-    report_path = write_report(report, args.out_dir)
-    logger.info("レポート出力: %s", report_path)
+            try:
+                report = run_shadow(
+                    client=client,
+                    args=args,
+                    v4_available=v4_available,
+                    v4_startup_note=v4_startup_note,
+                )
+            except AsrUnavailableError as exc:
+                logger.error("ASR バックエンドが利用できません。シャドーランを中断します: %s", exc)
+                return 1
 
-    history_path = args.out_dir / "history.jsonl"
-    previous = read_last_history_line(history_path)
-    config_changed = previous is not None and previous.get("config_hash") != report.config_hash
-    append_history(history_path, build_history_line(report, config_changed=config_changed))
+        report_path = write_report(report, args.out_dir)
+        logger.info("レポート出力: %s", report_path)
 
-    if args.report_issue:
-        comment = build_issue_comment(report, config_changed=config_changed)
-        post_issue_comment(comment, issue_number=args.issue_number)
+        history_path = args.out_dir / "history.jsonl"
+        previous = read_last_history_line(history_path)
+        config_changed = previous is not None and previous.get("config_hash") != report.config_hash
+        append_history(history_path, build_history_line(report, config_changed=config_changed))
 
-    post_shadow_summary_to_discord(report)
+        if args.report_issue:
+            comment = build_issue_comment(report, config_changed=config_changed)
+            post_issue_comment(comment, issue_number=args.issue_number)
 
-    return 0
+        post_shadow_summary_to_discord(report)
+
+        return 0
+    finally:
+        shutdown_v4_server(
+            started_by_us=v4_started,
+            proc=v4_proc,
+            reused_existing=v4_reused_existing,
+            port=args.v4_port,
+        )
 
 
 if __name__ == "__main__":
