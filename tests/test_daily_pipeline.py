@@ -105,6 +105,10 @@ def _write_fake_uv_capturing_notify_args(path: Path, *, args_out: Path) -> None:
     (label/rc/log_path/custom_message) を args_out へ書き出す (Issue #98: リソースガード
     発動時に custom_message が正しく組み立てられ notify_failure() へ渡ることを検証するため)。
 
+    custom_message は複数行になり得るため (Issue #98 の専用メッセージは見出し/詳細/ログ
+    パスを改行区切りで含む)、単純な1行1値の書き出しでは引数境界が復元できない。
+    ARG_<n>_BEGIN/END マーカーで各引数を囲み、_parse_notify_args() で復元する。
+
     produce は既定で成功させる (このテストの主眼は資源プリフライトでの skip であり、
     produce 自体は資源チェックを通過しなければ呼ばれない)。
     """
@@ -119,9 +123,11 @@ case "$*" in
   run\\ python\\ -\\ *)
     cat >/dev/null
     shift 3
-    printf '%s\\n' "$#" > "{args_out_str}"
+    printf 'ARGC:%s\\n' "$#" > "{args_out_str}"
+    i=1
     for a in "$@"; do
-      printf '%s\\n' "$a" >> "{args_out_str}"
+      printf 'ARG_%s_BEGIN\\n%s\\nARG_%s_END\\n' "$i" "$a" "$i" >> "{args_out_str}"
+      i=$((i+1))
     done
     echo "Discord failure alert: sent"
     exit 0
@@ -132,6 +138,28 @@ esac
         encoding="utf-8",
     )
     path.chmod(0o755)
+
+
+def _parse_notify_args(args_out: Path) -> list[str]:
+    """_write_fake_uv_capturing_notify_args() が書き出した ARG_<n>_BEGIN/END 形式をパースし、
+    notify_failure() へ渡った引数のリスト (label, rc, log_path, custom_message) を復元する。
+    custom_message 内部の改行はそのまま保持される (BEGIN/END マーカー行だけを境界とする)。
+    """
+    lines = args_out.read_text(encoding="utf-8").splitlines()
+    assert lines[0].startswith("ARGC:"), f"想定外の先頭行: {lines[0]!r}"
+    argc = int(lines[0].split(":", 1)[1])
+    args: list[str] = []
+    idx = 1
+    for i in range(1, argc + 1):
+        assert lines[idx] == f"ARG_{i}_BEGIN", f"ARG_{i}_BEGIN が見つかりません: {lines[idx]!r}"
+        idx += 1
+        value_lines: list[str] = []
+        while lines[idx] != f"ARG_{i}_END":
+            value_lines.append(lines[idx])
+            idx += 1
+        idx += 1  # ARG_<i>_END をスキップ
+        args.append("\n".join(value_lines))
+    return args
 
 
 def _log_text(tmp_path: Path) -> str:
@@ -304,8 +332,9 @@ def test_resource_guard_notification_uses_dedicated_message(tmp_path: Path) -> N
     が専用のリソースガード文言になっていること (汎用の「失敗通知」固定文言に埋もれない)。
 
     08-06/08-07 の実インシデントでは通知自体は送信されていたが、他の失敗通知と見た目が
-    同じ汎用テンプレートだったため 3 営業日気づけなかった (Issue #98)。緊急性が伝わる
-    専用文言であることと、実測値・閾値が埋め込まれていることを検証する。
+    同じ汎用テンプレートだったため 3 営業日気づけなかった (Issue #98)。断定的な見出しで
+    他の失敗通知と一目で区別できること、実測値・閾値・ログパス・Issue参照が埋め込まれて
+    いることを検証する。
     """
     fake_uv = tmp_path / "uv"
     args_out = tmp_path / "notify_args.txt"
@@ -321,14 +350,15 @@ def test_resource_guard_notification_uses_dedicated_message(tmp_path: Path) -> N
     )
     assert result.returncode == 97
     assert args_out.exists(), "notify_failure() の Python 呼び出しが行われていません"
-    lines = args_out.read_text(encoding="utf-8").splitlines()
-    argc = int(lines[0])
-    assert argc == 4, f"notify_failure() へ渡る引数は label/rc/log_path/custom_message の4件のはず (実際: {argc})"
-    custom_message = lines[4]  # lines[1..3] = label, rc, log_path / lines[4] = custom_message
-    assert custom_message.startswith("⚠️ リソースガード発動:")
+    args = _parse_notify_args(args_out)
+    assert len(args) == 4, f"notify_failure() へ渡る引数は label/rc/log_path/custom_message の4件のはず (実際: {len(args)})"
+    _label, _rc, log_path, custom_message = args
+    # 断定的な見出しが先頭にあり、他の失敗通知 (⚠️ 華流テック通信 daily_pipeline 失敗通知) と
+    # 一目で区別できること。
+    assert custom_message.startswith("🚨 リソースガード発動: 本日の配信はありません")
     assert "swap 26639M" in custom_message
     assert "閾値 12000M" in custom_message
-    assert "配信は行われません" in custom_message
+    assert log_path in custom_message, "ログパスが本文に埋め込まれていません"
     assert "Issue #98" in custom_message
     # 汎用テンプレート固有の曖昧な文言 (可能性があります) は使われていないこと
     assert "可能性があります" not in custom_message
@@ -358,10 +388,9 @@ def test_produce_failure_notification_has_no_custom_message(tmp_path: Path) -> N
         **_SAFE_RESOURCE_KWARGS,
     )
     assert result.returncode == 5
-    lines = args_out.read_text(encoding="utf-8").splitlines()
-    argc = int(lines[0])
-    assert argc == 4
-    label, rc, custom_message = lines[1], lines[2], lines[4]
+    args = _parse_notify_args(args_out)
+    assert len(args) == 4
+    label, rc, _log_path, custom_message = args
     assert label == "produce"
     assert rc == "5"
     assert custom_message == ""

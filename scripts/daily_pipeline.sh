@@ -197,11 +197,13 @@ resources_ok() {
 
 # Issue #98: 資源ガード発動 (produce スキップ) 時の Discord 通知文言を組み立てる。
 # 08-06/08-07 の実運用では notify_failure() の汎用「失敗通知」テンプレートに埋もれて
-# 3営業日気づけなかった (通知自体は送信されていた)。緊急性が伝わるよう専用文言にし、
-# 実測値・閾値・超過した指標 (swap/load いずれか、または両方) を明示する。
+# 3営業日気づけなかった (通知自体は送信されていた)。他の失敗通知と一目で区別できるよう、
+# 冒頭に断定的な見出し (「可能性があります」等の曖昧表現は使わない) を置き、
+# 実測値・閾値・超過した指標 (swap/load いずれか、または両方)・ログパス・Issue参照を明示する。
 # resources_ok() 呼び出し後の RESOURCE_* グローバル変数を読む前提 (単体では resources_ok
-# 未呼び出しだと空文字/0 のままになる)。
+# 未呼び出しだと空文字/0 のままになる)。第1引数 (任意) はログファイルパス。
 build_resource_guard_message() {
+  local log_path="${1:-${LOG:-N/A}}"
   local detail=""
   if [ "$RESOURCE_SWAP_EXCEEDED" = "1" ]; then
     detail="swap ${RESOURCE_SWAP_USED_MB}M が閾値 ${RESOURCE_MAX_SWAP_MB}M を超過"
@@ -213,7 +215,11 @@ build_resource_guard_message() {
       detail="load ${RESOURCE_LOAD_1MIN} が閾値 ${RESOURCE_MAX_LOAD} を超過"
     fi
   fi
-  echo "⚠️ リソースガード発動: ${detail}したため本日の produce をスキップしました。配信は行われません。ホストのメモリ状況を確認してください (Issue #98)"
+  printf '%s\n%s\n%s\n%s\n' \
+    "🚨 リソースガード発動: 本日の配信はありません" \
+    "${detail}したため produce をスキップしました。ホストのメモリ状況を確認してください。" \
+    "ログ: ${log_path}" \
+    "詳細: Issue #98"
 }
 
 cd "$PROJECT_DIR" || { echo "FATAL: cd $PROJECT_DIR 失敗" >&2; exit 1; }
@@ -371,7 +377,7 @@ fi
 FINAL_RC=0
 if [ "$PRODUCE_RC" -ne 0 ]; then
   if [ "$PRODUCE_RC" -eq 97 ]; then
-    notify_failure "資源不足のため produce をスキップ (swap=${RESOURCE_SWAP_USED_MB}M, load=${RESOURCE_LOAD_1MIN})" "$PRODUCE_RC" "$LOG" "$(build_resource_guard_message)"
+    notify_failure "資源不足のため produce をスキップ (swap=${RESOURCE_SWAP_USED_MB}M, load=${RESOURCE_LOAD_1MIN})" "$PRODUCE_RC" "$LOG" "$(build_resource_guard_message "$LOG")"
   else
     notify_failure "produce" "$PRODUCE_RC" "$LOG"
   fi
