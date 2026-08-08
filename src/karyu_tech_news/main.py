@@ -56,6 +56,16 @@ MIN_LUFS_REQUIRED_DURATION_SEC = 5.0
 MAX_TTS_SILENCE_SEC = 3.0
 MAX_TRUE_PEAK_DBTP = -1.0
 
+# 欠落文許容閾値 (Issue #98 フォローアップ3): 2026-08-05 の produce で ASR ゲートが
+# リトライ上限まで解消できなかった1文を skip した結果、従来の fail-fast (欠落文が
+# 1件でもあれば mp3 生成を中止) によりエピソード全体が中止され、その日の配信がゼロ
+# になった (Issue #98 原因2)。番組継続性の観点では「欠落1文で全断」より「ほぼ全文
+# (35/36 等) を警告付きで配信」が優るため、欠落が僅少かつ総文数が十分な場合に限り
+# 警告付きで配信続行する。総文数が少ない番組は欠落1文でも比率影響が大きいため
+# MIN_TOTAL_FOR_TOLERANCE 未満は従来どおり中止する。環境変数上書きは行わない (YAGNI)。
+MAX_MISSING_SENTENCES = 1
+MIN_TOTAL_FOR_TOLERANCE = 20
+
 
 def setup_logging(level: str = "INFO") -> None:
     """ロギング初期化."""
@@ -692,6 +702,7 @@ def produce(
         synthesized_sentences = 0
         skipped_sentences = 0
         asr_retried_sentences = 0
+        skipped_sentence_texts: list[str] = []
         try:
             for seg in segments:
                 seg_script = StructuredScript(variant=variant, generated_at=now, segments=[seg])
@@ -710,6 +721,7 @@ def produce(
                 synthesized_sentences += seg_synth.synthesized_sentences
                 skipped_sentences += seg_synth.skipped_sentences
                 asr_retried_sentences += seg_synth.asr_retried_sentences
+                skipped_sentence_texts.extend(seg_synth.skipped_sentence_texts)
         except AsrUnavailableError as exc:
             typer.secho(
                 f"ERROR: ASR ゲートが有効ですが ASR が利用できません: {exc}",
@@ -719,15 +731,38 @@ def produce(
             raise typer.Exit(code=1) from exc
         if asr_retried_sentences:
             typer.echo(f"ASR ゲート: {asr_retried_sentences} 文をリトライで復旧")
+        # 欠落文許容判定 (Issue #98 フォローアップ3): 欠落が僅少 (<= MAX_MISSING_SENTENCES)
+        # かつ総文数が十分 (>= MIN_TOTAL_FOR_TOLERANCE) なときだけ警告付きで続行し、
+        # それ以外は従来どおりメッセージ・exit code を維持したまま中止する。
+        missing_sentence_notice: str | None = None
         if skipped_sentences:
-            typer.secho(
-                "ERROR: TTS 合成で欠落文があります "
-                f"{skipped_sentences}/{attempted_sentences} 文 "
-                "。不完全な mp3 の生成を中止します。",
-                fg=typer.colors.RED,
-                err=True,
-            )
-            raise typer.Exit(code=1)
+            if (
+                skipped_sentences <= MAX_MISSING_SENTENCES
+                and attempted_sentences >= MIN_TOTAL_FOR_TOLERANCE
+            ):
+                preview = skipped_sentence_texts[0][:30] if skipped_sentence_texts else "(文面不明)"
+                typer.secho(
+                    "WARNING: TTS 合成で欠落文があります "
+                    f"{skipped_sentences}/{attempted_sentences} 文 "
+                    f"。許容閾値内 (<= {MAX_MISSING_SENTENCES} 文 かつ総文数 >= "
+                    f"{MIN_TOTAL_FOR_TOLERANCE}) のため配信を続行します "
+                    f"(欠落: {preview}…)。",
+                    fg=typer.colors.YELLOW,
+                    err=True,
+                )
+                missing_sentence_notice = (
+                    f"⚠️ ASR ゲートで {skipped_sentences} 文を除外して配信 "
+                    f"(欠落: {preview}…)"
+                )
+            else:
+                typer.secho(
+                    "ERROR: TTS 合成で欠落文があります "
+                    f"{skipped_sentences}/{attempted_sentences} 文 "
+                    "。不完全な mp3 の生成を中止します。",
+                    fg=typer.colors.RED,
+                    err=True,
+                )
+                raise typer.Exit(code=1)
         if synthesized_sentences == 0:
             typer.secho(
                 "ERROR: TTS 合成成功文が 0 件です。無音 mp3 の生成を中止します。",
@@ -855,7 +890,10 @@ def produce(
         )
         session.commit()
         if post:
-            ok = post_audio(settings.discord_webhook_url, out_path, content=f"🎙️ {title}")
+            content = f"🎙️ {title}"
+            if missing_sentence_notice:
+                content = f"{content}\n{missing_sentence_notice}"
+            ok = post_audio(settings.discord_webhook_url, out_path, content=content)
             typer.echo("Discord 投稿: " + ("成功" if ok else "失敗 (fail-open)"))
 
 

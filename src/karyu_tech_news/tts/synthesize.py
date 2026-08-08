@@ -240,6 +240,7 @@ def synthesize_script(
     skipped_sentences = 0
     asr_retried_sentences = 0
     asr_failed_sentences = 0
+    skipped_sentence_texts: list[str] = []
     for seg in script.segments:
         # TTS 前処理: Markdown/URL/原語読みを整理し、中国語原題 quote は発話退避する。
         # quote 退避を読み辞書より先に行い、辞書由来のカナ混入で中国語判定が潰れるのを防ぐ。
@@ -274,19 +275,23 @@ def synthesize_script(
             except TTSError as exc:
                 logger.warning("synth failed (fail-open), skipped: %s", exc)
                 skipped_sentences += 1
+                skipped_sentence_texts.append(sentence)
                 continue
             signal = analyze_wav_signal(res.audio)
             if not signal.valid_wav:
                 logger.warning("不正な wav chunk を skip (fail-open)")
                 skipped_sentences += 1
+                skipped_sentence_texts.append(sentence)
                 continue
             if not signal.has_pcm_signal:
                 logger.warning("無音 wav chunk を skip (fail-open)")
                 skipped_sentences += 1
+                skipped_sentence_texts.append(sentence)
                 continue
             if signal.duration_sec > 0 and signal.max_silence_sec >= signal.duration_sec - 1e-6:
                 logger.warning("実質無音 wav chunk を skip (fail-open)")
                 skipped_sentences += 1
+                skipped_sentence_texts.append(sentence)
                 continue
             if (
                 signal.duration_sec >= MIN_ACTIVE_RATIO_DURATION_SEC
@@ -298,6 +303,7 @@ def synthesize_script(
                     signal.active_ratio,
                 )
                 skipped_sentences += 1
+                skipped_sentence_texts.append(sentence)
                 continue
             final_audio = res.audio
             if asr_backend is not None:
@@ -341,6 +347,7 @@ def synthesize_script(
                         )
                         skipped_sentences += 1
                         asr_failed_sentences += 1
+                        skipped_sentence_texts.append(sentence)
                         continue
                     final_audio = retried_audio
                     asr_retried_sentences += 1
@@ -355,4 +362,5 @@ def synthesize_script(
         skipped_sentences=skipped_sentences + concat.dropped_chunks,
         asr_retried_sentences=asr_retried_sentences,
         asr_failed_sentences=asr_failed_sentences,
+        skipped_sentence_texts=skipped_sentence_texts,
     )
