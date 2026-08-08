@@ -568,8 +568,31 @@ def start_v4_server(
 
 
 def stop_v4_server(proc: subprocess.Popen[bytes]) -> None:
-    """本ジョブが起動した v4 サーバを停止する (daily_pipeline.sh と同じ流儀)."""
+    """本ジョブが起動した v4 サーバをプロセスツリーごと停止する (Issue #98).
+
+    Windows は `execve` によるプロセス置換ができないため、`uv run --no-sync python -m
+    irodori_openai_tts` の Popen が返す PID は **ラッパー (uv.exe) の PID** でしかなく、
+    実際にポートを listen している python.exe は孫プロセスとして別途起動される。
+    `Popen.terminate()` は直接の子にしかシグナルが届かないため、この孫プロセスが孤児と
+    して残存する実害を確認した (v4 プレビュー配信 PR #104, 2026-08-08 → 本チケットで
+    daily 12:00 のシャドーランにも同根のバグがあると確定)。Windows では `taskkill /F /T`
+    でプロセスツリー全体を終了させる。POSIX は従来どおり `terminate()`→`wait()`→
+    (タイムアウトなら) `kill()` (exec 置換されるため Popen の PID が実サーバそのもの)。
+    """
     if proc.poll() is not None:
+        return
+    if os.name == "nt":
+        with contextlib.suppress(OSError, subprocess.TimeoutExpired):
+            subprocess.run(
+                ["taskkill", "/F", "/T", "/PID", str(proc.pid)],
+                capture_output=True,
+                timeout=TASKKILL_TIMEOUT_SECONDS,
+                check=False,
+            )
+        try:
+            proc.wait(timeout=STOP_SERVER_TIMEOUT_SECONDS)
+        except subprocess.TimeoutExpired:
+            logger.warning("taskkill 後もプロセス終了を確認できません (PID=%s)", proc.pid)
         return
     proc.terminate()
     try:
@@ -722,6 +745,23 @@ def shutdown_v4_server(
             logger.warning("v4 シャドーサーバ (自起動分) が停止確認できません (fail-open)")
         else:
             logger.info("v4 シャドーサーバ (自起動分) を停止しました")
+        # バックストップ (Issue #98): stop_v4_server の taskkill /T が対象漏れ・タイムアウト
+        # した場合に備え、ポートがまだ LISTEN されていれば実体 PID を netstat で特定して
+        # 個別に始末する (「既存利用分」と同じ経路を再利用)。Popen の PID (Windows では
+        # uv.exe のラッパー PID) に頼らず、port の実 listener を根拠にするため確実性が高い。
+        remaining_pid = find_listening_pid(port)
+        if remaining_pid is not None:
+            logger.warning(
+                "v4 シャドーサーバ (自起動分) 停止後もポートが LISTEN 中 (PID %d)。追加停止します",
+                remaining_pid,
+            )
+            if kill_pid(remaining_pid):
+                logger.info("v4 シャドーサーバ (残存 PID %d) を停止しました", remaining_pid)
+            else:
+                logger.warning(
+                    "v4 シャドーサーバ (残存 PID %d) の停止に失敗しました (fail-open)",
+                    remaining_pid,
+                )
         return
 
     if not reused_existing:

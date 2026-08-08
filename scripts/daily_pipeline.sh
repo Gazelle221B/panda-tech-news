@@ -74,6 +74,66 @@ case "$(uname -s 2>/dev/null)" in
   MINGW*|MSYS*|CYGWIN*) IS_WINDOWS=1 ;;
 esac
 
+# T98 (Issue #98): Windows 孫プロセス孤児化対策。
+#
+# `nohup "$UV" run python -m irodori_openai_tts ... & echo $! > "$PIDFILE"` の `$!` は
+# Git Bash (MSYS) 上の **uv (uv.exe) の PID** でしかない。Windows は execve によるプロセス
+# 置換ができないため、実際にポートを listen する python.exe は uv.exe の子 (nohup から見て
+# 孫) プロセスとして別に起動される。従来の `kill "$PID"` は uv.exe しか殺せず、実サーバは
+# 孤児として残存する — にも関わらず PID ガード (`ps -p "$PID" -o command= | grep -q
+# irodori_openai_tts`) は uv のコマンドラインにマッチするため「Irodori サーバ停止」と正常
+# ログを残す (偽陽性)。2026-08-08 の v4 プレビュー配信 (PR #104) で同型バグを実証済みで、
+# 本スクリプトは 7月から毎日 12:00/朝の実行のたびに孤児サーバを積み増していたと確定した
+# (Issue #98 の swap 枯渇の一因)。
+#
+# 対策は `scripts/shadow_v4_run.py::find_listening_pid`/`kill_pid` と同じ保守的方針:
+# $PID (MSYS PID) を taskkill に渡さず、ポートの実 listener を netstat で Windows PID として
+# 特定し、一意に特定できた場合のみ taskkill する。特定できなければ WARNING で fail-open
+# (無関係なプロセスを誤って kill しない)。POSIX (mac) は exec 置換により `$!` が実サーバ
+# そのものなので、従来の kill で十分 (この経路は Windows のみで使う)。
+
+# HEALTH_URL (例: http://127.0.0.1:8088/health) からポート番号を取り出す。
+# 取得できなければ空文字を返す (呼び出し側で確認スキップ)。
+irodori_port_from_health_url() {
+  printf '%s\n' "$HEALTH_URL" | sed -n 's#^[a-zA-Z][a-zA-Z0-9+.-]*://[^/]*:\([0-9]\+\).*#\1#p'
+}
+
+# `netstat -ano -p TCP` から `port` を LISTENING している Windows PID を特定する。
+# 0件/複数件/コマンド失敗はすべて空文字を返す (fail-open, 誤 kill 防止)。
+# MSYS_NO_PATHCONV=1: netstat/taskkill の `/F` `/T` `/PID` 等の単一スラッシュ引数が
+# MSYS の自動パス変換で壊れる (絶対パス扱いされる) のを防ぐ。
+find_listening_pid_windows() {
+  local port="$1"
+  local pids count
+  pids="$(MSYS_NO_PATHCONV=1 netstat -ano -p TCP 2>/dev/null | awk -v want=":${port}" '
+    toupper($1) == "TCP" && toupper($4) == "LISTENING" {
+      addr = $2
+      n = length(want)
+      if (substr(addr, length(addr) - n + 1) == want) { print $5 }
+    }
+  ' | sort -u)"
+  count="$(printf '%s\n' "$pids" | grep -c '^[0-9]\+$' || true)"
+  [ "$count" = "1" ] && printf '%s' "$pids"
+}
+
+# ポートにまだ実サーバが LISTEN していれば、netstat で特定した Windows PID を
+# taskkill /F /T でプロセスツリーごと停止する (Windows 専用, fail-open)。
+stop_orphaned_windows_server() {
+  local port="$1"
+  local winpid
+  winpid="$(find_listening_pid_windows "$port")"
+  if [ -z "$winpid" ]; then
+    log "WARNING: ポート ${port} の LISTENING PID を一意に特定できず、追加停止をスキップします (fail-open)"
+    return 1
+  fi
+  log "ポート ${port} がまだ LISTEN 中 (Windows PID ${winpid}, 孫プロセス孤児化疑い) — taskkill /T /F で追加停止します"
+  if MSYS_NO_PATHCONV=1 taskkill /F /T /PID "$winpid" >>"$LOG" 2>&1; then
+    log "taskkill 成功 (PID ${winpid})"
+  else
+    log "WARNING: taskkill 失敗 (PID ${winpid})"
+  fi
+}
+
 # T55 (Issue #49): sysctl から swap 使用量 (MB) を解析する。macOS の
 # "total = ... used = 12345.67M free = ..." 形式 (取得失敗時は空文字)。
 get_swap_used_mb_sysctl() {
@@ -415,6 +475,34 @@ if [ "$STARTED_SERVER" = "1" ] && [ -f "$PIDFILE" ]; then
     log "PID ${PID} は irodori プロセスでない/不在 — kill をスキップ (PID 再利用ガード)"
   fi
   rm -f "$PIDFILE"
+
+  # T98 (Issue #98): Windows では上の kill は $! (= MSYS 上の uv.exe PID) しか殺せない。
+  # 実サーバ (孫プロセス, ポート listen) が孤児として残ることがあるため、ポートの実
+  # listener を確認し、まだ残っていれば個別に taskkill する (§ irodori_port_from_health_url
+  # 定義部のコメント参照)。POSIX は $! が実サーバそのものなので対象外 (従来挙動で十分)。
+  if [ "$IS_WINDOWS" = "1" ]; then
+    IRODORI_PORT="$(irodori_port_from_health_url)"
+    if [ -z "$IRODORI_PORT" ]; then
+      log "WARNING: HEALTH_URL (${HEALTH_URL}) からポート番号を特定できず、残存プロセス確認をスキップします"
+    else
+      PORT_FREED=0
+      for _ in $(seq 1 5); do
+        [ -z "$(find_listening_pid_windows "$IRODORI_PORT")" ] && { PORT_FREED=1; break; }
+        sleep 1
+      done
+      if [ "$PORT_FREED" = "1" ]; then
+        log "ポート ${IRODORI_PORT} 解放確認"
+      else
+        log "WARNING: サーバ停止後もポート ${IRODORI_PORT} が LISTEN のまま"
+        stop_orphaned_windows_server "$IRODORI_PORT"
+        if [ -z "$(find_listening_pid_windows "$IRODORI_PORT")" ]; then
+          log "ポート ${IRODORI_PORT} 解放確認 (追加停止後)"
+        else
+          log "WARNING: 追加停止後もポート ${IRODORI_PORT} が LISTEN のまま (fail-open, 人間の確認が必要)"
+        fi
+      fi
+    fi
+  fi
 fi
 
 log "=== 日次パイプライン終了 (rc=${FINAL_RC}, log: ${LOG}) ==="
