@@ -13,6 +13,7 @@ Issue コメント整形・process_sentence の fail-open 分岐) も unit test 
 登録する (generate_bgm.py には slots dataclass が無いため不要だったが、本モジュールの
 `SentenceItem` 等は `slots=True` を使うため必須)。
 """
+
 from __future__ import annotations
 
 import importlib.util
@@ -72,9 +73,7 @@ def test_build_daily_draft_sentences_splits_by_topic_heading() -> None:
 
 def test_build_daily_draft_sentences_merge_respects_topic_boundary() -> None:
     markdown = "## 1. A\nどうも。\n\n## 2. B\nこんにちは。"
-    items = shadow.build_daily_draft_sentences(
-        markdown, {}, max_chars=2000, min_sentence_chars=20
-    )
+    items = shadow.build_daily_draft_sentences(markdown, {}, max_chars=2000, min_sentence_chars=20)
     assert {item.bucket for item in items} == {"topic-1", "topic-2"}
     for item in items:
         if item.bucket == "topic-1":
@@ -88,9 +87,7 @@ def test_build_daily_draft_sentences_merges_short_sentences_within_topic() -> No
     unmerged = shadow.build_daily_draft_sentences(
         markdown, {}, max_chars=2000, min_sentence_chars=0
     )
-    merged = shadow.build_daily_draft_sentences(
-        markdown, {}, max_chars=2000, min_sentence_chars=5
-    )
+    merged = shadow.build_daily_draft_sentences(markdown, {}, max_chars=2000, min_sentence_chars=5)
     assert len(merged) < len(unmerged)
 
 
@@ -305,8 +302,7 @@ def test_config_hash_changes_with_server_rev() -> None:
 
 def test_config_hash_changes_with_ref_audio_hash() -> None:
     assert (
-        _make_config().config_hash()
-        != _make_config(v4_ref_audio_sha256="deadbeef").config_hash()
+        _make_config().config_hash() != _make_config(v4_ref_audio_sha256="deadbeef").config_hash()
     )
 
 
@@ -356,8 +352,7 @@ def test_is_server_healthy_true_when_200_and_loaded_not_required() -> None:
 
     with _client_with_handler(handler) as client:
         assert (
-            shadow.is_server_healthy(client, "http://127.0.0.1:8088", require_loaded=False)
-            is True
+            shadow.is_server_healthy(client, "http://127.0.0.1:8088", require_loaded=False) is True
         )
 
 
@@ -367,8 +362,7 @@ def test_is_server_healthy_false_on_non_200() -> None:
 
     with _client_with_handler(handler) as client:
         assert (
-            shadow.is_server_healthy(client, "http://127.0.0.1:8088", require_loaded=False)
-            is False
+            shadow.is_server_healthy(client, "http://127.0.0.1:8088", require_loaded=False) is False
         )
 
 
@@ -378,8 +372,7 @@ def test_is_server_healthy_requires_loaded_true() -> None:
 
     with _client_with_handler(handler) as client:
         assert (
-            shadow.is_server_healthy(client, "http://127.0.0.1:8089", require_loaded=True)
-            is False
+            shadow.is_server_healthy(client, "http://127.0.0.1:8089", require_loaded=True) is False
         )
 
 
@@ -394,13 +387,11 @@ def test_is_server_healthy_reads_nested_runtime_loaded() -> None:
 
     with _client_with_handler(handler_true) as client:
         assert (
-            shadow.is_server_healthy(client, "http://127.0.0.1:8089", require_loaded=True)
-            is True
+            shadow.is_server_healthy(client, "http://127.0.0.1:8089", require_loaded=True) is True
         )
     with _client_with_handler(handler_false) as client:
         assert (
-            shadow.is_server_healthy(client, "http://127.0.0.1:8089", require_loaded=True)
-            is False
+            shadow.is_server_healthy(client, "http://127.0.0.1:8089", require_loaded=True) is False
         )
 
 
@@ -410,8 +401,7 @@ def test_is_server_healthy_loaded_true_passes() -> None:
 
     with _client_with_handler(handler) as client:
         assert (
-            shadow.is_server_healthy(client, "http://127.0.0.1:8089", require_loaded=True)
-            is True
+            shadow.is_server_healthy(client, "http://127.0.0.1:8089", require_loaded=True) is True
         )
 
 
@@ -421,8 +411,7 @@ def test_is_server_healthy_false_on_connection_error() -> None:
 
     with _client_with_handler(handler) as client:
         assert (
-            shadow.is_server_healthy(client, "http://127.0.0.1:8089", require_loaded=False)
-            is False
+            shadow.is_server_healthy(client, "http://127.0.0.1:8089", require_loaded=False) is False
         )
 
 
@@ -512,9 +501,7 @@ def test_process_sentence_happy_path() -> None:
         )
     assert result.error is None
     assert result.v3_duration_sec is not None
-    assert result.v4_seconds_requested == pytest.approx(
-        result.v3_duration_sec + 0.25, abs=5e-3
-    )
+    assert result.v4_seconds_requested == pytest.approx(result.v3_duration_sec + 0.25, abs=5e-3)
     assert result.kana_cer is not None
     assert result.hallucination is not None
     assert result.hallucination.suspected is False
@@ -613,9 +600,7 @@ def _dummy_report(*, config_hash: str = "hash1", cer_values: list[float] | None 
                 bucket="known_failure",
                 category="",
                 expected_text="テスト文",
-                kana_cer=shadow.KanaCerResult(
-                    insertions=0, deletions=0, substitutions=0, cer=cer
-                ),
+                kana_cer=shadow.KanaCerResult(insertions=0, deletions=0, substitutions=0, cer=cer),
                 hallucination=shadow.HallucinationVerdict(
                     suspected=cer > 0.3, length_ratio=1.0, trailing_insertion_chars=0
                 ),
@@ -744,9 +729,7 @@ def test_post_issue_comment_fail_open_on_nonzero_exit() -> None:
 
 
 def test_post_issue_comment_fail_open_on_timeout() -> None:
-    with patch(
-        "subprocess.run", side_effect=subprocess.TimeoutExpired(cmd="gh", timeout=1)
-    ):
+    with patch("subprocess.run", side_effect=subprocess.TimeoutExpired(cmd="gh", timeout=1)):
         assert shadow.post_issue_comment("body", issue_number=88) is False
 
 
@@ -804,3 +787,196 @@ def test_post_shadow_summary_to_discord_fail_open_when_post_fails(caplog: Any) -
     ):
         assert shadow.post_shadow_summary_to_discord(report) is False
     assert "失敗" in caplog.text
+
+
+# ---------- v4 サーバ常駐対策 (Issue #98): keep_server_requested ----------
+
+
+def test_keep_server_requested_false_when_unset(monkeypatch: Any) -> None:
+    monkeypatch.delenv(shadow.SHADOW_KEEP_SERVER_ENV, raising=False)
+    assert shadow.keep_server_requested() is False
+
+
+@pytest.mark.parametrize("value", ["1", "true", "True", "YES", "on"])
+def test_keep_server_requested_true_for_truthy_values(monkeypatch: Any, value: str) -> None:
+    monkeypatch.setenv(shadow.SHADOW_KEEP_SERVER_ENV, value)
+    assert shadow.keep_server_requested() is True
+
+
+@pytest.mark.parametrize("value", ["0", "false", "False", "no", ""])
+def test_keep_server_requested_false_for_falsy_values(monkeypatch: Any, value: str) -> None:
+    monkeypatch.setenv(shadow.SHADOW_KEEP_SERVER_ENV, value)
+    assert shadow.keep_server_requested() is False
+
+
+# ---------- find_listening_pid (netstat はモック, 実サーバは叩かない) ----------
+
+
+_NETSTAT_SINGLE_MATCH = (
+    "\n"
+    "Active Connections\n\n"
+    "  Proto  Local Address          Foreign Address        State           PID\n"
+    "  TCP    127.0.0.1:8088         0.0.0.0:0              LISTENING       111\n"
+    "  TCP    127.0.0.1:8089         0.0.0.0:0              LISTENING       222\n"
+    "  TCP    127.0.0.1:8089         127.0.0.1:51000        ESTABLISHED     333\n"
+)
+
+
+def test_find_listening_pid_returns_pid_on_single_match() -> None:
+    completed = subprocess.CompletedProcess(
+        args=[], returncode=0, stdout=_NETSTAT_SINGLE_MATCH, stderr=""
+    )
+    with patch("subprocess.run", return_value=completed):
+        assert shadow.find_listening_pid(8089) == 222
+
+
+def test_find_listening_pid_none_when_port_absent() -> None:
+    completed = subprocess.CompletedProcess(
+        args=[], returncode=0, stdout=_NETSTAT_SINGLE_MATCH, stderr=""
+    )
+    with patch("subprocess.run", return_value=completed):
+        assert shadow.find_listening_pid(9999) is None
+
+
+def test_find_listening_pid_none_when_multiple_listeners_on_port() -> None:
+    stdout = (
+        "  TCP    127.0.0.1:8089         0.0.0.0:0              LISTENING       222\n"
+        "  TCP    [::1]:8089             [::]:0                 LISTENING       444\n"
+    )
+    completed = subprocess.CompletedProcess(args=[], returncode=0, stdout=stdout, stderr="")
+    with patch("subprocess.run", return_value=completed):
+        assert shadow.find_listening_pid(8089) is None
+
+
+def test_find_listening_pid_none_on_nonzero_exit() -> None:
+    completed = subprocess.CompletedProcess(args=[], returncode=1, stdout="", stderr="err")
+    with patch("subprocess.run", return_value=completed):
+        assert shadow.find_listening_pid(8089) is None
+
+
+def test_find_listening_pid_none_on_oserror() -> None:
+    with patch("subprocess.run", side_effect=OSError("netstat not found")):
+        assert shadow.find_listening_pid(8089) is None
+
+
+def test_find_listening_pid_none_on_timeout() -> None:
+    with patch("subprocess.run", side_effect=subprocess.TimeoutExpired(cmd="netstat", timeout=1)):
+        assert shadow.find_listening_pid(8089) is None
+
+
+# ---------- kill_pid (taskkill/tasklist はモック, 実プロセスは叩かない) ----------
+
+
+def test_kill_pid_true_when_process_exits_before_deadline() -> None:
+    completed = subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr="")
+    with (
+        patch("subprocess.run", return_value=completed) as mock_run,
+        patch.object(shadow, "_pid_exists", return_value=False),
+    ):
+        assert shadow.kill_pid(222, graceful_timeout=1.0, poll_interval=0.01) is True
+    # 通常終了の taskkill のみが呼ばれ、/F 強制終了へはエスカレートしない。
+    assert mock_run.call_count == 1
+    assert "/F" not in mock_run.call_args.args[0]
+
+
+def test_kill_pid_escalates_to_force_after_grace_timeout() -> None:
+    completed = subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr="")
+    with (
+        patch("subprocess.run", return_value=completed) as mock_run,
+        patch.object(shadow, "_pid_exists", return_value=True),
+    ):
+        assert shadow.kill_pid(222, graceful_timeout=0.02, poll_interval=0.01) is True
+    calls = mock_run.call_args_list
+    assert len(calls) == 2
+    assert "/F" in calls[-1].args[0]
+
+
+def test_kill_pid_false_when_force_kill_fails() -> None:
+    graceful = subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr="")
+    force = subprocess.CompletedProcess(args=[], returncode=1, stdout="", stderr="denied")
+    with (
+        patch("subprocess.run", side_effect=[graceful, force]) as mock_run,
+        patch.object(shadow, "_pid_exists", return_value=True),
+    ):
+        assert shadow.kill_pid(222, graceful_timeout=0.02, poll_interval=0.01) is False
+    assert mock_run.call_count == 2
+
+
+def test_kill_pid_fail_open_on_oserror() -> None:
+    with (
+        patch("subprocess.run", side_effect=OSError("taskkill not found")),
+        patch.object(shadow, "_pid_exists", return_value=True),
+    ):
+        assert shadow.kill_pid(222, graceful_timeout=0.02, poll_interval=0.01) is False
+
+
+# ---------- shutdown_v4_server (Issue #98: ラン終了時の常駐対策) ----------
+
+
+def test_shutdown_v4_server_skips_when_keep_server_env_set(monkeypatch: Any) -> None:
+    monkeypatch.setenv(shadow.SHADOW_KEEP_SERVER_ENV, "1")
+    with (
+        patch.object(shadow, "stop_v4_server") as mock_stop,
+        patch.object(shadow, "find_listening_pid") as mock_find,
+        patch.object(shadow, "kill_pid") as mock_kill,
+    ):
+        shadow.shutdown_v4_server(
+            started_by_us=True, proc=object(), reused_existing=False, port=8089
+        )
+    mock_stop.assert_not_called()
+    mock_find.assert_not_called()
+    mock_kill.assert_not_called()
+
+
+def test_shutdown_v4_server_stops_self_started_process(monkeypatch: Any) -> None:
+    monkeypatch.delenv(shadow.SHADOW_KEEP_SERVER_ENV, raising=False)
+    fake_proc = type("_P", (), {"poll": lambda self: 0})()
+    with patch.object(shadow, "stop_v4_server") as mock_stop:
+        shadow.shutdown_v4_server(
+            started_by_us=True, proc=fake_proc, reused_existing=False, port=8089
+        )
+    mock_stop.assert_called_once_with(fake_proc)
+
+
+def test_shutdown_v4_server_noop_when_self_started_but_no_proc_handle(monkeypatch: Any) -> None:
+    monkeypatch.delenv(shadow.SHADOW_KEEP_SERVER_ENV, raising=False)
+    with patch.object(shadow, "stop_v4_server") as mock_stop:
+        shadow.shutdown_v4_server(started_by_us=True, proc=None, reused_existing=False, port=8089)
+    mock_stop.assert_not_called()
+
+
+def test_shutdown_v4_server_kills_reused_existing_by_pid(monkeypatch: Any) -> None:
+    monkeypatch.delenv(shadow.SHADOW_KEEP_SERVER_ENV, raising=False)
+    with (
+        patch.object(shadow, "find_listening_pid", return_value=222) as mock_find,
+        patch.object(shadow, "kill_pid", return_value=True) as mock_kill,
+    ):
+        shadow.shutdown_v4_server(started_by_us=False, proc=None, reused_existing=True, port=8089)
+    mock_find.assert_called_once_with(8089)
+    mock_kill.assert_called_once_with(222)
+
+
+def test_shutdown_v4_server_warns_when_pid_not_identifiable(caplog: Any, monkeypatch: Any) -> None:
+    monkeypatch.delenv(shadow.SHADOW_KEEP_SERVER_ENV, raising=False)
+    with (
+        patch.object(shadow, "find_listening_pid", return_value=None),
+        patch.object(shadow, "kill_pid") as mock_kill,
+        caplog.at_level("WARNING"),
+    ):
+        shadow.shutdown_v4_server(started_by_us=False, proc=None, reused_existing=True, port=8089)
+    mock_kill.assert_not_called()
+    assert "特定できず" in caplog.text
+
+
+def test_shutdown_v4_server_noop_when_not_started_and_not_reused(monkeypatch: Any) -> None:
+    """v4 起動自体に失敗した (available=False) ケース: 何も停止対象がない."""
+    monkeypatch.delenv(shadow.SHADOW_KEEP_SERVER_ENV, raising=False)
+    with (
+        patch.object(shadow, "find_listening_pid") as mock_find,
+        patch.object(shadow, "stop_v4_server") as mock_stop,
+        patch.object(shadow, "kill_pid") as mock_kill,
+    ):
+        shadow.shutdown_v4_server(started_by_us=False, proc=None, reused_existing=False, port=8089)
+    mock_find.assert_not_called()
+    mock_stop.assert_not_called()
+    mock_kill.assert_not_called()
