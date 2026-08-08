@@ -102,8 +102,14 @@ get_swap_used_mb_windows() {
 # 未設定・不正値なら sysctl 実測へフォールバック。最終的に数値を得られない場合
 # (sysctl 非対応環境など) は fail-open で true (0) を返す。
 # RESOURCE_SWAP_USED_MB / RESOURCE_LOAD_1MIN に取得値を残し、呼び出し側の通知文言に使う。
+# Issue #98: どちらの指標が閾値超過したか (RESOURCE_*_EXCEEDED) と、判定に使った実際の
+# 閾値 (RESOURCE_MAX_*、不正値は既定へ置換済みの値) も呼び出し側の通知文言用に残す。
 RESOURCE_SWAP_USED_MB=""
 RESOURCE_LOAD_1MIN=""
+RESOURCE_MAX_SWAP_MB=""
+RESOURCE_MAX_LOAD=""
+RESOURCE_SWAP_EXCEEDED=0
+RESOURCE_LOAD_EXCEEDED=0
 resources_ok() {
   local swap_used load1 max_swap max_load swap_exceeded load_exceeded
 
@@ -170,11 +176,15 @@ resources_ok() {
 
   RESOURCE_SWAP_USED_MB="${swap_used:-N/A}"
   RESOURCE_LOAD_1MIN="${load1:-N/A}"
+  RESOURCE_MAX_SWAP_MB="$max_swap"
+  RESOURCE_MAX_LOAD="$max_load"
 
   swap_exceeded=0
   [ "$swap_known" = "1" ] && swap_exceeded="$(awk -v v="$swap_used" -v max="$max_swap" 'BEGIN { print (v + 0 > max + 0) ? 1 : 0 }')"
   load_exceeded=0
   [ "$load_known" = "1" ] && load_exceeded="$(awk -v v="$load1" -v max="$max_load" 'BEGIN { print (v + 0 > max + 0) ? 1 : 0 }')"
+  RESOURCE_SWAP_EXCEEDED="$swap_exceeded"
+  RESOURCE_LOAD_EXCEEDED="$load_exceeded"
 
   if [ "$swap_exceeded" = "1" ] || [ "$load_exceeded" = "1" ]; then
     log "資源不足のため produce をスキップ (swap=${RESOURCE_SWAP_USED_MB}M [閾値 ${max_swap}M] / load=${RESOURCE_LOAD_1MIN} [閾値 ${max_load}])"
@@ -183,6 +193,27 @@ resources_ok() {
 
   log "資源チェック OK (swap=${RESOURCE_SWAP_USED_MB}M, load=${RESOURCE_LOAD_1MIN})"
   return 0
+}
+
+# Issue #98: 資源ガード発動 (produce スキップ) 時の Discord 通知文言を組み立てる。
+# 08-06/08-07 の実運用では notify_failure() の汎用「失敗通知」テンプレートに埋もれて
+# 3営業日気づけなかった (通知自体は送信されていた)。緊急性が伝わるよう専用文言にし、
+# 実測値・閾値・超過した指標 (swap/load いずれか、または両方) を明示する。
+# resources_ok() 呼び出し後の RESOURCE_* グローバル変数を読む前提 (単体では resources_ok
+# 未呼び出しだと空文字/0 のままになる)。
+build_resource_guard_message() {
+  local detail=""
+  if [ "$RESOURCE_SWAP_EXCEEDED" = "1" ]; then
+    detail="swap ${RESOURCE_SWAP_USED_MB}M が閾値 ${RESOURCE_MAX_SWAP_MB}M を超過"
+  fi
+  if [ "$RESOURCE_LOAD_EXCEEDED" = "1" ]; then
+    if [ -n "$detail" ]; then
+      detail="${detail} / load ${RESOURCE_LOAD_1MIN} が閾値 ${RESOURCE_MAX_LOAD} を超過"
+    else
+      detail="load ${RESOURCE_LOAD_1MIN} が閾値 ${RESOURCE_MAX_LOAD} を超過"
+    fi
+  fi
+  echo "⚠️ リソースガード発動: ${detail}したため本日の produce をスキップしました。配信は行われません。ホストのメモリ状況を確認してください (Issue #98)"
 }
 
 cd "$PROJECT_DIR" || { echo "FATAL: cd $PROJECT_DIR 失敗" >&2; exit 1; }
@@ -233,8 +264,11 @@ notify_failure() {
   local label="$1"
   local rc="$2"
   local log_path="$3"
+  # Issue #98: 第4引数 (任意) — 指定時は既定の汎用テンプレートの代わりにこの文言をそのまま
+  # Discord へ送る (資源ガード発動など、緊急性を伝えたい専用ケース向け)。
+  local custom_message="${4:-}"
 
-  if "$UV" run python - "$label" "$rc" "$log_path" >> "$LOG" 2>&1 <<'PY'
+  if "$UV" run python - "$label" "$rc" "$log_path" "$custom_message" >> "$LOG" 2>&1 <<'PY'
 from __future__ import annotations
 
 import sys
@@ -244,19 +278,23 @@ from karyu_tech_news.config import load_settings
 from karyu_tech_news.deliver.discord import post_summary
 
 label, rc, log_path = sys.argv[1], sys.argv[2], sys.argv[3]
+custom_message = sys.argv[4] if len(sys.argv) > 4 else ""
 settings = load_settings(Path.cwd() / ".env")
 webhook_url = settings.discord_error_webhook_url or settings.discord_webhook_url
 if not webhook_url:
     print("WARNING: Discord failure alert skipped (webhook not set)")
     raise SystemExit(0)
 
-content = (
-    "⚠️ 華流テック通信 daily_pipeline 失敗通知\n"
-    f"- step: {label}\n"
-    f"- rc: {rc}\n"
-    f"- log: {log_path}\n"
-    "音声配信がスキップされた可能性があります。"
-)
+if custom_message:
+    content = custom_message
+else:
+    content = (
+        "⚠️ 華流テック通信 daily_pipeline 失敗通知\n"
+        f"- step: {label}\n"
+        f"- rc: {rc}\n"
+        f"- log: {log_path}\n"
+        "音声配信がスキップされた可能性があります。"
+    )
 ok = post_summary(webhook_url, content)
 print("Discord failure alert: " + ("sent" if ok else "failed"))
 PY
@@ -333,7 +371,7 @@ fi
 FINAL_RC=0
 if [ "$PRODUCE_RC" -ne 0 ]; then
   if [ "$PRODUCE_RC" -eq 97 ]; then
-    notify_failure "資源不足のため produce をスキップ (swap=${RESOURCE_SWAP_USED_MB}M, load=${RESOURCE_LOAD_1MIN})" "$PRODUCE_RC" "$LOG"
+    notify_failure "資源不足のため produce をスキップ (swap=${RESOURCE_SWAP_USED_MB}M, load=${RESOURCE_LOAD_1MIN})" "$PRODUCE_RC" "$LOG" "$(build_resource_guard_message)"
   else
     notify_failure "produce" "$PRODUCE_RC" "$LOG"
   fi

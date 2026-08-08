@@ -100,6 +100,40 @@ def _run_daily_pipeline(
     )
 
 
+def _write_fake_uv_capturing_notify_args(path: Path, *, args_out: Path) -> None:
+    """collect/draft/produce は常に成功させ、notify_failure() の Python 呼び出し引数
+    (label/rc/log_path/custom_message) を args_out へ書き出す (Issue #98: リソースガード
+    発動時に custom_message が正しく組み立てられ notify_failure() へ渡ることを検証するため)。
+
+    produce は既定で成功させる (このテストの主眼は資源プリフライトでの skip であり、
+    produce 自体は資源チェックを通過しなければ呼ばれない)。
+    """
+    args_out_str = str(args_out).replace("\\", "\\\\")
+    path.write_text(
+        f"""#!/usr/bin/env bash
+echo "UV:$*" >&2
+case "$*" in
+  *"karyu_tech_news collect --post"*) exit 0 ;;
+  *"karyu_tech_news draft --variant A --post"*) exit 0 ;;
+  *"karyu_tech_news produce --engine irodori-tts-v3 --post"*) exit 0 ;;
+  run\\ python\\ -\\ *)
+    cat >/dev/null
+    shift 3
+    printf '%s\\n' "$#" > "{args_out_str}"
+    for a in "$@"; do
+      printf '%s\\n' "$a" >> "{args_out_str}"
+    done
+    echo "Discord failure alert: sent"
+    exit 0
+    ;;
+  *) exit 0 ;;
+esac
+""",
+        encoding="utf-8",
+    )
+    path.chmod(0o755)
+
+
 def _log_text(tmp_path: Path) -> str:
     logs = sorted((tmp_path / "data" / "logs").glob("daily_*.log"))
     assert logs, "daily_*.log が生成されていません"
@@ -260,3 +294,74 @@ def test_invalid_threshold_falls_back_to_default(tmp_path: Path) -> None:
     assert "WARNING: KARYU_MAX_SWAP_MB 不正値 'abc'" in log_text
     assert "閾値 12000M" in log_text
     assert "資源不足のため produce をスキップ" in log_text
+
+
+# --- Issue #98: 資源ガード発動時の Discord 通知文言 ---
+
+
+def test_resource_guard_notification_uses_dedicated_message(tmp_path: Path) -> None:
+    """swap 超過による produce スキップ時、notify_failure() へ渡る Discord 本文 (第4引数)
+    が専用のリソースガード文言になっていること (汎用の「失敗通知」固定文言に埋もれない)。
+
+    08-06/08-07 の実インシデントでは通知自体は送信されていたが、他の失敗通知と見た目が
+    同じ汎用テンプレートだったため 3 営業日気づけなかった (Issue #98)。緊急性が伝わる
+    専用文言であることと、実測値・閾値が埋め込まれていることを検証する。
+    """
+    fake_uv = tmp_path / "uv"
+    args_out = tmp_path / "notify_args.txt"
+    _write_fake_uv_capturing_notify_args(fake_uv, args_out=args_out)
+    result = _run_daily_pipeline(
+        tmp_path,
+        fake_uv,
+        publish_youtube=None,
+        swap_used_mb="26639",
+        load_1min="1",
+        max_swap_mb="12000",
+        max_load="25",
+    )
+    assert result.returncode == 97
+    assert args_out.exists(), "notify_failure() の Python 呼び出しが行われていません"
+    lines = args_out.read_text(encoding="utf-8").splitlines()
+    argc = int(lines[0])
+    assert argc == 4, f"notify_failure() へ渡る引数は label/rc/log_path/custom_message の4件のはず (実際: {argc})"
+    custom_message = lines[4]  # lines[1..3] = label, rc, log_path / lines[4] = custom_message
+    assert custom_message.startswith("⚠️ リソースガード発動:")
+    assert "swap 26639M" in custom_message
+    assert "閾値 12000M" in custom_message
+    assert "配信は行われません" in custom_message
+    assert "Issue #98" in custom_message
+    # 汎用テンプレート固有の曖昧な文言 (可能性があります) は使われていないこと
+    assert "可能性があります" not in custom_message
+
+
+def test_produce_failure_notification_has_no_custom_message(tmp_path: Path) -> None:
+    """実 produce 失敗 (rc!=0, !=97) では custom_message は空文字のまま (第4引数)、
+    従来どおり notify_failure() 内の汎用テンプレートにフォールバックすること
+    (資源ガード専用文言が誤って他の失敗ケースにも流用されないことの回帰防止)。
+    """
+    fake_uv = tmp_path / "uv"
+    args_out = tmp_path / "notify_args.txt"
+    _write_fake_uv_capturing_notify_args(fake_uv, args_out=args_out)
+    # produce を非0で終了させたいので、fake uv を書き換えて produce だけ失敗させる。
+    fake_uv.write_text(
+        fake_uv.read_text(encoding="utf-8").replace(
+            '*"karyu_tech_news produce --engine irodori-tts-v3 --post"*) exit 0 ;;',
+            '*"karyu_tech_news produce --engine irodori-tts-v3 --post"*) exit 5 ;;',
+        ),
+        encoding="utf-8",
+    )
+    fake_uv.chmod(0o755)
+    result = _run_daily_pipeline(
+        tmp_path,
+        fake_uv,
+        publish_youtube=None,
+        **_SAFE_RESOURCE_KWARGS,
+    )
+    assert result.returncode == 5
+    lines = args_out.read_text(encoding="utf-8").splitlines()
+    argc = int(lines[0])
+    assert argc == 4
+    label, rc, custom_message = lines[1], lines[2], lines[4]
+    assert label == "produce"
+    assert rc == "5"
+    assert custom_message == ""
