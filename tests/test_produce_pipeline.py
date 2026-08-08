@@ -5,6 +5,7 @@ TTS は mock エンジン、Discord は httpx モック。ffmpeg 依存の produ
 from __future__ import annotations
 
 import io
+import json
 import os
 import shutil
 import subprocess
@@ -12,6 +13,7 @@ import sys
 import wave
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -1724,6 +1726,247 @@ def test_produce_sfx_enabled_but_all_files_missing_falls_open(tmp_path: Path) ->
         )
     assert result.exit_code == 0, result.output
     assert len(list(out_dir.glob("episode_1_*.mp3"))) == 1
+
+
+# ---------- 欠落文許容閾値 (Issue #98 フォローアップ3) ----------
+#
+# 2026-08-05 の produce で ASR ゲートがリトライ上限まで解消できなかった1文を skip
+# した結果、従来の fail-fast (欠落文が1件でもあれば mp3 生成を中止) によりエピソード
+# 全体が中止され、その日の配信がゼロになった (Issue #98 原因2)。欠落が僅少 (<=1文)
+# かつ総文数が十分 (>=20文) な場合に限り警告付きで配信続行することを固定する。
+# ここでは (実 ASR は動かさず) 既存の機械的品質チェック (無音判定) で skip を発生させ、
+# main.py 側の skipped_sentences 集計・許容判定を検証する (ASR 以外の skip 経路でも
+# 判定は同一に働く、という仕様どおりの挙動)。
+
+
+def _many_sentences_markdown(n: int) -> str:
+    """見出し (`## `) 無しの単一 segment に n 文を詰めた markdown を作る."""
+    return "# テスト\n\n" + "".join(f"文{i}です。" for i in range(1, n + 1))
+
+
+def _fake_master_to_mp3_factory() -> Any:
+    from karyu_tech_news.mix.master import MasteringResult
+
+    def _fake(audio_wav: bytes, output_path: Path) -> MasteringResult:
+        out = Path(output_path)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_bytes(b"id3")
+        return MasteringResult(
+            path=str(out),
+            target_lufs=-16.0,
+            measured_lufs=-16.0,
+            true_peak_dbtp=-1.0,
+            duration_sec=60.0,
+            bitrate="192k",
+            sample_rate=48000,
+        )
+
+    return _fake
+
+
+def _make_missing_tolerance_engine(
+    skip_calls: set[int], *, bad_rate_calls: frozenset[int] = frozenset()
+) -> Any:
+    """synthesize() 呼び出し順 (1始まり) が skip_calls に含まれる文だけ無音を返す.
+
+    bad_rate_calls に含まれる呼び出しは (無音ではなく) 有音だが先頭 chunk と異なる
+    sample rate の wav を返す。品質チェック自体は通過するため skipped_sentence_texts
+    には積まれず、_concat_wav_with_stats の dropped_chunks としてのみ欠落計上される
+    (Issue #98 フォローアップ3 レビュー nit #2: dropped_chunks 単独ケースの検証用)。
+    """
+    from karyu_tech_news.tts.engine import Capabilities, SynthesisRequest, SynthesisResult, Voice
+
+    class _Engine:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def name(self) -> str:
+            return "tolerance"
+
+        def voices(self) -> list[Voice]:
+            return [Voice(id="hal", name="HAL")]
+
+        def capabilities(self) -> Capabilities:
+            return Capabilities(
+                emoji_style=False, voice_clone=False, streaming=False, max_chars=200
+            )
+
+        def synthesize(self, req: SynthesisRequest) -> SynthesisResult:
+            self.calls += 1
+            if self.calls in skip_calls:
+                return SynthesisResult(audio=_silent_wav_bytes(48000), sample_rate=48000)
+            if self.calls in bad_rate_calls:
+                audio = _wav_with_silence_gap(0.0, sample_rate=24000)
+                return SynthesisResult(audio=audio, sample_rate=24000)
+            return SynthesisResult(audio=_wav_with_silence_gap(0.0), sample_rate=48000)
+
+    return _Engine()
+
+
+def _run_produce_tolerance(
+    tmp_path: Path,
+    *,
+    n_sentences: int,
+    skip_calls: set[int],
+    bad_rate_calls: frozenset[int] = frozenset(),
+    extra_args: list[str] | None = None,
+) -> tuple[Any, Path]:
+    db = tmp_path / "state.db"
+    _seed_draft(db, markdown=_many_sentences_markdown(n_sentences))
+    persona = tmp_path / "persona.yaml"
+    persona.write_text("tts:\n  primary_engine: mock\n", encoding="utf-8")
+    out_dir = tmp_path / "episodes"
+    engine = _make_missing_tolerance_engine(skip_calls, bad_rate_calls=bad_rate_calls)
+    with (
+        patch("karyu_tech_news.tts.engine.select_engine", return_value=engine),
+        patch(
+            "karyu_tech_news.mix.master.master_to_mp3",
+            side_effect=_fake_master_to_mp3_factory(),
+        ),
+    ):
+        result = runner.invoke(
+            app,
+            [
+                "produce",
+                "--engine",
+                "tolerance",
+                "--db-path",
+                str(db),
+                "--persona",
+                str(persona),
+                "--bgm-dir",
+                str(tmp_path / "nobgm"),
+                "--out-dir",
+                str(out_dir),
+                *(extra_args or []),
+            ],
+        )
+    return result, out_dir
+
+
+def test_produce_missing_zero_succeeds_without_warning(tmp_path: Path) -> None:
+    """欠落 0 文は従来どおり成功し、許容ロジックのログは一切出ない."""
+    result, out_dir = _run_produce_tolerance(tmp_path, n_sentences=36, skip_calls=set())
+    assert result.exit_code == 0, result.output
+    assert "欠落文があります" not in result.output
+    assert len(list(out_dir.glob("*.mp3"))) == 1
+
+
+def test_produce_missing_one_of_36_continues_with_warning(tmp_path: Path) -> None:
+    """欠落1・総数36 (>= MIN_TOTAL_FOR_TOLERANCE) は警告を出して配信続行する."""
+    result, out_dir = _run_produce_tolerance(tmp_path, n_sentences=36, skip_calls={1})
+    assert result.exit_code == 0, result.output
+    assert "WARNING: TTS 合成で欠落文があります 1/36 文" in result.output
+    assert "許容閾値内" in result.output
+    assert len(list(out_dir.glob("*.mp3"))) == 1
+
+
+def test_produce_missing_one_of_19_still_aborts(tmp_path: Path) -> None:
+    """欠落1でも総文数19 (< MIN_TOTAL_FOR_TOLERANCE=20) なら従来どおり中止する."""
+    result, out_dir = _run_produce_tolerance(tmp_path, n_sentences=19, skip_calls={1})
+    assert result.exit_code == 1
+    assert "ERROR: TTS 合成で欠落文があります 1/19 文" in result.output
+    assert "不完全な mp3 の生成を中止します" in result.output
+    assert not list(out_dir.glob("*.mp3"))
+
+
+def test_produce_missing_two_of_36_still_aborts(tmp_path: Path) -> None:
+    """欠落2 (> MAX_MISSING_SENTENCES=1) は総文数が十分でも従来どおり中止する."""
+    result, out_dir = _run_produce_tolerance(tmp_path, n_sentences=36, skip_calls={1, 2})
+    assert result.exit_code == 1
+    assert "ERROR: TTS 合成で欠落文があります 2/36 文" in result.output
+    assert "不完全な mp3 の生成を中止します" in result.output
+    assert not list(out_dir.glob("*.mp3"))
+
+
+def test_produce_missing_one_continue_posts_discord_notice(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """続行時、Discord サマリー通知に欠落文の旨と先頭文言プレビューが載る (原因非依存の文言)."""
+    monkeypatch.setenv("DISCORD_WEBHOOK_URL", "https://discord.com/api/webhooks/1/tok")
+    resp = MagicMock()
+    resp.raise_for_status.return_value = None
+    with patch("karyu_tech_news.deliver.discord.httpx.post", return_value=resp) as post:
+        result, out_dir = _run_produce_tolerance(
+            tmp_path, n_sentences=36, skip_calls={1}, extra_args=["--post"]
+        )
+    assert result.exit_code == 0, result.output
+    assert len(list(out_dir.glob("*.mp3"))) == 1
+    assert post.call_args is not None
+    # multipart 添付投稿では allowed_mentions は payload_json 経由でのみ効くため、
+    # content は data["content"] ではなく data["payload_json"] の JSON に入る。
+    payload = json.loads(post.call_args.kwargs["data"]["payload_json"])
+    content = payload["content"]
+    assert payload["allowed_mentions"] == {"parse": []}  # mention/injection 対策 (terra 指摘)
+    # 原因を「ASR ゲート」と決め打ちしない (terra 指摘: skip 経路は ASR 以外もある)
+    assert "⚠️ TTS 品質ゲートで 1 文を除外して配信" in content
+    assert "ASR ゲート" not in content
+    assert "欠落: 文1です。" in content  # 先頭30字プレビュー (文1です。は30字未満なので全文)
+
+
+def test_produce_missing_exactly_20_total_continues(tmp_path: Path) -> None:
+    """総文数ちょうど 20・欠落1 は境界として続行する (>= 20 が > 20 に退行しないことの回帰)."""
+    result, out_dir = _run_produce_tolerance(tmp_path, n_sentences=20, skip_calls={1})
+    assert result.exit_code == 0, result.output
+    assert "WARNING: TTS 合成で欠落文があります 1/20 文" in result.output
+    assert len(list(out_dir.glob("*.mp3"))) == 1
+
+
+def test_produce_missing_via_dropped_chunk_only_continues_with_generic_notice(
+    tmp_path: Path,
+) -> None:
+    """concat 段階の dropped_chunks のみによる欠落 (文面不明) は "(結合段階での除外)" と表示する."""
+    result, out_dir = _run_produce_tolerance(
+        tmp_path, n_sentences=36, skip_calls=set(), bad_rate_calls=frozenset({5})
+    )
+    assert result.exit_code == 0, result.output
+    assert "WARNING: TTS 合成で欠落文があります 1/36 文" in result.output
+    assert "欠落: (結合段階での除外)" in result.output
+    assert len(list(out_dir.glob("*.mp3"))) == 1
+
+
+def test_sanitize_missing_preview_flattens_and_truncates() -> None:
+    """欠落文プレビューは改行・連続空白を1行へ畳み、30字超のみ末尾に … を付ける (terra 指摘)."""
+    from karyu_tech_news.main import _sanitize_missing_preview
+
+    # 改行・連続空白・mention 風文字列を含む生文でも1行化される (表示上の偽装対策。
+    # 実際のメンション無効化は deliver/discord.py の allowed_mentions で行う)。
+    raw = "@everyone   本日の\n\nニュースをお伝えします。緊急速報です。"
+    flat = _sanitize_missing_preview(raw)
+    assert "\n" not in flat
+    assert "  " not in flat  # 連続空白も1つに畳む
+    assert flat.endswith("…")  # 30字超は切り詰め
+
+    short = "短い文。"
+    assert _sanitize_missing_preview(short) == short  # 30字以下はそのまま (… を付けない)
+
+    exactly_30 = "あ" * 30
+    assert _sanitize_missing_preview(exactly_30) == exactly_30  # 境界: ちょうど30字は付けない
+
+    over_30 = "あ" * 31
+    assert _sanitize_missing_preview(over_30) == "あ" * 30 + "…"
+
+
+def test_post_summary_sets_allowed_mentions(tmp_path: Path) -> None:
+    from karyu_tech_news.deliver.discord import post_summary
+
+    resp = MagicMock()
+    resp.raise_for_status.return_value = None
+    with patch("karyu_tech_news.deliver.discord.httpx.post", return_value=resp) as post:
+        assert post_summary("https://discord/webhook", "@everyone hi") is True
+    assert post.call_args.kwargs["json"]["allowed_mentions"] == {"parse": []}
+
+
+def test_post_audio_success_sets_allowed_mentions_via_payload_json(tmp_path: Path) -> None:
+    p = tmp_path / "e.mp3"
+    p.write_bytes(b"id3audio")
+    resp = MagicMock()
+    resp.raise_for_status.return_value = None
+    with patch("karyu_tech_news.deliver.discord.httpx.post", return_value=resp) as post:
+        ok = post_audio("https://discord/webhook", p, content="@everyone hi")
+    assert ok is True
+    payload = json.loads(post.call_args.kwargs["data"]["payload_json"])
+    assert payload == {"content": "@everyone hi", "allowed_mentions": {"parse": []}}
 
 
 @pytest.mark.skipif(

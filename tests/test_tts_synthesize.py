@@ -443,6 +443,7 @@ def test_synthesize_script_fail_open_on_sentence_error() -> None:
     assert res.attempted_sentences == 2
     assert res.synthesized_sentences == 1
     assert res.skipped_sentences == 1
+    assert res.skipped_sentence_texts == ["boom。"]  # Issue #98 フォローアップ3: skip 文面を保持
 
 
 def test_synthesize_result_sample_rate_matches_wav_header() -> None:
@@ -783,6 +784,7 @@ def test_synthesize_script_asr_exhausts_retries_and_skips() -> None:
     assert res.synthesized_sentences == 0
     assert backend.calls == 3  # 初回 + リトライ 2 回 (既定 asr_max_retries=2)
     assert _nframes(res.audio) == 0  # 唯一の文が skip されたので結合音声は無音
+    assert res.skipped_sentence_texts == ["失敗する文。"]  # Issue #98 フォローアップ3
 
 
 def test_synthesize_script_asr_respects_custom_max_retries() -> None:

@@ -16,7 +16,7 @@ import io
 import wave
 from typing import Any, Protocol, runtime_checkable
 
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator
 
 MOCK_SAMPLE_RATE = 48000  # mp3 192kbps/48kHz 想定 (要件 §17.6) に合わせたモック値
 MOCK_MAX_CHARS = 2000  # 1 リクエストの目安上限 (長文は T28 で文単位分割)
@@ -83,6 +83,10 @@ class SynthesisResult(BaseModel):
     skipped_sentences: int = 0
     asr_retried_sentences: int = 0  # ASR 不一致でリトライし ok になった文数 (T58)
     asr_failed_sentences: int = 0  # ASR 不一致がリトライ上限まで解消せず skip した文数 (T58)
+    # skip した文のテキスト (Issue #98 フォローアップ3): 欠落文許容閾値の判定時に
+    # Discord サマリー通知へ先頭数十字を載せるため保持する。concat 段階での
+    # dropped_chunks (壊れた wav 等) はこの一覧には含まれない (文へ逆引きできないため)。
+    skipped_sentence_texts: list[str] = Field(default_factory=list)
 
 
 @runtime_checkable
