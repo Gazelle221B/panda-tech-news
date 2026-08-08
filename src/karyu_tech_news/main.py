@@ -65,6 +65,21 @@ MAX_TRUE_PEAK_DBTP = -1.0
 # MIN_TOTAL_FOR_TOLERANCE 未満は従来どおり中止する。環境変数上書きは行わない (YAGNI)。
 MAX_MISSING_SENTENCES = 1
 MIN_TOTAL_FOR_TOLERANCE = 20
+MISSING_PREVIEW_MAX_CHARS = 30
+
+
+def _sanitize_missing_preview(text: str, max_chars: int = MISSING_PREVIEW_MAX_CHARS) -> str:
+    """欠落文プレビュー用に改行・連続空白を1行へ畳み、max_chars で切り詰める.
+
+    生の台本文をそのまま Discord 通知やログへ出すと、改行を使った視覚的な偽装や
+    メンション文字列の紛れ込みで表示が乱れる恐れがある (terra レビュー指摘)。ここは
+    あくまで表示整形であり、実際のメンション無効化は deliver/discord.py 側の
+    allowed_mentions で行う。切り詰めた場合のみ末尾に "…" を付ける。
+    """
+    flattened = " ".join(text.split())
+    if len(flattened) > max_chars:
+        return f"{flattened[:max_chars]}…"
+    return flattened
 
 
 def setup_logging(level: str = "INFO") -> None:
@@ -734,25 +749,32 @@ def produce(
         # 欠落文許容判定 (Issue #98 フォローアップ3): 欠落が僅少 (<= MAX_MISSING_SENTENCES)
         # かつ総文数が十分 (>= MIN_TOTAL_FOR_TOLERANCE) なときだけ警告付きで続行し、
         # それ以外は従来どおりメッセージ・exit code を維持したまま中止する。
+        # skipped_sentences には ASR 不一致以外 (TTS 例外・不正/無音 wav・低有音率・
+        # concat 段階での dropped_chunks) も含まれるため、原因を「ASR ゲート」と決め
+        # 打ちせず「TTS 品質ゲート」と原因非依存に表現する (terra レビュー指摘)。
         missing_sentence_notice: str | None = None
         if skipped_sentences:
             if (
                 skipped_sentences <= MAX_MISSING_SENTENCES
                 and attempted_sentences >= MIN_TOTAL_FOR_TOLERANCE
             ):
-                preview = skipped_sentence_texts[0][:30] if skipped_sentence_texts else "(文面不明)"
+                preview = (
+                    _sanitize_missing_preview(skipped_sentence_texts[0])
+                    if skipped_sentence_texts
+                    else "(結合段階での除外)"
+                )
                 typer.secho(
                     "WARNING: TTS 合成で欠落文があります "
                     f"{skipped_sentences}/{attempted_sentences} 文 "
                     f"。許容閾値内 (<= {MAX_MISSING_SENTENCES} 文 かつ総文数 >= "
                     f"{MIN_TOTAL_FOR_TOLERANCE}) のため配信を続行します "
-                    f"(欠落: {preview}…)。",
+                    f"(欠落: {preview})。",
                     fg=typer.colors.YELLOW,
                     err=True,
                 )
                 missing_sentence_notice = (
-                    f"⚠️ ASR ゲートで {skipped_sentences} 文を除外して配信 "
-                    f"(欠落: {preview}…)"
+                    f"⚠️ TTS 品質ゲートで {skipped_sentences} 文を除外して配信 "
+                    f"(欠落: {preview})"
                 )
             else:
                 typer.secho(

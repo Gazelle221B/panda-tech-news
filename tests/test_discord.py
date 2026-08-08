@@ -158,7 +158,9 @@ def test_post_summary_success() -> None:
     assert result is True
     mock_post.assert_called_once_with(
         "https://discord.com/webhook",
-        json={"content": "test message"},
+        # allowed_mentions: {"parse": []} で @everyone/@here/ロール mention を構造的に
+        # 無効化する (Issue #98 フォローアップ3 terra レビュー指摘)。
+        json={"content": "test message", "allowed_mentions": {"parse": []}},
         timeout=10.0,
     )
 

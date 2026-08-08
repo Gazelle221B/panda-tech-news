@@ -1,6 +1,7 @@
 """Discord Webhook 投稿 (FR-070, FR-071, FR-072)."""
 from __future__ import annotations
 
+import json
 import logging
 from collections import defaultdict
 from datetime import UTC, timedelta, timezone
@@ -18,6 +19,9 @@ JST = timezone(timedelta(hours=9))
 DISCORD_CONTENT_LIMIT = 2000  # Discord message content の上限 (コードポイント単位)
 DISCORD_FILE_LIMIT_BYTES = 25 * 1024 * 1024  # 無料 Discord の添付上限 25MB (要件 §17.6)
 AUDIO_UPLOAD_TIMEOUT = 60.0  # mp3 アップロードは要約投稿より時間がかかる
+# @everyone/@here/ロール mention を構造的に無効化する (terra レビュー指摘)。台本文
+# (欠落文プレビュー等) を含む content は生成元を信頼できないため、常に付与する。
+_NO_MENTIONS: dict[str, list[str]] = {"parse": []}
 
 
 def format_summary(session: Session, run: CollectRun) -> str:
@@ -88,7 +92,7 @@ def post_summary(webhook_url: str, content: str) -> bool:
     try:
         resp = httpx.post(
             webhook_url,
-            json={"content": content},
+            json={"content": content, "allowed_mentions": _NO_MENTIONS},
             timeout=10.0,
         )
         resp.raise_for_status()
@@ -127,9 +131,17 @@ def post_audio(webhook_url: str, mp3_path: Path, content: str = "") -> bool:
         return post_summary(webhook_url, f"{content}\n{notice}" if content else notice)
     try:
         with mp3_path.open("rb") as f:
+            # multipart (添付ファイル同梱) では allowed_mentions は plain form field
+            # では効かず、payload_json (JSON エンコードした content/allowed_mentions)
+            # で渡す必要がある (Discord Webhook API 仕様。terra レビュー指摘)。
+            payload_json = (
+                json.dumps({"content": content, "allowed_mentions": _NO_MENTIONS})
+                if content
+                else None
+            )
             resp = httpx.post(
                 webhook_url,
-                data={"content": content} if content else None,
+                data={"payload_json": payload_json} if payload_json else None,
                 files={"file": (mp3_path.name, f, "audio/mpeg")},
                 timeout=AUDIO_UPLOAD_TIMEOUT,
             )
