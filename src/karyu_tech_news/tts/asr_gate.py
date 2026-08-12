@@ -24,6 +24,13 @@ fail-open と同様に skip する (`tts/synthesize.py` 側の統合を参照)�
 `AsrJudge` (LLM 等) に判定を委譲できるようにした。`judge` 未指定、または judge
 が None を返した (判定不能) 場合は従来の機械判定にフォールバックする (fail-open)。
 
+アルファベット⇔カナ読みの表記ゆれ正規化 (Issue #107): 上記の「類似度の閾値を緩めに
+設定」だけでは長文で吸収しきれず、2026-08-12 に「エーアイ」(台本) ↔「AI」(Whisper
+書き起こし) の表記ゆれが原因で朝 3/39 文・夜リトライ 4/39 文が ASR 不一致 skip となり
+当日配信ゼロになった (曖昧域に落ちて judge が実差分と誤判定するケースを含む)。この
+ため類似度計算前の正規化段階でアルファベット略語 (AI/DX/GPU 等) をカナ読みへ変換する
+テーブルを両辺に適用するようにした (詳細は `_ALPHABET_KANA_TERMS` 定義部参照)。
+
 fast path の数字整合ガード (2026-08-02 レビュー差し戻し対応): 周辺文が長いと
 1 桁の数字誤読でも類似度が容易に 0.85 を超えてしまい、fast path が本チケットの
 主目的 (数字誤読検出) を素通りさせる実測が判明した (例:
@@ -38,6 +45,7 @@ from __future__ import annotations
 import difflib
 import re
 import tempfile
+import unicodedata
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal, Protocol, runtime_checkable
@@ -60,6 +68,86 @@ _NORMALIZE_STRIP_RE = re.compile(r"[\s　。、,.!?！？「」『』・…]+")
 # fast path の数字整合ガード用: 正規化後テキストから半角数字の連続を抽出する
 # (2026-08-02 レビュー差し戻し対応, モジュール docstring 参照)。
 _DIGITS_RE = re.compile(r"\d+")
+
+# アルファベット表記 ⇔ カナ読みの変換テーブル (Issue #107)。
+#
+# 台本は TTS 読み上げ用に「エーアイ」等のカナ表記を意図的に使う (`tts/normalize.py`
+# の読み辞書・`spell_out_residual_ascii_tokens` が生成する発音と同じ規則) が、Whisper
+# は音声を聞き取って「AI」とアルファベット表記で書き起こすため、**音声自体は正しいのに
+# ASR ゲートが不一致判定**してしまう (2026-08-12 実測: 朝 3/39 文・夜リトライ 4/39 文が
+# この理由で fail-open skip し、当日配信ゼロになった)。曖昧域 (類似度 0.5〜0.85 未満)
+# は `AsrJudge` (LLM) に委譲されるが、judge もこの表記ゆれを実差分と誤判定しうるため、
+# judge に到達する前 (=類似度計算そのものの入力) でアルファベット表記をカナ読みへ
+# 正規化し、比較両辺を同じ正規形に揃える。
+#
+# - 方向は「アルファベット→カナ読み」への一方向正規化のみ (どちらの表記で来ても
+#   カナ形に集約されるため単純かつ安全)。
+# - 保守的に頻出テック略語のみを収録する。幻話 (勝手な長い挿入) の検出力を落とさない
+#   よう、単語単位の短い略語限定で追加する (length_ratio・insertion 判定は別ロジックの
+#   まま不変)。
+# - 読みは `tts/normalize.py` の `_ASCII_LETTER_KANA` (英字 1 文字→カナ綴り) と同じ
+#   発音規則を手計算した値を使い、実際の TTS 発話と食い違わないようにしている
+#   (例: GPU = G+P+U = 「ジー」+「ピー」+「ユー」)。
+# - 「英字 1 文字ずつのカナ綴り」という安全な境界を破る意味ベースの変換 (例: App→アプリ)
+#   は収録しない (codex terra レビュー指摘, Issue #107)。「アプリ」は「App」の字母読み
+#   (エーピーピー) ではなく意味訳であり、この安全境界を混ぜると誤検出のリスクが読めなく
+#   なるため対象外とする。
+_ALPHABET_KANA_TERMS: dict[str, str] = {
+    "agi": "エージーアイ",
+    "ai": "エーアイ",
+    "api": "エーピーアイ",
+    "ar": "エーアール",
+    "ceo": "シーイーオー",
+    "cpu": "シーピーユー",
+    "dx": "ディーエックス",
+    "ev": "イーブイ",
+    "gpt": "ジーピーティー",
+    "gpu": "ジーピーユー",
+    "id": "アイディー",
+    "iot": "アイオーティー",
+    "it": "アイティー",
+    "llm": "エルエルエム",
+    "ml": "エムエル",
+    "nft": "エヌエフティー",
+    "os": "オーエス",
+    "pc": "ピーシー",
+    "pdf": "ピーディーエフ",
+    "sns": "エスエヌエス",
+    "tv": "ティーブイ",
+    "ui": "ユーアイ",
+    "url": "ユーアールエル",
+    "ux": "ユーエックス",
+    "vr": "ブイアール",
+}
+
+# マッチの主防御は否定先読み/後読みの語境界 (前後が `[A-Za-z0-9._-]` でないことを要求)
+# であり、これにより長い英字連続の内部 (例: `android` 内の `id`) を誤って部分置換しない
+# (`tts/normalize.py` の `_reading_term_pattern` と同じ境界規則)。用語の並び順 (長い順)
+# は交替 (|) の優先順位を安定させる補助に過ぎない (境界規則があるため部分マッチ自体は
+# 起こらないが、`tts/normalize.py` の `normalize_text` と同じ最長一致優先の慣習に揃える)。
+# 大文字小文字は区別しない (`re.IGNORECASE`) ため表記ゆれを両方吸収するが、`re.ASCII` を
+# 併用して ASCII の範囲でのみ大小文字を畳み込む (codex terra レビュー指摘, Issue #107:
+# `re.IGNORECASE` 単独だと Unicode の特殊大小文字対応 (例: `İ`→`i̇`, `ſ`→`s`) で
+# `.lower()` した結果がテーブルのキーに存在せず `KeyError` になり得るため)。
+_ALPHABET_KANA_RE = re.compile(
+    "|".join(
+        rf"(?<![A-Za-z0-9._\-]){re.escape(term)}(?![A-Za-z0-9._\-])"
+        for term in sorted(_ALPHABET_KANA_TERMS, key=len, reverse=True)
+    ),
+    re.IGNORECASE | re.ASCII,
+)
+
+
+def _normalize_alphabet_kana(text: str) -> str:
+    """既知のアルファベット略語をカナ読みへ正規化する (Issue #107, モジュール docstring 参照).
+
+    `re.ASCII` で ASCII 範囲のみ大小文字を畳み込むが、二重防御として置換 lambda 側でも
+    `dict.get` にフォールバックを持たせ、万一未知のキーにマッチしても例外で本番ゲートを
+    落とさず元の文字列をそのまま返す (codex terra レビュー指摘, Issue #107)。
+    """
+    return _ALPHABET_KANA_RE.sub(
+        lambda m: _ALPHABET_KANA_TERMS.get(m.group(0).lower(), m.group(0)), text
+    )
 
 
 class AsrUnavailableError(Exception):
@@ -95,6 +183,10 @@ class AsrJudge(Protocol):
 
 
 def _normalize(text: str) -> str:
+    # NFKC で全角英数字を半角へ統一してから (Issue #107: 全角/半角ゆれの吸収)、
+    # アルファベット略語→カナ読み正規化を適用し、最後に既存の小文字化+句読点除去を行う。
+    text = unicodedata.normalize("NFKC", text)
+    text = _normalize_alphabet_kana(text)
     return _NORMALIZE_STRIP_RE.sub("", text.lower())
 
 
