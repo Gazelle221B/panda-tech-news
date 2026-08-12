@@ -1092,3 +1092,281 @@ def test_shutdown_v4_server_noop_when_not_started_and_not_reused(monkeypatch: An
     mock_find.assert_not_called()
     mock_stop.assert_not_called()
     mock_kill.assert_not_called()
+
+
+# ---------- start_v3_server / start_irodori_server (subprocess.Popen はモック, 実サーバは起動しない) ----------
+
+
+class _FakePopenHandle:
+    """`subprocess.Popen` の代わりに使う軽量 fake (start_* のコマンド/env/cwd を捕捉するだけ)."""
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        self.args = args
+        self.kwargs = kwargs
+        self.pid = 4242
+
+
+def test_start_v3_server_passes_checkpoint_env_and_command(
+    monkeypatch: Any, tmp_path: Path
+) -> None:
+    monkeypatch.delenv("IRODORI_HF_CHECKPOINT", raising=False)
+    captured: dict[str, Any] = {}
+
+    def _fake_popen(cmd: list[str], **kwargs: Any) -> _FakePopenHandle:
+        captured["cmd"] = cmd
+        captured["kwargs"] = kwargs
+        return _FakePopenHandle()
+
+    monkeypatch.setattr(shadow.subprocess, "Popen", _fake_popen)
+    log_path = tmp_path / "shadow_v3_server_20260812_120000.log"
+    proc = shadow.start_v3_server(
+        tmp_path, host="127.0.0.1", port=8088, log_path=log_path
+    )
+    assert proc.pid == 4242
+    assert captured["cmd"] == [
+        "uv",
+        "run",
+        "--no-sync",
+        "python",
+        "-m",
+        "irodori_openai_tts",
+        "--host",
+        "127.0.0.1",
+        "--port",
+        "8088",
+    ]
+    assert captured["kwargs"]["cwd"] == str(tmp_path)
+    env = captured["kwargs"]["env"]
+    assert env is not None
+    assert env["IRODORI_HF_CHECKPOINT"] == shadow.DEFAULT_V3_HF_CHECKPOINT
+    assert log_path.exists()  # ログファイル (親ディレクトリ含む) が作成される
+
+
+def test_start_v3_server_respects_env_override(monkeypatch: Any, tmp_path: Path) -> None:
+    monkeypatch.setenv("IRODORI_HF_CHECKPOINT", "custom/checkpoint")
+    captured: dict[str, Any] = {}
+
+    def _fake_popen(cmd: list[str], **kwargs: Any) -> _FakePopenHandle:
+        captured["kwargs"] = kwargs
+        return _FakePopenHandle()
+
+    monkeypatch.setattr(shadow.subprocess, "Popen", _fake_popen)
+    shadow.start_v3_server(
+        tmp_path, host="127.0.0.1", port=8088, log_path=tmp_path / "v3.log"
+    )
+    assert captured["kwargs"]["env"]["IRODORI_HF_CHECKPOINT"] == "custom/checkpoint"
+
+
+def test_start_v4_server_still_works_without_extra_env(monkeypatch: Any, tmp_path: Path) -> None:
+    """後方互換: v4_preview_delivery.py が呼ぶ既存シグネチャ/挙動を維持する (env=None で継承)."""
+    captured: dict[str, Any] = {}
+
+    def _fake_popen(cmd: list[str], **kwargs: Any) -> _FakePopenHandle:
+        captured["kwargs"] = kwargs
+        return _FakePopenHandle()
+
+    monkeypatch.setattr(shadow.subprocess, "Popen", _fake_popen)
+    shadow.start_v4_server(
+        tmp_path, host="127.0.0.1", port=8089, log_path=tmp_path / "v4.log"
+    )
+    assert captured["kwargs"]["env"] is None
+
+
+# ---------- shutdown_v3_server (Issue #88: v3 自前起動分の終了時停止, 既存相乗りは殺さない) ----------
+
+
+def test_shutdown_v3_server_skips_when_keep_server_env_set(monkeypatch: Any) -> None:
+    monkeypatch.setenv(shadow.SHADOW_KEEP_SERVER_ENV, "1")
+    with (
+        patch.object(shadow, "stop_v4_server") as mock_stop,
+        patch.object(shadow, "find_listening_pid") as mock_find,
+        patch.object(shadow, "kill_pid") as mock_kill,
+    ):
+        shadow.shutdown_v3_server(started_by_us=True, proc=object(), port=8088)
+    mock_stop.assert_not_called()
+    mock_find.assert_not_called()
+    mock_kill.assert_not_called()
+
+
+def test_shutdown_v3_server_stops_self_started_process(monkeypatch: Any) -> None:
+    monkeypatch.delenv(shadow.SHADOW_KEEP_SERVER_ENV, raising=False)
+    fake_proc = type("_P", (), {"poll": lambda self: 0})()
+    with (
+        patch.object(shadow, "stop_v4_server") as mock_stop,
+        patch.object(shadow, "find_listening_pid", return_value=None) as mock_find,
+        patch.object(shadow, "kill_pid") as mock_kill,
+    ):
+        shadow.shutdown_v3_server(started_by_us=True, proc=fake_proc, port=8088)
+    mock_stop.assert_called_once_with(fake_proc)
+    mock_find.assert_called_once_with(8088)
+    mock_kill.assert_not_called()
+
+
+def test_shutdown_v3_server_backstop_kills_remaining_pid(monkeypatch: Any) -> None:
+    monkeypatch.delenv(shadow.SHADOW_KEEP_SERVER_ENV, raising=False)
+    fake_proc = type("_P", (), {"poll": lambda self: 0})()
+    with (
+        patch.object(shadow, "stop_v4_server"),
+        patch.object(shadow, "find_listening_pid", return_value=555) as mock_find,
+        patch.object(shadow, "kill_pid", return_value=True) as mock_kill,
+    ):
+        shadow.shutdown_v3_server(started_by_us=True, proc=fake_proc, port=8088)
+    mock_find.assert_called_once_with(8088)
+    mock_kill.assert_called_once_with(555)
+
+
+def test_shutdown_v3_server_noop_when_self_started_but_no_proc_handle(monkeypatch: Any) -> None:
+    monkeypatch.delenv(shadow.SHADOW_KEEP_SERVER_ENV, raising=False)
+    with patch.object(shadow, "stop_v4_server") as mock_stop:
+        shadow.shutdown_v3_server(started_by_us=True, proc=None, port=8088)
+    mock_stop.assert_not_called()
+
+
+def test_shutdown_v3_server_never_kills_reused_existing(monkeypatch: Any) -> None:
+    """v4 と異なり、v3 の既存稼働 (本番と相乗り) はラン終了時に絶対停止しない.
+
+    06:30 の daily_pipeline 本番実行と 12:00 のシャドーランが同じ v3 サーバに相乗りする
+    ケースで、シャドーランの終了によって本番配信中のサーバを落とす事故を防ぐための挙動
+    (Issue #88 フォローアップ, team-lead 指示の要点)。
+    """
+    monkeypatch.delenv(shadow.SHADOW_KEEP_SERVER_ENV, raising=False)
+    with (
+        patch.object(shadow, "stop_v4_server") as mock_stop,
+        patch.object(shadow, "find_listening_pid") as mock_find,
+        patch.object(shadow, "kill_pid") as mock_kill,
+    ):
+        shadow.shutdown_v3_server(started_by_us=False, proc=None, port=8088)
+    mock_stop.assert_not_called()
+    mock_find.assert_not_called()
+    mock_kill.assert_not_called()
+
+
+# ---------- main() の v3 自前起動オーケストレーション (Issue #88, 実サーバ不使用) ----------
+#
+# 08-10〜12 の3日連続中断 (v3 health 不在 → 即 abort) の直接の回帰テスト。実サーバ・実
+# subprocess は一切起動せず、is_server_healthy/start_v3_server/wait_for_health/run_shadow
+# 等をすべてモックして main() のディスパッチ分岐のみを検証する
+# (docstring の「main は実サーバ依存のため対象外」の原則は維持しつつ、本チケットの
+# 回帰そのものである分岐だけを例外的にモックで固定する)。
+
+
+def _minimal_report() -> Any:
+    started_at = datetime(2026, 8, 12, 12, 0, tzinfo=UTC)
+    return shadow.ShadowRunReport(
+        run_id="20260812_120000",
+        started_at=started_at,
+        finished_at=started_at,
+        config=_make_config(),
+        config_hash="hash1",
+        sentence_results=[],
+        v4_available=True,
+        v4_startup_note=None,
+    )
+
+
+def test_main_starts_v3_server_when_absent_and_stops_self_started_on_success(
+    tmp_path: Path,
+) -> None:
+    """v3 health 不在 → 自前起動 → health OK でラン継続 → 終了時に自起動分だけ停止する."""
+
+    def _fake_is_server_healthy(client: Any, base_url: str, *, require_loaded: bool) -> bool:
+        return "8088" not in base_url  # v3 (8088) のみ未起動扱い, v4 は既存稼働扱い
+
+    fake_v3_proc = type("_P", (), {"poll": lambda self: 0, "pid": 1111})()
+
+    with (
+        patch.object(shadow, "is_server_healthy", side_effect=_fake_is_server_healthy),
+        patch.object(shadow, "start_v3_server", return_value=fake_v3_proc) as mock_start_v3,
+        patch.object(shadow, "wait_for_health", return_value=True),
+        patch.object(shadow, "run_shadow", return_value=_minimal_report()),
+        patch.object(shadow, "write_report", return_value=tmp_path / "report.json"),
+        patch.object(shadow, "read_last_history_line", return_value=None),
+        patch.object(shadow, "append_history"),
+        patch.object(shadow, "post_shadow_summary_to_discord", return_value=False),
+        patch.object(shadow, "stop_v4_server") as mock_stop,
+        patch.object(shadow, "find_listening_pid", return_value=None),
+    ):
+        rc = shadow.main(["--no-report-issue", "--out-dir", str(tmp_path)])
+
+    assert rc == 0
+    mock_start_v3.assert_called_once()
+    # v3 自起動分のみが停止される (v4 は既存相乗りのため stop_v4_server 経路は通らない)。
+    mock_stop.assert_called_once_with(fake_v3_proc)
+
+
+def test_main_aborts_when_v3_start_fails(tmp_path: Path) -> None:
+    """v3 起動失敗 (OSError) → 従来どおり exit 1 で中断する (fail-open にしない)."""
+    with (
+        patch.object(shadow, "is_server_healthy", return_value=False),
+        patch.object(shadow, "start_v3_server", side_effect=OSError("uv not found")),
+        patch.object(shadow, "run_shadow") as mock_run_shadow,
+        patch.object(shadow, "stop_v4_server") as mock_stop,
+        patch.object(shadow, "find_listening_pid", return_value=None),
+    ):
+        rc = shadow.main(["--no-report-issue", "--out-dir", str(tmp_path)])
+    assert rc == 1
+    mock_run_shadow.assert_not_called()
+    mock_stop.assert_not_called()  # 起動失敗 (v3_started=False) のため停止対象がない
+
+
+def test_main_aborts_when_v3_health_times_out_after_self_start(tmp_path: Path) -> None:
+    """v3 は自前起動できたが health タイムアウト → exit 1、ただし自起動分は停止する."""
+    fake_v3_proc = type("_P", (), {"poll": lambda self: 0, "pid": 1111})()
+    with (
+        patch.object(shadow, "is_server_healthy", return_value=False),
+        patch.object(shadow, "start_v3_server", return_value=fake_v3_proc),
+        patch.object(shadow, "wait_for_health", return_value=False),
+        patch.object(shadow, "run_shadow") as mock_run_shadow,
+        patch.object(shadow, "stop_v4_server") as mock_stop,
+        patch.object(shadow, "find_listening_pid", return_value=None),
+    ):
+        rc = shadow.main(["--no-report-issue", "--out-dir", str(tmp_path)])
+    assert rc == 1
+    mock_run_shadow.assert_not_called()
+    mock_stop.assert_called_once_with(fake_v3_proc)  # 起動済みなので孤児化防止で停止する
+
+
+def test_main_skips_v3_start_and_never_stops_when_already_healthy(tmp_path: Path) -> None:
+    """v3 が既に稼働中 (本番と相乗り) なら自前起動せず、終了時も停止しない."""
+    with (
+        patch.object(shadow, "is_server_healthy", return_value=True),
+        patch.object(shadow, "start_v3_server") as mock_start_v3,
+        patch.object(shadow, "run_shadow", return_value=_minimal_report()),
+        patch.object(shadow, "write_report", return_value=tmp_path / "report.json"),
+        patch.object(shadow, "read_last_history_line", return_value=None),
+        patch.object(shadow, "append_history"),
+        patch.object(shadow, "post_shadow_summary_to_discord", return_value=False),
+        patch.object(shadow, "stop_v4_server") as mock_stop,
+        patch.object(shadow, "find_listening_pid", return_value=None),
+    ):
+        rc = shadow.main(["--no-report-issue", "--out-dir", str(tmp_path)])
+    assert rc == 0
+    mock_start_v3.assert_not_called()
+    mock_stop.assert_not_called()  # v3 は既存相乗りのため絶対に停止しない
+
+
+def test_main_skips_v3_stop_when_keep_server_env_set(tmp_path: Path, monkeypatch: Any) -> None:
+    """SHADOW_KEEP_SERVER=1 は v3 の自起動分の停止にも適用される."""
+    monkeypatch.setenv(shadow.SHADOW_KEEP_SERVER_ENV, "1")
+
+    def _fake_is_server_healthy(client: Any, base_url: str, *, require_loaded: bool) -> bool:
+        return "8088" not in base_url
+
+    fake_v3_proc = type("_P", (), {"poll": lambda self: 0, "pid": 1111})()
+
+    with (
+        patch.object(shadow, "is_server_healthy", side_effect=_fake_is_server_healthy),
+        patch.object(shadow, "start_v3_server", return_value=fake_v3_proc),
+        patch.object(shadow, "wait_for_health", return_value=True),
+        patch.object(shadow, "run_shadow", return_value=_minimal_report()),
+        patch.object(shadow, "write_report", return_value=tmp_path / "report.json"),
+        patch.object(shadow, "read_last_history_line", return_value=None),
+        patch.object(shadow, "append_history"),
+        patch.object(shadow, "post_shadow_summary_to_discord", return_value=False),
+        patch.object(shadow, "stop_v4_server") as mock_stop,
+        patch.object(shadow, "find_listening_pid") as mock_find,
+    ):
+        rc = shadow.main(["--no-report-issue", "--out-dir", str(tmp_path)])
+    assert rc == 0
+    mock_stop.assert_not_called()
+    mock_find.assert_not_called()

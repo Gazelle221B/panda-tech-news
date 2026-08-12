@@ -10,8 +10,9 @@ Issue #88 の P0 診断で、v4 短文幻話の根本原因は duration predicto
   SELECT のみ行う。v4 シャドーサーバのディレクトリ (`~/tools/Irodori-TTS-Server-v4`)
   も起動コマンドを叩くだけで、ファイルは変更しない。
 - **fail-open**: v4 サーバ起動失敗・個別文の合成/書き起こし失敗は記録して続行する。
-  例外は (a) v3 (本番, 実測尺の供給源) の health 不在 = 即 abort、(b) ASR バックエンド
-  自体が利用不可 (`AsrUnavailableError`) = 全文が同じ理由で失敗するため即 abort。
+  例外は (a) v3 (本番, 実測尺の供給源) の health 不在かつ自前起動も失敗 = 即 abort、
+  (b) ASR バックエンド自体が利用不可 (`AsrUnavailableError`) = 全文が同じ理由で失敗する
+  ため即 abort。
 - **engine 抽象を経由しない**: per-request の irodori オプション制御 (seconds/seed) が
   主目的のため、`tts/irodori.py` の `IrodoriTTSEngine` は使わず直接 httpx で
   `POST /v1/audio/speech` を叩く。文セット構築 (辞書適用・分割・マージ) は
@@ -25,6 +26,15 @@ Issue #88 の P0 診断で、v4 短文幻話の根本原因は duration predicto
   自分で起動した場合はそのプロセスハンドルで、既存稼働を利用した場合はポートから
   PID を特定して停止する (特定できなければ WARNING ログのみで fail-open)。
   `SHADOW_KEEP_SERVER=1` で停止を抑止できる (連続手動検証用の逃げ道)。
+- **v3 (本番) サーバも不在なら自前起動する** (Issue #88, 2026-08-10〜12 のシャドーラン
+  3 日連続中断の修正): 従来は Windows の孫プロセス孤児化バグ (PR #99/#105 で修正) に
+  より daily_pipeline の v3 サーバが常駐し続け、12:00 のシャドーランはそれに相乗り
+  できていた。孤児化修正の副作用で 12:00 時点に v3 サーバが存在しなくなり、即 abort が
+  続いたため、v4 と同じ start→wait_for_health パターンで v3 も自前起動する。ただし
+  **v3 の「既存稼働への相乗り」は v4 と異なりラン終了時に停止しない**
+  (06:30 の本番実行と重なる事故を避けるため)。自分で起動した分のみ v4 と同じ機構
+  (プロセスツリー kill + ポート実 listener によるバックストップ) で停止し、
+  `SHADOW_KEEP_SERVER=1` は v3 の自起動分の停止にも適用される。
 
 使い方: `uv run python scripts/shadow_v4_run.py [--no-report-issue] [--v4-server-dir ...]`
 """
@@ -85,6 +95,22 @@ DEFAULT_V4_SERVER_DIR = Path.home() / "tools" / "Irodori-TTS-Server-v4"
 DEFAULT_V4_LOG_PATH = DEFAULT_OUT_DIR / "v4_server.log"
 DEFAULT_V3_BASE_URL = "http://127.0.0.1:8088"
 DEFAULT_V4_BASE_URL = "http://127.0.0.1:8089"
+DEFAULT_V3_HOST = "127.0.0.1"
+DEFAULT_V3_PORT = 8088
+# daily_pipeline.sh (T34) と同じ既定: KARYU_IRODORI_DIR で上書き可能な v3 (本番) サーバの
+# ディレクトリ。Issue #88 フォローアップで v3 の自前起動にも同じ変数を使い、production と
+# 同一サーバディレクトリ・checkpoint を参照することを保証する。
+_KARYU_IRODORI_DIR_ENV = os.environ.get("KARYU_IRODORI_DIR")
+DEFAULT_V3_SERVER_DIR = (
+    Path(_KARYU_IRODORI_DIR_ENV) if _KARYU_IRODORI_DIR_ENV else Path.home() / "tools" / "Irodori-TTS-Server"
+)
+# daily_pipeline.sh (T34) と同じ既定 checkpoint (600M VoiceDesign)。IRODORI_HF_CHECKPOINT
+# 環境変数での上書きも daily_pipeline.sh と同じ流儀 (`${VAR:-default}`) を踏襲する。
+DEFAULT_V3_HF_CHECKPOINT = "Aratako/Irodori-TTS-600M-v3-VoiceDesign"
+# v3 サーバのログ出力先 (data/logs/, daily_pipeline.sh の irodori_server_<stamp>.log と
+# 同じ場所)。v4 の DEFAULT_V4_LOG_PATH (data/shadow_v4/v4_server.log, 追記式の固定名) とは
+# 異なり、v3 は本番と同じ場所に日時スタンプ付きファイル名で出す (Issue #88 フォローアップ)。
+DEFAULT_V3_LOG_DIR = PROJECT_ROOT / "data" / "logs"
 DEFAULT_ISSUE_NUMBER = 88  # v4 移行トラック本体 Issue (Issue #91 の指示どおり)
 DEFAULT_SEED = 42
 DEFAULT_SECONDS_MARGIN = 0.25  # Issue #88: v3 実測尺 + 0.25s を正とする
@@ -542,12 +568,23 @@ def wait_for_health(
     return is_server_healthy(client, base_url, require_loaded=require_loaded)
 
 
-def start_v4_server(
-    server_dir: Path, *, host: str, port: int, log_path: Path
+def start_irodori_server(
+    server_dir: Path,
+    *,
+    host: str,
+    port: int,
+    log_path: Path,
+    extra_env: dict[str, str] | None = None,
 ) -> subprocess.Popen[bytes]:
-    """v4 シャドーサーバを起動する (このプロセスの存命中のみ). 起動コマンドはチケット仕様固定."""
+    """Irodori-TTS サーバ (v3/v4 共通) を起動する (このプロセスの存命中のみ).
+
+    起動コマンドはチケット仕様固定 (`uv run --no-sync python -m irodori_openai_tts`)。
+    `extra_env` は `os.environ` へ上書きマージして渡す (v3 の `IRODORI_HF_CHECKPOINT`
+    明示指定用, Issue #88 フォローアップ)。
+    """
     log_path.parent.mkdir(parents=True, exist_ok=True)
     log_file = log_path.open("ab")
+    env = {**os.environ, **extra_env} if extra_env else None
     return subprocess.Popen(
         [
             "uv",
@@ -564,6 +601,38 @@ def start_v4_server(
         cwd=str(server_dir),
         stdout=log_file,
         stderr=subprocess.STDOUT,
+        env=env,
+    )
+
+
+def start_v4_server(
+    server_dir: Path, *, host: str, port: int, log_path: Path
+) -> subprocess.Popen[bytes]:
+    """v4 シャドーサーバを起動する. `start_irodori_server` の薄いラッパー.
+
+    `v4_preview_delivery.py::ensure_server` がこの名前/シグネチャで直接呼ぶため
+    後方互換のために維持する (Issue #88 フォローアップで `start_irodori_server` へ一般化)。
+    """
+    return start_irodori_server(server_dir, host=host, port=port, log_path=log_path)
+
+
+def start_v3_server(
+    server_dir: Path, *, host: str, port: int, log_path: Path
+) -> subprocess.Popen[bytes]:
+    """v3 (本番) サーバを自前起動する (Issue #88: 孤児化バグ修正 PR #99/#105 の副作用で
+    12:00 のシャドーランが v3 常駐に相乗りできなくなったことへの対応).
+
+    `IRODORI_HF_CHECKPOINT` は daily_pipeline.sh (T34) と同じ既定 (600M VoiceDesign) を
+    明示的に渡す。環境変数で上書きされていればそちらを優先する
+    (daily_pipeline.sh の `${IRODORI_HF_CHECKPOINT:-default}` と同じ流儀)。
+    """
+    checkpoint = os.environ.get("IRODORI_HF_CHECKPOINT", DEFAULT_V3_HF_CHECKPOINT)
+    return start_irodori_server(
+        server_dir,
+        host=host,
+        port=port,
+        log_path=log_path,
+        extra_env={"IRODORI_HF_CHECKPOINT": checkpoint},
     )
 
 
@@ -783,6 +852,58 @@ def shutdown_v4_server(
         logger.warning(
             "v4 シャドーサーバ (既存利用分, PID %d) の停止に失敗しました (fail-open)", pid
         )
+
+
+def shutdown_v3_server(
+    *,
+    started_by_us: bool,
+    proc: subprocess.Popen[bytes] | None,
+    port: int,
+) -> None:
+    """ラン終了時の v3 (本番) サーバ停止をディスパッチする (Issue #88 フォローアップ).
+
+    `shutdown_v4_server` と同じ「自起動分はプロセスツリー kill + ポート実 listener
+    バックストップ」の機構を使うが、**既存稼働への相乗り (`started_by_us=False`) は
+    絶対に停止しない**点が v4 と異なる。v3 は 06:30 の daily_pipeline 本番実行と
+    共有ポートのため、12:00 のシャドーランが誤って本番サーバを落とす事故を避ける。
+    `SHADOW_KEEP_SERVER=1` が指定されていれば自起動分の停止もスキップする (逃げ道)。
+    """
+    if keep_server_requested():
+        logger.info("%s=1 のため v3 サーバの停止をスキップします", SHADOW_KEEP_SERVER_ENV)
+        return
+
+    if not started_by_us:
+        # 既存稼働 (本番と相乗り) は絶対に殺さない (v4 の shutdown_v4_server と異なる点)。
+        return
+
+    if proc is None:
+        return
+
+    logger.info("v3 サーバ (自起動分) を停止します")
+    try:
+        stop_v4_server(proc)
+    except OSError as exc:
+        logger.warning("v3 サーバ (自起動分) の停止に失敗しました (fail-open): %s", exc)
+        return
+    if proc.poll() is None:
+        logger.warning("v3 サーバ (自起動分) が停止確認できません (fail-open)")
+    else:
+        logger.info("v3 サーバ (自起動分) を停止しました")
+
+    # バックストップ (shutdown_v4_server と同じ方針): taskkill /T が対象漏れした場合に備え、
+    # ポートがまだ LISTEN されていれば実体 PID を netstat で特定して個別に始末する。
+    remaining_pid = find_listening_pid(port)
+    if remaining_pid is not None:
+        logger.warning(
+            "v3 サーバ (自起動分) 停止後もポートが LISTEN 中 (PID %d)。追加停止します",
+            remaining_pid,
+        )
+        if kill_pid(remaining_pid):
+            logger.info("v3 サーバ (残存 PID %d) を停止しました", remaining_pid)
+        else:
+            logger.warning(
+                "v3 サーバ (残存 PID %d) の停止に失敗しました (fail-open)", remaining_pid
+            )
 
 
 def synthesize_wav(
@@ -1175,6 +1296,19 @@ def build_arg_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--out-dir", type=Path, default=DEFAULT_OUT_DIR)
     parser.add_argument("--v3-base-url", default=DEFAULT_V3_BASE_URL)
+    parser.add_argument(
+        "--v3-server-dir",
+        type=Path,
+        default=DEFAULT_V3_SERVER_DIR,
+        help="v3 (本番) サーバ不在時に自前起動するディレクトリ (Issue #88 フォローアップ)",
+    )
+    parser.add_argument("--v3-host", default=DEFAULT_V3_HOST)
+    parser.add_argument("--v3-port", type=int, default=DEFAULT_V3_PORT)
+    parser.add_argument("--v3-log-dir", type=Path, default=DEFAULT_V3_LOG_DIR)
+    parser.add_argument(
+        "--v3-health-timeout-sec", type=float, default=DEFAULT_V4_HEALTH_TIMEOUT_SECONDS
+    )
+    parser.add_argument("--v3-health-poll-sec", type=float, default=DEFAULT_V4_HEALTH_POLL_SECONDS)
     parser.add_argument("--v4-base-url", default=DEFAULT_V4_BASE_URL)
     parser.add_argument("--v4-server-dir", type=Path, default=DEFAULT_V4_SERVER_DIR)
     parser.add_argument("--v4-host", default="127.0.0.1")
@@ -1205,22 +1339,55 @@ def build_arg_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     args = build_arg_parser().parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+    run_stamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
 
-    # Issue #98: v4 サーバの起動状況を outer try/finally の外側で追跡し、
+    # Issue #98/#88: v3/v4 サーバの起動状況を outer try/finally の外側で追跡し、
     # レポート出力・Issue コメント・Discord 通知の「後」に必ず停止処理を行う
     # (成功・失敗問わず fail-open。停止の成否は exit code に影響させない)。
+    v3_started = False
+    v3_proc: subprocess.Popen[bytes] | None = None
     v4_started = False
     v4_proc: subprocess.Popen[bytes] | None = None
     v4_reused_existing = False
 
     try:
         with httpx.Client() as client:
-            if not is_server_healthy(client, args.v3_base_url, require_loaded=False):
-                logger.error(
-                    "v3 (本番) サーバの health が確認できません。シャドーランを中断します: %s",
+            if is_server_healthy(client, args.v3_base_url, require_loaded=False):
+                logger.info("v3 (本番) サーバ: 既に稼働中 (既存を利用)")
+            else:
+                # Issue #88: PR #99/#105 の孤児化バグ修正の副作用で、12:00 のシャドーランが
+                # 従来相乗りしていた daily_pipeline の v3 常駐サーバに出会えなくなった
+                # (2026-08-10〜12 の3日連続 abort)。v4 と同じ start→wait_for_health
+                # パターンで自前起動を試み、それでも不可なら従来どおり abort する。
+                logger.info("v3 (本番) サーバ: 未起動 → 自前起動します (Issue #88 フォローアップ)")
+                v3_log_path = args.v3_log_dir / f"shadow_v3_server_{run_stamp}.log"
+                try:
+                    v3_proc = start_v3_server(
+                        args.v3_server_dir,
+                        host=args.v3_host,
+                        port=args.v3_port,
+                        log_path=v3_log_path,
+                    )
+                    v3_started = True
+                except OSError as exc:
+                    logger.error(
+                        "v3 (本番) サーバの起動に失敗しました。シャドーランを中断します: %s", exc
+                    )
+                    return 1
+                if not wait_for_health(
+                    client,
                     args.v3_base_url,
-                )
-                return 1
+                    timeout_sec=args.v3_health_timeout_sec,
+                    poll_interval_sec=args.v3_health_poll_sec,
+                    require_loaded=False,
+                ):
+                    logger.error(
+                        "v3 (本番) サーバが health に到達しませんでした。"
+                        "シャドーランを中断します: %s",
+                        args.v3_base_url,
+                    )
+                    return 1
+                logger.info("v3 (本番) サーバ: 自前起動完了 (health OK)")
 
             v4_available = True
             v4_startup_note: str | None = None
@@ -1279,6 +1446,11 @@ def main(argv: list[str] | None = None) -> int:
 
         return 0
     finally:
+        shutdown_v3_server(
+            started_by_us=v3_started,
+            proc=v3_proc,
+            port=args.v3_port,
+        )
         shutdown_v4_server(
             started_by_us=v4_started,
             proc=v4_proc,
