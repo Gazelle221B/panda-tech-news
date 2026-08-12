@@ -126,7 +126,6 @@ def test_verify_sentence_alphabet_kana_unrelated_sentence_stays_mismatch() -> No
         ("AI", "エーアイ"),
         ("AGI", "エージーアイ"),
         ("API", "エーピーアイ"),
-        ("App", "アプリ"),
         ("AR", "エーアール"),
         ("CEO", "シーイーオー"),
         ("CPU", "シーピーユー"),
@@ -156,6 +155,64 @@ def test_verify_sentence_alphabet_kana_table_entries(alphabet: str, kana: str) -
     verdict = verify_sentence(f"{kana}の話です。", f"{alphabet}の話です")
     assert verdict.status == "ok"
     assert verdict.similarity == pytest.approx(1.0)
+
+
+def test_verify_sentence_alphabet_kana_reverse_direction_also_matches() -> None:
+    # 両辺正規化の直接検証: 期待文側がアルファベット表記・転写側がカナ表記の逆向きの
+    # 組み合わせでも (テーブル自体は一方向でも) 一致判定になることを固定する。
+    verdict = verify_sentence("GPUの性能が向上しました。", "ジーピーユーの性能が向上しました")
+    assert verdict.status == "ok"
+    assert verdict.similarity == pytest.approx(1.0)
+
+
+def test_verify_sentence_alphabet_kana_unicode_special_case_does_not_crash() -> None:
+    # codex terra レビュー指摘 (Issue #107, blocking): İ (U+0130) や ſ (U+017F) のような
+    # Unicode の特殊な大小文字対応は `.lower()` した結果がテーブルのキーと一致しないことが
+    # あり、素朴な辞書引きだと KeyError で本番ゲートがクラッシュしうる。`re.ASCII` + 置換
+    # lambda の `dict.get` フォールバックの二重防御により、例外を送出せず処理できることを
+    # 固定する (変換結果そのものの是非は問わない)。
+    for text in ("İDの話です。", "ſNSの話です。"):
+        verdict = verify_sentence(text, text)
+        assert isinstance(verdict, AsrVerdict)
+
+
+def test_verify_sentence_app_word_stays_unconverted() -> None:
+    # codex terra レビュー指摘 (Issue #107, blocking): 「App」は意味訳 (アプリ) であり
+    # 英字 1 文字ずつのカナ綴り (エーピーピー) という安全境界を破るため、テーブルから
+    # 除外した。「app」表記の書き起こしを「アプリ」表記へ変換しないこと (=完全一致の
+    # 場合より類似度が下がること) を対照ケースとの比較で固定する。
+    kana_verdict = verify_sentence("アプリを更新しました。", "アプリを更新しました")
+    app_verdict = verify_sentence("アプリを更新しました。", "appを更新しました")
+    assert kana_verdict.similarity == pytest.approx(1.0)
+    assert app_verdict.similarity < kana_verdict.similarity  # 「app」は「アプリ」に正規化されない
+
+
+@pytest.mark.parametrize("expected_digits", ["2025", "２０２５"])  # 半角/全角
+def test_verify_sentence_alphabet_kana_normalization_preserves_digit_guard(
+    expected_digits: str,
+) -> None:
+    # 採用する non-blocking (codex terra レビュー): アルファベット⇔カナ正規化により
+    # 類似度が上がっても、fast path の数字整合ガード (2026-08-02 レビュー差し戻し対応)
+    # は無効化されない。expected/transcript は「エーアイ」↔「AI」の表記ゆれに加え、
+    # 数字 (2025 vs 2026) という別の実差分を含む。
+    digits_map = {"2025": "2026", "２０２５": "２０２６"}
+    expected = f"エーアイが{expected_digits}年に発表しました。"
+    transcript = f"AIが{digits_map[expected_digits]}年に発表しました"
+
+    mechanical_only = verify_sentence(expected, transcript)
+    assert mechanical_only.similarity >= 0.85  # fast path の類似度条件は満たす (前提確認)
+    assert mechanical_only.length_ratio <= 1.6  # 長さ比も正常 (前提確認)
+    # 数字列が不一致のため fast path を通らず、judge 未指定なら機械判定 (長さ比のみ) に
+    # フォールバックし ok になる (数字誤読自体の検出は judge の役目、T66 と同じ契約)。
+    assert mechanical_only.status == "ok"
+
+    # judge を渡せば曖昧域に落ちて委譲され、その判定 (mismatch) が採用される。judge には
+    # 正規化前の生の expected/transcript がそのまま渡ることも合わせて固定する (non-blocking
+    # 採用項目: judge 契約)。
+    judge = _RecordingJudge("mismatch")
+    with_judge = verify_sentence(expected, transcript, judge=judge)
+    assert with_judge.status == "mismatch"
+    assert judge.calls == [(expected, transcript)]  # 生の文字列 (正規化前) が渡る
 
 
 def test_asr_verdict_is_frozen_dataclass() -> None:

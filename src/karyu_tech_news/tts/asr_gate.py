@@ -88,11 +88,14 @@ _DIGITS_RE = re.compile(r"\d+")
 # - 読みは `tts/normalize.py` の `_ASCII_LETTER_KANA` (英字 1 文字→カナ綴り) と同じ
 #   発音規則を手計算した値を使い、実際の TTS 発話と食い違わないようにしている
 #   (例: GPU = G+P+U = 「ジー」+「ピー」+「ユー」)。
+# - 「英字 1 文字ずつのカナ綴り」という安全な境界を破る意味ベースの変換 (例: App→アプリ)
+#   は収録しない (codex terra レビュー指摘, Issue #107)。「アプリ」は「App」の字母読み
+#   (エーピーピー) ではなく意味訳であり、この安全境界を混ぜると誤検出のリスクが読めなく
+#   なるため対象外とする。
 _ALPHABET_KANA_TERMS: dict[str, str] = {
     "agi": "エージーアイ",
     "ai": "エーアイ",
     "api": "エーピーアイ",
-    "app": "アプリ",
     "ar": "エーアール",
     "ceo": "シーイーオー",
     "cpu": "シーピーユー",
@@ -117,23 +120,34 @@ _ALPHABET_KANA_TERMS: dict[str, str] = {
     "vr": "ブイアール",
 }
 
-# 用語は長い順に交替 (|) させ、より短い語が長い語の内部に部分マッチしないようにする
-# (`tts/normalize.py` の `normalize_text` と同じ最長一致優先の思想)。境界は前後が
-# `[A-Za-z0-9._-]` でないことを要求し、より長い英字連続の内部を誤って部分置換しない
-# (`tts/normalize.py` の `_reading_term_pattern` と同じ境界規則)。大文字小文字は
-# 区別しない (`re.IGNORECASE`) ため表記ゆれを両方吸収する。
+# マッチの主防御は否定先読み/後読みの語境界 (前後が `[A-Za-z0-9._-]` でないことを要求)
+# であり、これにより長い英字連続の内部 (例: `android` 内の `id`) を誤って部分置換しない
+# (`tts/normalize.py` の `_reading_term_pattern` と同じ境界規則)。用語の並び順 (長い順)
+# は交替 (|) の優先順位を安定させる補助に過ぎない (境界規則があるため部分マッチ自体は
+# 起こらないが、`tts/normalize.py` の `normalize_text` と同じ最長一致優先の慣習に揃える)。
+# 大文字小文字は区別しない (`re.IGNORECASE`) ため表記ゆれを両方吸収するが、`re.ASCII` を
+# 併用して ASCII の範囲でのみ大小文字を畳み込む (codex terra レビュー指摘, Issue #107:
+# `re.IGNORECASE` 単独だと Unicode の特殊大小文字対応 (例: `İ`→`i̇`, `ſ`→`s`) で
+# `.lower()` した結果がテーブルのキーに存在せず `KeyError` になり得るため)。
 _ALPHABET_KANA_RE = re.compile(
     "|".join(
         rf"(?<![A-Za-z0-9._\-]){re.escape(term)}(?![A-Za-z0-9._\-])"
         for term in sorted(_ALPHABET_KANA_TERMS, key=len, reverse=True)
     ),
-    re.IGNORECASE,
+    re.IGNORECASE | re.ASCII,
 )
 
 
 def _normalize_alphabet_kana(text: str) -> str:
-    """既知のアルファベット略語をカナ読みへ正規化する (Issue #107, モジュール docstring 参照)."""
-    return _ALPHABET_KANA_RE.sub(lambda m: _ALPHABET_KANA_TERMS[m.group(0).lower()], text)
+    """既知のアルファベット略語をカナ読みへ正規化する (Issue #107, モジュール docstring 参照).
+
+    `re.ASCII` で ASCII 範囲のみ大小文字を畳み込むが、二重防御として置換 lambda 側でも
+    `dict.get` にフォールバックを持たせ、万一未知のキーにマッチしても例外で本番ゲートを
+    落とさず元の文字列をそのまま返す (codex terra レビュー指摘, Issue #107)。
+    """
+    return _ALPHABET_KANA_RE.sub(
+        lambda m: _ALPHABET_KANA_TERMS.get(m.group(0).lower(), m.group(0)), text
+    )
 
 
 class AsrUnavailableError(Exception):
