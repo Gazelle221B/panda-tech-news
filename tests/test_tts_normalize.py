@@ -175,6 +175,18 @@ def test_prepare_tts_text_normalizes_observed_simplified_terms_outside_quotes() 
     assert "シェンヤングーフェン" in out
 
 
+def test_prepare_tts_text_normalizes_lenovo_simplified_han_variants() -> None:
+    # 2026-08-14 の配信欠落再現 (Issue 記載): 台本に簡体字「联想集団」が残存し
+    # (読み辞書コベレッジで「残存CJK(簡体字)=1件 [联想集団x1]」と検出)、TTS が
+    # 正しく読めず ASR ゲートが mismatch 判定した。联想集团/联想集団/联想 いずれの
+    # 表記も読み辞書で「レノボ」へ正規化され、簡体字が出力に残らないことを固定する。
+    d = load_reading_dict(DICT_PATH)
+    for variant in ("联想集团", "联想集団", "联想"):
+        out = prepare_tts_text(f"{variant}が第1四半期決算で増収増益を発表しました。", d)
+        assert "联" not in out
+        assert "レノボ" in out
+
+
 def test_prepare_tts_text_preserves_known_short_chinese_quote_reading() -> None:
     out = prepare_tts_text("「灵晟」が首位。", {"灵晟": "リンション"})
     assert out == "「リンション」が首位。"

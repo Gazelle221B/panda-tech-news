@@ -131,6 +131,7 @@ def test_verify_sentence_alphabet_kana_unrelated_sentence_stays_mismatch() -> No
         ("CPU", "シーピーユー"),
         ("DX", "ディーエックス"),
         ("EV", "イーブイ"),
+        ("FAA", "エフエーエー"),
         ("GPT", "ジーピーティー"),
         ("GPU", "ジーピーユー"),
         ("ID", "アイディー"),
@@ -153,6 +154,18 @@ def test_verify_sentence_alphabet_kana_unrelated_sentence_stays_mismatch() -> No
 def test_verify_sentence_alphabet_kana_table_entries(alphabet: str, kana: str) -> None:
     # テーブルの各エントリが単体で一致判定になることを固定する。
     verdict = verify_sentence(f"{kana}の話です。", f"{alphabet}の話です")
+    assert verdict.status == "ok"
+    assert verdict.similarity == pytest.approx(1.0)
+
+
+def test_verify_sentence_alphabet_kana_faa_incident_reproduction() -> None:
+    # 2026-08-14 の配信欠落 (許容 ≤1 に対し実測 2/39) の再現。台本はカナ表記「エフエーエー」
+    # だが Whisper は「FAA」と転写し similarity=0.85 で曖昧域に落ちて mismatch 判定されていた。
+    # "faa" をテーブルへ追加したことで正規化後に完全一致し ok になることを固定する。
+    verdict = verify_sentence(
+        "米国のエフエーエー Part 103など軽量航空機の規制について解説します。",
+        "米国のFAA Part 103など軽量航空機の規制について解説します",
+    )
     assert verdict.status == "ok"
     assert verdict.similarity == pytest.approx(1.0)
 
