@@ -58,6 +58,38 @@ def _wav_bytes(n_frames: int = 10, sample_rate: int = 48000) -> bytes:
     return buf.getvalue()
 
 
+# 2026-08-14 12:40 の実障害の再現用: netstat/taskkill/tasklist は Windows の既定ロケール
+# (cp932) で出力するため、`text=True` かつ `errors="replace"` 抜きだと `AttributeError:
+# 'NoneType' object has no attribute 'splitlines'` (proc.stdout が None) の直前で
+# `UnicodeDecodeError: 'utf-8' codec can't decode byte 0x83` が発生していた。
+# 実際の Japanese 文字列を cp932 でエンコードすると UTF-8 としては不正なバイト列になる。
+_CP932_UNDECODABLE_BYTES = "説明".encode("cp932")
+
+
+def _decoding_subprocess_run(
+    *, stdout_bytes: bytes = b"", stderr_bytes: bytes = b"", returncode: int = 0
+) -> Callable[..., subprocess.CompletedProcess[str]]:
+    """`subprocess.run(text=True, ...)` の実デコード挙動を模した side_effect.
+
+    実際の subprocess は `encoding`/`errors` 引数でバイト列をデコードする。呼び出し元が
+    `errors="replace"` を渡していなければ、cp932 由来の不正バイト列で本物同様に
+    `UnicodeDecodeError` を送出する (2026-08-14 の実障害と同じ壊れ方を再現する)。
+    """
+
+    def _run(cmd: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        assert kwargs.get("text") is True, "text=True でない呼び出しは本ヘルパー対象外"
+        encoding = kwargs.get("encoding") or "utf-8"
+        errors = kwargs.get("errors") or "strict"
+        return subprocess.CompletedProcess(
+            args=cmd,
+            returncode=returncode,
+            stdout=stdout_bytes.decode(encoding, errors=errors),
+            stderr=stderr_bytes.decode(encoding, errors=errors),
+        )
+
+    return _run
+
+
 # ---------- build_daily_draft_sentences ----------
 
 
@@ -336,6 +368,21 @@ def test_git_rev_returns_none_on_nonzero_exit(tmp_path: Path) -> None:
 
 def test_git_rev_returns_none_on_oserror(tmp_path: Path) -> None:
     with patch("subprocess.run", side_effect=OSError("git not found")):
+        assert shadow.git_rev(tmp_path) is None
+
+
+def test_git_rev_survives_cp932_undecodable_output(tmp_path: Path) -> None:
+    """cp932 由来の不正バイト列が混じっても例外を出さず (errors="replace") 結果を返す."""
+    payload = b"abc123\n" + _CP932_UNDECODABLE_BYTES
+    with patch("subprocess.run", side_effect=_decoding_subprocess_run(stdout_bytes=payload)):
+        result = shadow.git_rev(tmp_path)
+    assert result is not None
+    assert result.startswith("abc123")
+
+
+def test_git_rev_returns_none_when_stdout_is_none(tmp_path: Path) -> None:
+    completed = subprocess.CompletedProcess(args=[], returncode=0, stdout=None, stderr=None)
+    with patch("subprocess.run", return_value=completed):
         assert shadow.git_rev(tmp_path) is None
 
 
@@ -738,6 +785,23 @@ def test_post_issue_comment_fail_open_on_oserror() -> None:
         assert shadow.post_issue_comment("body", issue_number=88) is False
 
 
+def test_post_issue_comment_survives_cp932_undecodable_stderr() -> None:
+    """gh のエラーメッセージが cp932 由来で UTF-8 として不正でも例外を出さない."""
+    with patch(
+        "subprocess.run",
+        side_effect=_decoding_subprocess_run(
+            stderr_bytes=_CP932_UNDECODABLE_BYTES, returncode=1
+        ),
+    ):
+        assert shadow.post_issue_comment("body", issue_number=88) is False
+
+
+def test_post_issue_comment_survives_none_stdout_and_stderr() -> None:
+    completed = subprocess.CompletedProcess(args=[], returncode=1, stdout=None, stderr=None)
+    with patch("subprocess.run", return_value=completed):
+        assert shadow.post_issue_comment("body", issue_number=88) is False
+
+
 # ---------- build_discord_summary / post_shadow_summary_to_discord (Issue #95 PR-B) ----------
 
 
@@ -864,6 +928,21 @@ def test_find_listening_pid_none_on_timeout() -> None:
         assert shadow.find_listening_pid(8089) is None
 
 
+def test_find_listening_pid_survives_cp932_undecodable_output() -> None:
+    """2026-08-14 12:40 の実障害の直接再現: netstat 出力に cp932 由来の不正バイト列が
+    混じっても UnicodeDecodeError を出さず (errors="replace") PID を特定できる."""
+    payload = _NETSTAT_SINGLE_MATCH.encode("utf-8") + _CP932_UNDECODABLE_BYTES
+    with patch("subprocess.run", side_effect=_decoding_subprocess_run(stdout_bytes=payload)):
+        assert shadow.find_listening_pid(8089) == 222
+
+
+def test_find_listening_pid_returns_none_when_stdout_is_none() -> None:
+    """デコード失敗などで stdout が None になっても AttributeError を出さない防御."""
+    completed = subprocess.CompletedProcess(args=[], returncode=0, stdout=None, stderr=None)
+    with patch("subprocess.run", return_value=completed):
+        assert shadow.find_listening_pid(8089) is None
+
+
 # ---------- kill_pid (taskkill/tasklist はモック, 実プロセスは叩かない) ----------
 
 
@@ -908,6 +987,53 @@ def test_kill_pid_fail_open_on_oserror() -> None:
         patch.object(shadow, "_pid_exists", return_value=True),
     ):
         assert shadow.kill_pid(222, graceful_timeout=0.02, poll_interval=0.01) is False
+
+
+def test_kill_pid_survives_cp932_undecodable_taskkill_output() -> None:
+    """taskkill 出力が cp932 由来で UTF-8 として不正でも例外を出さない
+    (contextlib.suppress は OSError/TimeoutExpired のみ捕捉するため, デコード失敗自体を
+    防ぐ必要がある)."""
+    with (
+        patch(
+            "subprocess.run",
+            side_effect=_decoding_subprocess_run(stdout_bytes=_CP932_UNDECODABLE_BYTES),
+        ),
+        patch.object(shadow, "_pid_exists", return_value=False),
+    ):
+        assert shadow.kill_pid(222, graceful_timeout=1.0, poll_interval=0.01) is True
+
+
+# ---------- _pid_exists (tasklist はモック, 実プロセスは叩かない) ----------
+
+
+def test_pid_exists_true_when_pid_in_output() -> None:
+    completed = subprocess.CompletedProcess(
+        args=[], returncode=0, stdout="Image Name  PID  Session\ncmd.exe   222  Console\n", stderr=""
+    )
+    with patch("subprocess.run", return_value=completed):
+        assert shadow._pid_exists(222) is True
+
+
+def test_pid_exists_false_when_pid_absent() -> None:
+    completed = subprocess.CompletedProcess(
+        args=[], returncode=0, stdout="INFO: プロセスが見つかりません\n", stderr=""
+    )
+    with patch("subprocess.run", return_value=completed):
+        assert shadow._pid_exists(9999) is False
+
+
+def test_pid_exists_survives_cp932_undecodable_output() -> None:
+    payload = b"Image Name  PID  Session\ncmd.exe   222  Console\n" + _CP932_UNDECODABLE_BYTES
+    with patch("subprocess.run", side_effect=_decoding_subprocess_run(stdout_bytes=payload)):
+        assert shadow._pid_exists(222) is True
+
+
+def test_pid_exists_false_when_stdout_is_none_and_exit_zero() -> None:
+    """returncode=0 で stdout が None (デコード失敗等) でも AttributeError を出さない防御.
+    PID の痕跡が無い以上、過剰な /F kill を避けるため見つからない (False) 扱いになる。"""
+    completed = subprocess.CompletedProcess(args=[], returncode=0, stdout=None, stderr=None)
+    with patch("subprocess.run", return_value=completed):
+        assert shadow._pid_exists(222) is False
 
 
 # ---------- stop_v4_server (Windows プロセスツリー kill バグの回帰テスト, Issue #98) ----------

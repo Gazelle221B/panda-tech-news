@@ -512,6 +512,7 @@ def git_rev(repo_dir: Path) -> str | None:
             ["git", "-C", str(repo_dir), "rev-parse", "HEAD"],
             capture_output=True,
             text=True,
+            errors="replace",
             timeout=GIT_REV_TIMEOUT_SECONDS,
             check=False,
         )
@@ -519,7 +520,7 @@ def git_rev(repo_dir: Path) -> str | None:
         return None
     if proc.returncode != 0:
         return None
-    rev = proc.stdout.strip()
+    rev = (proc.stdout or "").strip()
     return rev or None
 
 
@@ -689,6 +690,7 @@ def find_listening_pid(port: int, *, timeout: float = NETSTAT_TIMEOUT_SECONDS) -
             ["netstat", "-ano", "-p", "TCP"],
             capture_output=True,
             text=True,
+            errors="replace",
             timeout=timeout,
             check=False,
         )
@@ -699,7 +701,7 @@ def find_listening_pid(port: int, *, timeout: float = NETSTAT_TIMEOUT_SECONDS) -
 
     suffix = f":{port}"
     pids: set[int] = set()
-    for line in proc.stdout.splitlines():
+    for line in (proc.stdout or "").splitlines():
         parts = line.split()
         if len(parts) < 5:
             continue
@@ -731,6 +733,7 @@ def _pid_exists(pid: int, *, timeout: float = TASKLIST_TIMEOUT_SECONDS) -> bool:
             ["tasklist", "/FI", f"PID eq {pid}"],
             capture_output=True,
             text=True,
+            errors="replace",
             timeout=timeout,
             check=False,
         )
@@ -738,7 +741,7 @@ def _pid_exists(pid: int, *, timeout: float = TASKLIST_TIMEOUT_SECONDS) -> bool:
         return True
     if proc.returncode != 0:
         return True
-    return str(pid) in proc.stdout
+    return str(pid) in (proc.stdout or "")
 
 
 def kill_pid(
@@ -757,6 +760,7 @@ def kill_pid(
             ["taskkill", "/PID", str(pid)],
             capture_output=True,
             text=True,
+            errors="replace",
             timeout=TASKKILL_TIMEOUT_SECONDS,
             check=False,
         )
@@ -775,6 +779,7 @@ def kill_pid(
             ["taskkill", "/PID", str(pid), "/F"],
             capture_output=True,
             text=True,
+            errors="replace",
             timeout=TASKKILL_TIMEOUT_SECONDS,
             check=False,
         )
@@ -1151,6 +1156,7 @@ def post_issue_comment(comment: str, *, issue_number: int) -> bool:
             ["gh", "issue", "comment", str(issue_number), "--body", comment],
             capture_output=True,
             text=True,
+            errors="replace",
             timeout=GH_COMMENT_TIMEOUT_SECONDS,
             check=False,
         )
@@ -1158,7 +1164,7 @@ def post_issue_comment(comment: str, *, issue_number: int) -> bool:
         logger.warning("Issue コメント投稿に失敗 (fail-open): %s", exc)
         return False
     if proc.returncode != 0:
-        logger.warning("gh issue comment が非ゼロ終了 (fail-open): %s", proc.stderr.strip())
+        logger.warning("gh issue comment が非ゼロ終了 (fail-open): %s", (proc.stderr or "").strip())
         return False
     return True
 
