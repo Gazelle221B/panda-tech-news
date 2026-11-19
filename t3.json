@@ -1,0 +1,29 @@
+{
+  "$schema": "https://t3.codes/schema/t3.json",
+  "defaultThreadEnvMode": "worktree",
+  "scripts": [
+    {
+      "name": "Install deps",
+      "command": "uv sync --frozen",
+      "icon": "configure",
+      "runOnWorktreeCreate": true
+    },
+    {
+      "name": "RSSHub",
+      "command": "docker compose up rsshub",
+      "icon": "play",
+      "previewUrl": "http://localhost:1200",
+      "autoOpenPreview": true
+    },
+    {
+      "name": "Test",
+      "command": "uv run pytest",
+      "icon": "test"
+    },
+    {
+      "name": "Lint",
+      "command": "uv run ruff check . && uv run mypy src tests",
+      "icon": "lint"
+    }
+  ]
+}
